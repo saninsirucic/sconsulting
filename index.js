@@ -26,8 +26,9 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 
 const knex = require("knex");
-const config = require("./knexfile");
-const db = knex(config.development);
+const environment = process.env.NODE_ENV || 'development';
+const config = require("./knexfile")[environment];
+const db = knex(config);
 
 const { v4: uuidv4 } = require("uuid");
 
@@ -437,5 +438,5 @@ app.delete('/api/kufs/:id', async (req, res) => {
 });
 
 // START SERVER
-const PORT = 3001;
-app.listen(PORT, () => console.log(`✅ Backend server radi na http://localhost:${PORT}`));
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`✅ Backend server radi na portu ${PORT}`));
