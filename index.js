@@ -437,6 +437,10 @@ app.delete('/api/kufs/:id', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.send('✅ Backend server radi ispravno!');
+});
+
 // START SERVER
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅ Backend server radi na portu ${PORT}`));
