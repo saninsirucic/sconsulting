@@ -1,0 +1,180 @@
+body {
+  background: #f5f6fa;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+.App {
+  text-align: center;
+  background: #f5f6fa;
+  min-height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  background: #fa9012;
+  padding: 0 24px;
+  height: 70px;
+}
+
+.logo {
+  height: 46px;
+  margin-right: 18px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 4px 9px 4px 4px;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 2px;
+}
+
+.menu {
+  margin-left: auto;
+  display: flex;
+  gap: 18px;
+}
+
+.menu-btn {
+  background: #fa9012;
+  color: #fff;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 9px 24px;
+  border-radius: 12px;
+  transition: background 0.18s;
+  cursor: pointer;
+}
+
+.menu-btn.active,
+.menu-btn:focus {
+  background: #16a34a;
+  color: #fff;
+}
+
+.menu-btn:hover {
+  background: #fbac44;
+}
+
+.logout-btn {
+  background: #fff;
+  color: #fa9012;
+  border: 2px solid #fa9012;
+  margin-left: 12px;
+  font-weight: 600;
+  padding: 9px 22px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.logout-btn:hover {
+  background: #fa9012;
+  color: #fff;
+}
+
+.container {
+  background: #fff;
+  max-width: 900px;
+  margin: 32px auto 0 auto;
+  padding: 32px 32px 18px 32px;
+  border-radius: 22px;
+  box-shadow: 0 5px 18px rgba(0,0,0,0.09);
+}
+
+h2 {
+  color: #fa9012;
+  font-weight: 700;
+  margin-bottom: 22px;
+  letter-spacing: 1px;
+}
+
+input, select {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  margin-bottom: 0;
+  font-size: 1rem;
+  outline: none;
+  margin-right: 6px;
+  background: #f3f4f6;
+  min-width: 120px;
+  transition: border 0.15s;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+input:focus, select:focus {
+  border: 1.5px solid #fa9012;
+}
+
+button {
+  background: #fa9012;
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 7px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 4px;
+  transition: background 0.18s;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+button:hover {
+  background: #fbac44;
+}
+
+.excel-btn {
+  background: #16a34a;
+  color: #fff;
+  margin-left: 10px;
+}
+.excel-btn:hover {
+  background: #22c55e;
+}
+
+.pdf-btn {
+  background: #e53935;
+  color: #fff;
+  margin-left: 6px;
+}
+.pdf-btn:hover {
+  background: #b71c1c;
+}
+
+table {
+  width: 100%;
+  margin-top: 20px;
+  border-collapse: collapse;
+  font-size: 1rem;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+th, td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #ececec;
+  text-align: left;
+}
+
+th {
+  background: #fa9012;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+@media (max-width: 700px) {
+  .container { padding: 14px 4px; }
+  .header { flex-direction: column; height: auto; gap: 9px; }
+  .menu { gap: 9px; }
+  input, select { min-width: 80px; font-size: .98rem; }
+}
