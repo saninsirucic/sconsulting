@@ -30,6 +30,18 @@ const environment = process.env.NODE_ENV || 'development';
 const config = require("./knexfile")[environment];
 const db = knex(config);
 
+// Ispisi env varijable i test konekciju na bazu
+console.log("NODE_ENV =", process.env.NODE_ENV);
+console.log("DATABASE_URL =", process.env.DATABASE_URL);
+
+db.raw('select 1+1 as result')
+  .then(() => {
+    console.log('✅ Konekcija na bazu je uspješna');
+  })
+  .catch(err => {
+    console.error('❌ Greška pri konekciji na bazu:', err);
+  });
+
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
