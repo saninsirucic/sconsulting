@@ -1,26 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-
-const sourceFile = path.join(__dirname, 'data', 'mydb.sqlite');
-const backupDir = path.join(__dirname, 'data', 'backups');
-
-// Kreiraj backup folder ako ne postoji
-if (!fs.existsSync(backupDir)) {
-  fs.mkdirSync(backupDir);
-}
-
-// Napravi ime fajla s datumom i vremenom (format za ime fajla)
-const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-const backupFile = path.join(backupDir, `mydb-backup-${timestamp}.sqlite`);
-
-// Kopiraj bazu u backup folder
-try {
-  fs.copyFileSync(sourceFile, backupFile);
-  console.log(`✅ Backup baze napravljen: ${backupFile}`);
-} catch (err) {
-  console.error('❌ Greška pri pravljenju backup baze:', err);
-}
-
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -30,7 +7,6 @@ const environment = process.env.NODE_ENV || 'development';
 const config = require("./knexfile")[environment];
 const db = knex(config);
 
-// Ispisi env varijable i test konekciju na bazu
 console.log("NODE_ENV =", process.env.NODE_ENV);
 console.log("DATABASE_URL =", process.env.DATABASE_URL);
 
@@ -48,6 +24,10 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// Ograniči broj istovremenih konekcija na bazu (opcija ako treba)
+// npr. ovo možeš koristiti ako imaš problema sa prevelikim opterećenjem:
+// db.client.pool.max = 5;
+
 let users = [
   { username: "sanin", password: "1234" }
 ];
@@ -62,10 +42,11 @@ app.post('/api/auth/login', (req, res) => {
 // --- CLIENTS ---
 app.get('/api/clients', async (req, res) => {
   try {
+    console.log("Poziv baze: dohvatanje klijenata");
     const clients = await db('clients').select('*');
     res.json(clients);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri dohvatu klijenata:", error);
     res.status(500).json({ error: "Greška pri dohvatu klijenata" });
   }
 });
@@ -83,6 +64,7 @@ app.post('/api/clients', async (req, res) => {
   const id = uuidv4();
 
   try {
+    console.log("Poziv baze: unos novog klijenta");
     await db('clients').insert({
       id, name, email, phone, address, postalCode,
       companyId, pib, contractNumber, paymentTerm, amountInWords
@@ -90,7 +72,7 @@ app.post('/api/clients', async (req, res) => {
     const client = await db('clients').where({ id }).first();
     res.json(client);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri unosu klijenta:", error);
     res.status(500).json({ error: "Greška pri unosu klijenta" });
   }
 });
@@ -103,6 +85,7 @@ app.put('/api/clients/:id', async (req, res) => {
   } = req.body;
 
   try {
+    console.log("Poziv baze: ažuriranje klijenta", id);
     const updated = await db('clients').where({ id }).update({
       name, email, phone, address, postalCode,
       companyId, pib, contractNumber, paymentTerm, amountInWords
@@ -110,7 +93,7 @@ app.put('/api/clients/:id', async (req, res) => {
     if (!updated) return res.status(404).json({ error: "Klijent nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri ažuriranju klijenta:", error);
     res.status(500).json({ error: "Greška pri ažuriranju klijenta" });
   }
 });
@@ -118,11 +101,12 @@ app.put('/api/clients/:id', async (req, res) => {
 app.delete('/api/clients/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: brisanje klijenta", id);
     const deleted = await db('clients').where({ id }).del();
     if (!deleted) return res.status(404).json({ error: "Klijent nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju klijenta:", error);
     res.status(500).json({ error: "Greška pri brisanju klijenta" });
   }
 });
@@ -130,10 +114,11 @@ app.delete('/api/clients/:id', async (req, res) => {
 // --- EXECUTORS ---
 app.get('/api/executors', async (req, res) => {
   try {
+    console.log("Poziv baze: dohvatanje izvođača");
     const executors = await db('executors').select('*');
     res.json(executors);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri dohvatu izvođača:", error);
     res.status(500).json({ error: "Greška pri dohvatu izvođača" });
   }
 });
@@ -143,11 +128,12 @@ app.post('/api/executors', async (req, res) => {
   if (!name) return res.status(400).json({ error: "Ime je obavezno" });
   const id = uuidv4();
   try {
+    console.log("Poziv baze: unos novog izvođača");
     await db('executors').insert({ id, name, email, phone, address });
     const executor = await db('executors').where({ id }).first();
     res.json(executor);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri unosu izvođača:", error);
     res.status(500).json({ error: "Greška pri unosu izvođača" });
   }
 });
@@ -156,11 +142,12 @@ app.put('/api/executors/:id', async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, address } = req.body;
   try {
+    console.log("Poziv baze: ažuriranje izvođača", id);
     const updated = await db('executors').where({ id }).update({ name, email, phone, address });
     if (!updated) return res.status(404).json({ error: "Izvođač nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri ažuriranju izvođača:", error);
     res.status(500).json({ error: "Greška pri ažuriranju izvođača" });
   }
 });
@@ -168,11 +155,12 @@ app.put('/api/executors/:id', async (req, res) => {
 app.delete('/api/executors/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: brisanje izvođača", id);
     const deleted = await db('executors').where({ id }).del();
     if (!deleted) return res.status(404).json({ error: "Izvođač nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju izvođača:", error);
     res.status(500).json({ error: "Greška pri brisanju izvođača" });
   }
 });
@@ -180,10 +168,11 @@ app.delete('/api/executors/:id', async (req, res) => {
 // --- PLANS ---
 app.get('/api/plans', async (req, res) => {
   try {
+    console.log("Poziv baze: dohvatanje planova");
     const plans = await db('plans').select('id', 'clientId', 'executorId', 'service', 'date', 'recurrence', 'done', 'iznos as price');
     res.json(plans);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri dohvatu planova:", error);
     res.status(500).json({ error: "Greška pri dohvatu planova" });
   }
 });
@@ -195,11 +184,12 @@ app.post('/api/plans', async (req, res) => {
   }
   const id = uuidv4();
   try {
+    console.log("Poziv baze: unos novog plana");
     await db('plans').insert({ id, clientId, executorId, service, date, recurrence, done: done || false, iznos: price });
     const plan = await db('plans').select('id', 'clientId', 'executorId', 'service', 'date', 'recurrence', 'done', 'iznos as price').where({ id }).first();
     res.json(plan);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri unosu plana:", error);
     res.status(500).json({ error: "Greška pri unosu plana" });
   }
 });
@@ -208,11 +198,12 @@ app.put('/api/plans/:id', async (req, res) => {
   const { id } = req.params;
   const { clientId, executorId, service, date, done, price } = req.body;
   try {
+    console.log("Poziv baze: ažuriranje plana", id);
     const updated = await db('plans').where({ id }).update({ clientId, executorId, service, date, done, iznos: price });
     if (!updated) return res.status(404).json({ error: "Plan nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri ažuriranju plana:", error);
     res.status(500).json({ error: "Greška pri ažuriranju plana" });
   }
 });
@@ -220,11 +211,12 @@ app.put('/api/plans/:id', async (req, res) => {
 app.delete('/api/plans/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: brisanje plana", id);
     const deleted = await db('plans').where({ id }).del();
     if (!deleted) return res.status(404).json({ error: "Plan nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju plana:", error);
     res.status(500).json({ error: "Greška pri brisanju plana" });
   }
 });
@@ -238,6 +230,7 @@ app.post('/api/plans/delete-by-client-and-period', async (req, res) => {
   }
 
   try {
+    console.log("Poziv baze: brisanje planova po klijentu i periodu", clientId, startDate, endDate);
     const deletedCount = await db('plans')
       .where('clientId', clientId)
       .andWhere('date', '>=', startDate)
@@ -246,7 +239,7 @@ app.post('/api/plans/delete-by-client-and-period', async (req, res) => {
 
     res.json({ success: true, deletedCount });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju planova:", error);
     res.status(500).json({ error: "Greška pri brisanju planova" });
   }
 });
@@ -274,10 +267,11 @@ async function getNextInvoiceNumber(date) {
 
 app.get('/api/invoices', async (req, res) => {
   try {
+    console.log("Poziv baze: dohvatanje faktura");
     const invoices = await db('invoices').select('*');
     res.json(invoices);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri dohvatu faktura:", error);
     res.status(500).json({ error: "Greška pri dohvatu faktura" });
   }
 });
@@ -294,6 +288,7 @@ app.post('/api/invoices', async (req, res) => {
   }
 
   try {
+    console.log("Poziv baze: unos nove fakture");
     const nextNumber = await getNextInvoiceNumber(date);
     const yearSuffix = new Date(date).getFullYear().toString().slice(-2);
     const invoiceNumber = `${nextNumber}/${yearSuffix}`;
@@ -309,7 +304,7 @@ app.post('/api/invoices', async (req, res) => {
     const invoice = await db('invoices').where({ id }).first();
     res.json(invoice);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri unosu fakture:", error);
     res.status(500).json({ error: "Greška pri unosu fakture" });
   }
 });
@@ -317,11 +312,12 @@ app.post('/api/invoices', async (req, res) => {
 app.put('/api/invoices/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: ažuriranje fakture", id);
     const updated = await db('invoices').where({ id }).update(req.body);
     if (!updated) return res.status(404).json({ error: "Faktura nije pronađena" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri ažuriranju fakture:", error);
     res.status(500).json({ error: "Greška pri ažuriranju fakture" });
   }
 });
@@ -329,11 +325,12 @@ app.put('/api/invoices/:id', async (req, res) => {
 app.delete('/api/invoices/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: brisanje fakture", id);
     const deleted = await db('invoices').where({ id }).del();
     if (!deleted) return res.status(404).json({ error: "Faktura nije pronađena" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju fakture:", error);
     res.status(500).json({ error: "Greška pri brisanju fakture" });
   }
 });
@@ -341,10 +338,11 @@ app.delete('/api/invoices/:id', async (req, res) => {
 // --- SANITARNE ---
 app.get('/api/sanitarne', async (req, res) => {
   try {
+    console.log("Poziv baze: dohvatanje sanitarnjih zapisa");
     const sanitarne = await db('sanitarne').select('*');
     res.json(sanitarne);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri dohvatu sanitarnjih zapisa:", error);
     res.status(500).json({ error: "Greška pri dohvatu sanitarnjih knjižica" });
   }
 });
@@ -356,11 +354,12 @@ app.post('/api/sanitarne', async (req, res) => {
   }
   const id = uuidv4();
   try {
+    console.log("Poziv baze: unos sanitarnog zapisa");
     await db('sanitarne').insert({ id, clientId, employeeName, dateIssued, expiryDate });
     const zapis = await db('sanitarne').where({ id }).first();
     res.json(zapis);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri unosu sanitarnog zapisa:", error);
     res.status(500).json({ error: "Greška pri unosu sanitarnog zapisa" });
   }
 });
@@ -368,11 +367,12 @@ app.post('/api/sanitarne', async (req, res) => {
 app.put('/api/sanitarne/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: ažuriranje sanitarnog zapisa", id);
     const updated = await db('sanitarne').where({ id }).update(req.body);
     if (!updated) return res.status(404).json({ error: "Sanitarni zapis nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri ažuriranju sanitarnog zapisa:", error);
     res.status(500).json({ error: "Greška pri ažuriranju sanitarnog zapisa" });
   }
 });
@@ -380,11 +380,12 @@ app.put('/api/sanitarne/:id', async (req, res) => {
 app.delete('/api/sanitarne/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: brisanje sanitarnog zapisa", id);
     const deleted = await db('sanitarne').where({ id }).del();
     if (!deleted) return res.status(404).json({ error: "Sanitarni zapis nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju sanitarnog zapisa:", error);
     res.status(500).json({ error: "Greška pri brisanju sanitarnog zapisa" });
   }
 });
@@ -392,10 +393,11 @@ app.delete('/api/sanitarne/:id', async (req, res) => {
 // --- KUFS ---
 app.get('/api/kufs', async (req, res) => {
   try {
+    console.log("Poziv baze: dohvatanje kufova");
     const kufs = await db('kufs').select('*');
     res.json(kufs);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri dohvatu kufova:", error);
     res.status(500).json({ error: "Greška pri dohvatu kufova" });
   }
 });
@@ -413,6 +415,7 @@ app.post('/api/kufs', async (req, res) => {
   const id = uuidv4();
 
   try {
+    console.log("Poziv baze: unos novog KUF-a");
     await db('kufs').insert({
       id, brojKuf, datumKuf, datumPrijema,
       imeKomitenta, idKomitenta, iznos, placeno: placeno || false
@@ -420,7 +423,7 @@ app.post('/api/kufs', async (req, res) => {
     const kuf = await db('kufs').where({ id }).first();
     res.json(kuf);
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri unosu kufa:", error);
     res.status(500).json({ error: "Greška pri unosu kufa" });
   }
 });
@@ -428,11 +431,12 @@ app.post('/api/kufs', async (req, res) => {
 app.put('/api/kufs/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: ažuriranje KUF-a", id);
     const updated = await db('kufs').where({ id }).update(req.body);
     if (!updated) return res.status(404).json({ error: "KUF nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri ažuriranju kufa:", error);
     res.status(500).json({ error: "Greška pri ažuriranju kufa" });
   }
 });
@@ -440,11 +444,12 @@ app.put('/api/kufs/:id', async (req, res) => {
 app.delete('/api/kufs/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("Poziv baze: brisanje KUF-a", id);
     const deleted = await db('kufs').where({ id }).del();
     if (!deleted) return res.status(404).json({ error: "KUF nije pronađen" });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("Greška pri brisanju kufa:", error);
     res.status(500).json({ error: "Greška pri brisanju kufa" });
   }
 });
