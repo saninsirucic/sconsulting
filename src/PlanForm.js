@@ -45,8 +45,12 @@ function PlanForm() {
 
   const loadData = () => {
     fetch("/api/plans")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`Plans API error! status: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
+        console.log("Plans data:", data);
         if (Array.isArray(data)) setPlans(data);
         else {
           console.error("Plans API nije vratio niz:", data);
@@ -59,14 +63,40 @@ function PlanForm() {
       });
 
     fetch("/api/clients")
-      .then((res) => res.json())
-      .then(setClients)
-      .catch(() => setClients([]));
+      .then((res) => {
+        if (!res.ok) throw new Error(`Clients API error! status: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Clients data:", data);
+        if (Array.isArray(data)) setClients(data);
+        else {
+          console.warn("Neočekivan format podataka za clients:", data);
+          setClients([]);
+        }
+      })
+      .catch((err) => {
+        console.error("Greška pri dohvatu klijenata:", err);
+        setClients([]);
+      });
 
     fetch("/api/executors")
-      .then((res) => res.json())
-      .then(setExecutors)
-      .catch(() => setExecutors([]));
+      .then((res) => {
+        if (!res.ok) throw new Error(`Executors API error! status: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Executors data:", data);
+        if (Array.isArray(data)) setExecutors(data);
+        else {
+          console.warn("Neočekivan format podataka za executors:", data);
+          setExecutors([]);
+        }
+      })
+      .catch((err) => {
+        console.error("Greška pri dohvatu izvođača:", err);
+        setExecutors([]);
+      });
   };
 
   const clearForm = () => {
@@ -80,6 +110,7 @@ function PlanForm() {
     setEditId(null);
   };
 
+  // Tvoja ostala logika bez izmjena:
   const savePlan = () => {
     if (!clientId) return alert("Molimo izaberite klijenta.");
     if (!executorId) return alert("Molimo izaberite izvođača.");
@@ -188,19 +219,22 @@ function PlanForm() {
     setPrice(plan.price !== undefined && plan.price !== null ? plan.price : "");
   };
 
-  const filteredPlans = Array.isArray(plans)
-    ? plans.filter(
-        (p) =>
-          (p.service && p.service.toLowerCase().includes(search.toLowerCase())) ||
-          (clients.find((c) => c.id === p.clientId)?.name
-            .toLowerCase()
-            .includes(search.toLowerCase())) ||
-          (executors.find((e) => e.id === p.executorId)?.name
-            .toLowerCase()
-            .includes(search.toLowerCase())) ||
-          (p.date && p.date.includes(search))
-      )
-    : [];
+  // Zaštita filtera plans, clients i executors:
+  const safePlans = Array.isArray(plans) ? plans : [];
+  const safeClients = Array.isArray(clients) ? clients : [];
+  const safeExecutors = Array.isArray(executors) ? executors : [];
+
+  const filteredPlans = safePlans.filter(
+    (p) =>
+      (p.service && p.service.toLowerCase().includes(search.toLowerCase())) ||
+      (safeClients.find((c) => c.id === p.clientId)?.name
+        .toLowerCase()
+        .includes(search.toLowerCase())) ||
+      (safeExecutors.find((e) => e.id === p.executorId)?.name
+        .toLowerCase()
+        .includes(search.toLowerCase())) ||
+      (p.date && p.date.includes(search))
+  );
 
   const generatePDF = () => {
     if (!reportStartDate || !reportEndDate) {
@@ -210,12 +244,10 @@ function PlanForm() {
     const start = new Date(reportStartDate);
     const end = new Date(reportEndDate);
 
-    const filtered = Array.isArray(plans)
-      ? plans.filter((p) => {
-          const pDate = new Date(p.date);
-          return pDate >= start && pDate <= end;
-        })
-      : [];
+    const filtered = safePlans.filter((p) => {
+      const pDate = new Date(p.date);
+      return pDate >= start && pDate <= end;
+    });
 
     const doc = new jsPDF();
 
@@ -228,8 +260,8 @@ function PlanForm() {
       startY: 20,
       head: [tableColumn],
       body: filtered.map((p) => {
-        const clientName = clients.find((c) => c.id === p.clientId)?.name || "Nepoznato";
-        const executorName = executors.find((e) => e.id === p.executorId)?.name || "Nepoznato";
+        const clientName = safeClients.find((c) => c.id === p.clientId)?.name || "Nepoznato";
+        const executorName = safeExecutors.find((e) => e.id === p.executorId)?.name || "Nepoznato";
         return [
           p.service,
           clientName,
@@ -289,7 +321,7 @@ function PlanForm() {
           onChange={(e) => setClientId(e.target.value)}
           maxW="200px"
         >
-          {clients.map((c) => (
+          {safeClients.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
@@ -301,7 +333,7 @@ function PlanForm() {
           onChange={(e) => setExecutorId(e.target.value)}
           maxW="200px"
         >
-          {executors.map((e) => (
+          {safeExecutors.map((e) => (
             <option key={e.id} value={e.id}>
               {e.name}
             </option>
@@ -393,7 +425,7 @@ function PlanForm() {
             onChange={(e) => setDeleteClientId(e.target.value)}
             maxW="200px"
           >
-            {clients.map((c) => (
+            {safeClients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
@@ -449,8 +481,8 @@ function PlanForm() {
             filteredPlans.map((p) => (
               <Tr key={p.id}>
                 <Td>{p.service}</Td>
-                <Td>{clients.find((c) => c.id === p.clientId)?.name || "Nepoznato"}</Td>
-                <Td>{executors.find((e) => e.id === p.executorId)?.name || "Nepoznato"}</Td>
+                <Td>{safeClients.find((c) => c.id === p.clientId)?.name || "Nepoznato"}</Td>
+                <Td>{safeExecutors.find((e) => e.id === p.executorId)?.name || "Nepoznato"}</Td>
                 <Td>{p.date}</Td>
                 <Td>{typeof p.price === "number" ? p.price.toFixed(2) : "-"}</Td>
                 <Td>

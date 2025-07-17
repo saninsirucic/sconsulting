@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "homepage": "https://saninsirucic.github.io/sconsulting",
-  "proxy": "http://localhost:3001",
+  "proxy": "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com",
   "dependencies": {
     "@chakra-ui/icons": "^2.2.4",
     "@chakra-ui/react": "^2.8.0",

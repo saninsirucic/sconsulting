@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 
+const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+
 function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -8,7 +10,7 @@ function Login({ onLogin }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    fetch('http://localhost:3001/api/auth/login', {
+    fetch(`${BACKEND_URL}/api/auth/login`, {   // koristi Heroku URL
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })

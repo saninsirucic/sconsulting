@@ -31,11 +31,20 @@ function Sanitarne() {
   const [startExpiryDate, setStartExpiryDate] = useState("");
   const [endExpiryDate, setEndExpiryDate] = useState("");
 
-  // Ucitaj klijente samo jednom
+  // Ucitaj klijente samo jednom sa provjerom da je niz
   useEffect(() => {
     fetch("/api/clients")
       .then((res) => res.json())
-      .then(setClients);
+      .then((data) => {
+        // Provjera da li je data niz ili objekat sa poljem clients
+        if (Array.isArray(data)) {
+          setClients(data);
+        } else if (Array.isArray(data.clients)) {
+          setClients(data.clients);
+        } else {
+          setClients([]);
+        }
+      });
   }, []);
 
   // Fetch sanitarki sa backend filterima
@@ -154,7 +163,7 @@ function Sanitarne() {
       <Flex wrap="wrap" gap={3} mb={6}>
         <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
           <option value="">Odaberi klijenta</option>
-          {clients.map((c) => (
+          {Array.isArray(clients) && clients.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>

@@ -13,6 +13,8 @@ import {
   Tr,
 } from "@chakra-ui/react";
 
+const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+
 function Clients() {
   const [clients, setClients] = useState([]);
   const [name, setName] = useState("");
@@ -29,7 +31,24 @@ function Clients() {
   const [editId, setEditId] = useState(null);
 
   useEffect(() => {
-    fetch("/api/clients").then(res => res.json()).then(setClients);
+    fetch(`${BACKEND_URL}/api/clients`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Podaci sa backend /api/clients:", data);
+        if (Array.isArray(data)) {
+          setClients(data);
+        } else {
+          console.warn("Podaci nisu niz, postavljam clients na prazan niz");
+          setClients([]);
+        }
+      })
+      .catch((err) => {
+        console.error("Greška pri fetchu klijenata:", err);
+        setClients([]);
+      });
   }, []);
 
   const clearForm = () => {
@@ -42,7 +61,7 @@ function Clients() {
     setPib("");
     setContractNumber("");
     setPaymentTerm("");
-    setAmountInWords(""); // resetuj i ovo polje
+    setAmountInWords("");
   };
 
   const saveClient = () => {
@@ -58,11 +77,11 @@ function Clients() {
       pib,
       contractNumber,
       paymentTerm,
-      amountInWords, // dodano
+      amountInWords,
     };
 
     if (editId) {
-      fetch(`/api/clients/${editId}`, {
+      fetch(`${BACKEND_URL}/api/clients/${editId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clientData),
@@ -74,7 +93,7 @@ function Clients() {
         clearForm();
       });
     } else {
-      fetch("/api/clients", {
+      fetch(`${BACKEND_URL}/api/clients`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clientData),
@@ -88,7 +107,7 @@ function Clients() {
   };
 
   const deleteClient = (id) => {
-    fetch(`/api/clients/${id}`, { method: "DELETE" }).then(() =>
+    fetch(`${BACKEND_URL}/api/clients/${id}`, { method: "DELETE" }).then(() =>
       setClients(clients.filter((c) => c.id !== id))
     );
   };
@@ -104,21 +123,24 @@ function Clients() {
     setPib(client.pib || "");
     setContractNumber(client.contractNumber || "");
     setPaymentTerm(client.paymentTerm || "");
-    setAmountInWords(client.amountInWords || ""); // dodano
+    setAmountInWords(client.amountInWords || "");
   };
 
-  const filteredClients = clients.filter(
-    (c) =>
-      (c.name && c.name.toLowerCase().includes(search.toLowerCase())) ||
-      (c.email && c.email.toLowerCase().includes(search.toLowerCase())) ||
-      (c.phone && c.phone.includes(search)) ||
-      (c.address && c.address.toLowerCase().includes(search.toLowerCase())) ||
-      (c.postalCode && c.postalCode.includes(search)) ||
-      (c.companyId && c.companyId.includes(search)) ||
-      (c.pib && c.pib.includes(search)) ||
-      (c.contractNumber && c.contractNumber.includes(search)) ||
-      (c.paymentTerm && c.paymentTerm.toString().includes(search))
-  );
+  // Zaštita prije filter: clients mora biti niz
+  const filteredClients = Array.isArray(clients)
+    ? clients.filter(
+        (c) =>
+          (c.name && c.name.toLowerCase().includes(search.toLowerCase())) ||
+          (c.email && c.email.toLowerCase().includes(search.toLowerCase())) ||
+          (c.phone && c.phone.includes(search)) ||
+          (c.address && c.address.toLowerCase().includes(search.toLowerCase())) ||
+          (c.postalCode && c.postalCode.includes(search)) ||
+          (c.companyId && c.companyId.includes(search)) ||
+          (c.pib && c.pib.includes(search)) ||
+          (c.contractNumber && c.contractNumber.includes(search)) ||
+          (c.paymentTerm && c.paymentTerm.toString().includes(search))
+      )
+    : [];
 
   return (
     <Box>

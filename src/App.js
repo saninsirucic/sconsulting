@@ -33,6 +33,8 @@ import KUF from "./KUF";
 import Sanitarne from "./Sanitarne";
 import logo from "./logo.png";
 
+const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+
 const menuItems = [
   { key: "home", label: "Početna", icon: FaHome },
   { key: "clients", label: "Klijenti", icon: FaUsers },
@@ -53,6 +55,7 @@ function Login({ onLogin }) {
   const [error, setError] = useState("");
 
   const handleSubmit = () => {
+    // Ako želiš login preko backenda, zamijeni ovaj dio s fetchom na BACKEND_URL/api/auth/login
     if (username === "admin" && password === "1234") {
       onLogin(username);
     } else {
@@ -90,7 +93,7 @@ function Calendar() {
   const [checkedItems, setCheckedItems] = useState({});
 
   useEffect(() => {
-    fetch("http://localhost:3001/api/plans")
+    fetch(`${BACKEND_URL}/api/plans`)
       .then(res => res.json())
       .then(data => setPlans(data))
       .catch(err => {
@@ -174,7 +177,7 @@ function App() {
 
   useEffect(() => {
     if (user) {
-      fetch("http://localhost:3001/api/clients")
+      fetch(`${BACKEND_URL}/api/clients`)
         .then((res) => res.json())
         .then((data) => setClients(data))
         .catch((err) => console.error("Greška prilikom učitavanja klijenata:", err));
@@ -267,47 +270,54 @@ function App() {
           Dobrodošli u S Consulting • Interni sistem
         </Text>
         <Spacer />
-        <Flex gap="12px" alignItems="center" flexWrap="nowrap" overflowX="auto" sx={{
-  "&::-webkit-scrollbar": { display: "none" },
-  scrollbarWidth: "none",
-  msOverflowStyle: "none",
-}}>
-  {page !== "home" && menuItems
-    .filter((item) => item.key !== "home")
-    .map((item) => (
-      <Button
-        key={item.key}
-        onClick={() => setPage(item.key)}
-        bg={page === item.key ? greenColor : "rgba(255,255,255,0.09)"}
-        color="#fff"
-        fontWeight="bold"
-        fontSize={{ base: "12px", sm: "14px", md: "16px", lg: "18px" }}
-        borderRadius="9px"
-        px={{ base: "12px", sm: "16px", md: "20px", lg: "26px" }}
-        borderBottom={page === item.key ? "4px solid #fff" : "none"}
-        boxShadow={page === item.key ? "0 3px 16px #1dba5b22" : "none"}
-        whiteSpace="nowrap"
-        _hover={{ bg: greenColor }}
-      >
-        {item.label}
-      </Button>
-    ))}
-  <Button
-    bg="#fff"
-    color={mainColor}
-    fontWeight="bold"
-    fontSize={{ base: "12px", sm: "14px", md: "16px", lg: "16px" }}
-    borderRadius="9px"
-    ml="30px"
-    px={{ base: "12px", sm: "16px", md: "20px", lg: "22px" }}
-    onClick={handleLogout}
-    borderBottom="3px solid #fff"
-    boxShadow="0 2px 14px #fff4"
-    _hover={{ bg: "#ffe5cc" }}
-  >
-    Odjavi se
-  </Button>
-</Flex>
+        <Flex
+          gap="12px"
+          alignItems="center"
+          flexWrap="nowrap"
+          overflowX="auto"
+          sx={{
+            "&::-webkit-scrollbar": { display: "none" },
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
+        >
+          {page !== "home" &&
+            menuItems
+              .filter((item) => item.key !== "home")
+              .map((item) => (
+                <Button
+                  key={item.key}
+                  onClick={() => setPage(item.key)}
+                  bg={page === item.key ? greenColor : "rgba(255,255,255,0.09)"}
+                  color="#fff"
+                  fontWeight="bold"
+                  fontSize={{ base: "12px", sm: "14px", md: "16px", lg: "18px" }}
+                  borderRadius="9px"
+                  px={{ base: "12px", sm: "16px", md: "20px", lg: "26px" }}
+                  borderBottom={page === item.key ? "4px solid #fff" : "none"}
+                  boxShadow={page === item.key ? "0 3px 16px #1dba5b22" : "none"}
+                  whiteSpace="nowrap"
+                  _hover={{ bg: greenColor }}
+                >
+                  {item.label}
+                </Button>
+              ))}
+          <Button
+            bg="#fff"
+            color={mainColor}
+            fontWeight="bold"
+            fontSize={{ base: "12px", sm: "14px", md: "16px", lg: "16px" }}
+            borderRadius="9px"
+            ml="30px"
+            px={{ base: "12px", sm: "16px", md: "20px", lg: "22px" }}
+            onClick={handleLogout}
+            borderBottom="3px solid #fff"
+            boxShadow="0 2px 14px #fff4"
+            _hover={{ bg: "#ffe5cc" }}
+          >
+            Odjavi se
+          </Button>
+        </Flex>
       </Flex>
 
       {/* SADRŽAJ */}

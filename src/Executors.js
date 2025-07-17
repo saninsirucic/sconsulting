@@ -5,7 +5,6 @@ import {
   Flex,
   Heading,
   Input,
-  Spacer,
   Table,
   Tbody,
   Td,
@@ -13,6 +12,8 @@ import {
   Thead,
   Tr,
 } from "@chakra-ui/react";
+
+const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
 
 function Executors() {
   const [executors, setExecutors] = useState([]);
@@ -24,7 +25,20 @@ function Executors() {
   const [editId, setEditId] = useState(null);
 
   useEffect(() => {
-    fetch("/api/executors").then(res => res.json()).then(setExecutors);
+    fetch(`${BACKEND_URL}/api/executors`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setExecutors(data);
+        } else {
+          console.warn("Neočekivan format podataka za executors:", data);
+          setExecutors([]);
+        }
+      })
+      .catch(err => {
+        console.error("Greška pri dohvatu izvođača:", err);
+        setExecutors([]);
+      });
   }, []);
 
   const clearForm = () => {
@@ -37,15 +51,10 @@ function Executors() {
   const saveExecutor = () => {
     if (!name || !email || !phone || !address) return;
 
-    const executorData = {
-      name,
-      email,
-      phone,
-      address,
-    };
+    const executorData = { name, email, phone, address };
 
     if (editId) {
-      fetch(`/api/executors/${editId}`, {
+      fetch(`${BACKEND_URL}/api/executors/${editId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(executorData),
@@ -57,7 +66,7 @@ function Executors() {
         clearForm();
       });
     } else {
-      fetch("/api/executors", {
+      fetch(`${BACKEND_URL}/api/executors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(executorData),
@@ -71,7 +80,7 @@ function Executors() {
   };
 
   const deleteExecutor = (id) => {
-    fetch(`/api/executors/${id}`, { method: "DELETE" }).then(() =>
+    fetch(`${BACKEND_URL}/api/executors/${id}`, { method: "DELETE" }).then(() =>
       setExecutors(executors.filter((e) => e.id !== id))
     );
   };
