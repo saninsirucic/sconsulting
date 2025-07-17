@@ -33,6 +33,7 @@ module.exports = {
       createTimeoutMillis: 30000,
       acquireTimeoutMillis: 30000,
       propagateCreateError: false
-    }
+    },
+    debug: true  // <=== detaljno logovanje upita
   }
 };
