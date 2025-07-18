@@ -18,6 +18,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { EditIcon, DeleteIcon, CheckIcon, CloseIcon } from "@chakra-ui/icons";
 
+const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+
 function KUF() {
   const [kufs, setKufs] = useState([]);
   const [form, setForm] = useState({
@@ -46,10 +48,13 @@ function KUF() {
   const [editData, setEditData] = useState({});
 
   useEffect(() => {
-    fetch("/api/kufs")
-      .then((res) => res.json())
+    fetch(BACKEND_URL + "/api/kufs")
+      .then((res) => {
+        if (!res.ok) throw new Error(`Kufs API error! status: ${res.status}`);
+        return res.json();
+      })
       .then(setKufs)
-      .catch((err) => console.error(err));
+      .catch((err) => console.error("Greška pri dohvatu kufs:", err));
 
     // Komitenti su lokalni, nema fetch s backend-a
   }, []);
@@ -97,7 +102,7 @@ function KUF() {
     }
 
     try {
-      const res = await fetch("/api/kufs", {
+      const res = await fetch(BACKEND_URL + "/api/kufs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -122,7 +127,7 @@ function KUF() {
 
   async function updateKuf(id, updatedFields) {
     try {
-      const res = await fetch(`/api/kufs/${id}`, {
+      const res = await fetch(BACKEND_URL + `/api/kufs/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedFields),
@@ -139,7 +144,7 @@ function KUF() {
 
   async function deleteKuf(id) {
     try {
-      const res = await fetch(`/api/kufs/${id}`, {
+      const res = await fetch(BACKEND_URL + `/api/kufs/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Greška pri brisanju KUF-a");

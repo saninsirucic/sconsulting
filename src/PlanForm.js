@@ -17,7 +17,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 function PlanForm() {
-  const backendURL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+  const backendURL = "https://radiant-beach-27998.herokuapp.com";
 
   const [plans, setPlans] = useState([]);
   const [clients, setClients] = useState([]);
@@ -46,7 +46,7 @@ function PlanForm() {
   }, []);
 
   const loadData = () => {
-    fetch("https://radiant-beach-27998.herokuapp.com/api/plans")
+    fetch(`${backendURL}/api/plans`)
       .then((res) => {
         if (!res.ok) throw new Error(`Plans API error! status: ${res.status}`);
         return res.json();

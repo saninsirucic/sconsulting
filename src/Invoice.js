@@ -48,18 +48,25 @@ function Invoice() {
 }
 
 
-  useEffect(() => {
-    fetch("/api/invoices")
-      .then((res) => res.json())
-      .then((data) => {
-        setInvoices(data);
-        if (data.length) {
-          const maxNum = Math.max(...data.map((f) => Number(f.number) || 223));
-          setNumber(maxNum + 1);
-        }
-      });
-    fetch("/api/clients").then((res) => res.json()).then(setClients);
-  }, []);
+ useEffect(() => {
+  // Dohvati fakture
+  fetch(BACKEND_URL + "/api/invoices")
+    .then(res => res.json())
+    .then(data => {
+      setInvoices(data);
+      if (data.length) {
+        const maxNum = Math.max(...data.map(f => Number(f.number) || 223));
+        setNumber(maxNum + 1);
+      }
+    })
+    .catch(err => console.error("Greška pri dohvatu faktura:", err));
+
+  // Dohvati klijente
+  fetch(BACKEND_URL + "/api/clients")
+    .then(res => res.json())
+    .then(setClients)
+    .catch(err => console.error("Greška pri dohvatu klijenata:", err));
+}, []);
 
   useEffect(() => {
     if (clientId) {
@@ -97,11 +104,11 @@ function Invoice() {
       paymentDate: "",
       paymentOrderNumber: "",
     };
-    fetch("/api/invoices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(faktura),
-    })
+    fetch(BACKEND_URL + "/api/invoices", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(faktura),
+})
       .then((res) => res.json())
       .then((newInvoice) => {
         setInvoices([...invoices, newInvoice]);
@@ -252,28 +259,28 @@ doc.text(datumText, datumX, 120);
    doc.save(`Faktura_${formatInvoiceNumber(invoice.number, invoice.date).replace('/', '-')}.pdf`);
   };
 
-  const deleteInvoice = (id) => {
-    if (!window.confirm("Da li ste sigurni da želite obrisati ovu fakturu?")) return;
-    fetch(`/api/invoices/${id}`, { method: "DELETE" })
-      .then(res => {
-        if (!res.ok) throw new Error("Greška pri brisanju");
-        setInvoices(invoices.filter(inv => inv.id !== id));
-      })
-      .catch(err => alert(err.message));
-  };
+const deleteInvoice = (id) => {
+  if (!window.confirm("Da li ste sigurni da želite obrisati ovu fakturu?")) return;
+  fetch(`${BACKEND_URL}/api/invoices/${id}`, { method: "DELETE" })
+    .then(res => {
+      if (!res.ok) throw new Error("Greška pri brisanju");
+      setInvoices(invoices.filter(inv => inv.id !== id));
+    })
+    .catch(err => alert(err.message));
+};
+function updateInvoiceField(id, field, value) {
+  setInvoices((prevInvoices) =>
+    prevInvoices.map((invoice) =>
+      invoice.id === id ? { ...invoice, [field]: value } : invoice
+    )
+  );
 
-  function updateInvoiceField(id, field, value) {
-    setInvoices((prevInvoices) =>
-      prevInvoices.map((invoice) =>
-        invoice.id === id ? { ...invoice, [field]: value } : invoice
-      )
-    );
-    fetch(`/api/invoices/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    }).catch(() => alert("Greška pri ažuriranju fakture"));
-  }
+  fetch(`${BACKEND_URL}/api/invoices/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [field]: value }),
+  }).catch(() => alert("Greška pri ažuriranju fakture"));
+}
 
   const filteredInvoices = invoices.filter((inv) => {
     if (showUnpaidOnly && inv.paymentDate) return false;

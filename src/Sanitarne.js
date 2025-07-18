@@ -14,7 +14,9 @@ import {
 } from "@chakra-ui/react";
 
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";  // ISPRAVNO importuj autotable
+import autoTable from "jspdf-autotable";
+
+const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
 
 function Sanitarne() {
   const [sanitarne, setSanitarne] = useState([]);
@@ -33,10 +35,12 @@ function Sanitarne() {
 
   // Ucitaj klijente samo jednom sa provjerom da je niz
   useEffect(() => {
-    fetch("/api/clients")
-      .then((res) => res.json())
+    fetch(BACKEND_URL + "/api/clients")
+      .then((res) => {
+        if (!res.ok) throw new Error(`Clients API error! status: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
-        // Provjera da li je data niz ili objekat sa poljem clients
         if (Array.isArray(data)) {
           setClients(data);
         } else if (Array.isArray(data.clients)) {
@@ -44,7 +48,8 @@ function Sanitarne() {
         } else {
           setClients([]);
         }
-      });
+      })
+      .catch((err) => console.error("Greška pri dohvatu klijenata:", err));
   }, []);
 
   // Fetch sanitarki sa backend filterima
@@ -53,9 +58,13 @@ function Sanitarne() {
     if (startExpiryDate) queryParams.append("startExpiryDate", startExpiryDate);
     if (endExpiryDate) queryParams.append("endExpiryDate", endExpiryDate);
 
-    fetch(`/api/sanitarne?${queryParams.toString()}`)
-      .then((res) => res.json())
-      .then(setSanitarne);
+    fetch(`${BACKEND_URL}/api/sanitarne?${queryParams.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Sanitarne API error! status: ${res.status}`);
+        return res.json();
+      })
+      .then(setSanitarne)
+      .catch((err) => console.error("Greška pri dohvatu sanitarnih:", err));
   }, [startExpiryDate, endExpiryDate]);
 
   const clearForm = () => {
@@ -76,33 +85,43 @@ function Sanitarne() {
     };
 
     if (editId) {
-      fetch(`/api/sanitarne/${editId}`, {
+      fetch(`${BACKEND_URL}/api/sanitarne/${editId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sanitarnaData),
-      }).then(() => {
-        refetchSanitarne();
-        setEditId(null);
-        clearForm();
-      });
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Greška pri ažuriranju sanitarne");
+          refetchSanitarne();
+          setEditId(null);
+          clearForm();
+        })
+        .catch((err) => alert(err.message));
     } else {
-      fetch("/api/sanitarne", {
+      fetch(`${BACKEND_URL}/api/sanitarne`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sanitarnaData),
       })
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error("Greška pri unosu sanitarne");
+          return res.json();
+        })
         .then(() => {
           refetchSanitarne();
           clearForm();
-        });
+        })
+        .catch((err) => alert(err.message));
     }
   };
 
   const deleteSanitarna = (id) => {
-    fetch(`/api/sanitarne/${id}`, { method: "DELETE" }).then(() => {
-      refetchSanitarne();
-    });
+    fetch(`${BACKEND_URL}/api/sanitarne/${id}`, { method: "DELETE" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Greška pri brisanju sanitarne");
+        refetchSanitarne();
+      })
+      .catch((err) => alert(err.message));
   };
 
   const startEdit = (sanitarna) => {
@@ -118,12 +137,15 @@ function Sanitarne() {
     if (startExpiryDate) queryParams.append("startExpiryDate", startExpiryDate);
     if (endExpiryDate) queryParams.append("endExpiryDate", endExpiryDate);
 
-    fetch(`/api/sanitarne?${queryParams.toString()}`)
-      .then((res) => res.json())
-      .then(setSanitarne);
+    fetch(`${BACKEND_URL}/api/sanitarne?${queryParams.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Sanitarne API error! status: ${res.status}`);
+        return res.json();
+      })
+      .then(setSanitarne)
+      .catch((err) => console.error("Greška pri dohvatu sanitarnih:", err));
   };
 
-  // ISPRAVKA: koristi autoTable(doc, options) umjesto doc.autoTable()
   const generatePdf = () => {
     const doc = new jsPDF();
     doc.setFontSize(14);
