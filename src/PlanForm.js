@@ -17,6 +17,16 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { BACKEND_URL } from "./config";
 
+// Funkcija za formatiranje datuma u dd/mm/yyyy
+function formatDate(isoString) {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 function PlanForm() {
 
   const [plans, setPlans] = useState([]);
@@ -52,7 +62,6 @@ function PlanForm() {
         return res.json();
       })
       .then((data) => {
-        console.log("Plans data:", data);
         if (Array.isArray(data)) setPlans(data);
         else {
           console.error("Plans API nije vratio niz:", data);
@@ -70,7 +79,6 @@ function PlanForm() {
         return res.json();
       })
       .then((data) => {
-        console.log("Clients data:", data);
         if (Array.isArray(data)) setClients(data);
         else {
           console.warn("Neočekivan format podataka za clients:", data);
@@ -88,7 +96,6 @@ function PlanForm() {
         return res.json();
       })
       .then((data) => {
-        console.log("Executors data:", data);
         if (Array.isArray(data)) setExecutors(data);
         else {
           console.warn("Neočekivan format podataka za executors:", data);
@@ -266,7 +273,7 @@ function PlanForm() {
           p.service,
           clientName,
           executorName,
-          p.date,
+          formatDate(p.date),
           p.price !== undefined && p.price !== null ? p.price.toFixed(2) : "-",
         ];
       }),
@@ -483,7 +490,7 @@ function PlanForm() {
                 <Td>{p.service}</Td>
                 <Td>{safeClients.find((c) => c.id === p.clientId)?.name || "Nepoznato"}</Td>
                 <Td>{safeExecutors.find((e) => e.id === p.executorId)?.name || "Nepoznato"}</Td>
-                <Td>{p.date}</Td>
+                <Td>{formatDate(p.date)}</Td>
                 <Td>{typeof p.price === "number" ? p.price.toFixed(2) : "-"}</Td>
                 <Td>
                   <Button size="sm" colorScheme="yellow" mr={2} onClick={() => startEdit(p)}>

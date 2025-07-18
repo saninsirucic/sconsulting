@@ -10,6 +10,7 @@
     "@chakra-ui/theme-tools": "^2.2.6",
     "@emotion/react": "^11.10.5",
     "@emotion/styled": "^11.10.5",
+    "date-fns": "^4.1.0",
     "dayjs": "^1.11.13",
     "file-saver": "^2.0.5",
     "framer-motion": "^6.5.1",
