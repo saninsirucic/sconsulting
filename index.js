@@ -21,12 +21,18 @@ db.raw('select 1+1 as result')
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
-app.use(cors());
+
+// Dozvoli CORS samo sa tvoje frontend adrese:
+const corsOptions = {
+  origin: 'https://saninsirucic.github.io',  // tvoja frontend URL
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
 app.use(bodyParser.json());
 
-// Ograniči broj istovremenih konekcija na bazu (opcija ako treba)
-// npr. ovo možeš koristiti ako imaš problema sa prevelikim opterećenjem:
-// db.client.pool.max = 5;
+// Ograniči broj istovremenih konekcija na bazu ako treba
+// db.client.pool.max = 5; // opcionalno
 
 let users = [
   { username: "sanin", password: "1234" }
@@ -221,44 +227,18 @@ app.delete('/api/plans/:id', async (req, res) => {
   }
 });
 
-// PROMIJENJENO: DELETE -> POST za brisanje planova po klijentu i periodu
-app.post('/api/plans/delete-by-client-and-period', async (req, res) => {
-  const { clientId, startDate, endDate } = req.body;
-
-  if (!clientId || !startDate || !endDate) {
-    return res.status(400).json({ error: "Nedostaju obavezni podaci (clientId, startDate, endDate)" });
-  }
-
-  try {
-    console.log("Poziv baze: brisanje planova po klijentu i periodu", clientId, startDate, endDate);
-    const deletedCount = await db('plans')
-      .where('clientId', clientId)
-      .andWhere('date', '>=', startDate)
-      .andWhere('date', '<=', endDate)
-      .del();
-
-    res.json({ success: true, deletedCount });
-  } catch (error) {
-    console.error("Greška pri brisanju planova:", error);
-    res.status(500).json({ error: "Greška pri brisanju planova" });
-  }
-});
-
 // --- INVOICES ---
-// Funkcija za generisanje sledećeg broja fakture sa resetom svake godine
 async function getNextInvoiceNumber(date) {
   const currentYear = new Date(date).getFullYear();
   const yearSuffix = currentYear.toString().slice(-2);
 
-  // Uzmi poslednju fakturu za tekuću godinu
   const lastInvoice = await db('invoices')
     .where('number', 'like', `%/${yearSuffix}`)
-    // sortiranje po broju pre nego sufiks, da se ispravno izvuče najveći broj
     .orderByRaw("CAST(substr(number, 1, instr(number, '/') - 1) AS INTEGER) DESC")
     .first();
 
   if (!lastInvoice) {
-    return 223; // Početni broj ako nema faktura za tu godinu
+    return 223;
   }
 
   const lastNumber = parseInt(lastInvoice.number.split('/')[0], 10);
