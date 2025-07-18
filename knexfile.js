@@ -17,7 +17,9 @@ module.exports = {
     client: "pg",
     connection: {
       connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
+      ssl: {
+        rejectUnauthorized: false
+      }
     },
     migrations: {
       directory: './migrations'
@@ -34,6 +36,6 @@ module.exports = {
       acquireTimeoutMillis: 30000,
       propagateCreateError: false
     },
-    debug: true  // <=== detaljno logovanje upita
+    debug: true
   }
 };
