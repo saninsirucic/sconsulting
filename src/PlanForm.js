@@ -46,7 +46,7 @@ function PlanForm() {
   }, []);
 
   const loadData = () => {
-    fetch(`${backendURL}/api/plans`)
+    fetch("https://radiant-beach-27998.herokuapp.com/api/plans")
       .then((res) => {
         if (!res.ok) throw new Error(`Plans API error! status: ${res.status}`);
         return res.json();
