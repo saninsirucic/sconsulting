@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text, Checkbox, Flex, Button, Spacer } from "@chakra-ui/react";
 import dayjs from "dayjs";
-
-const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+import { BACKEND_URL } from "./config";
 
 function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(dayjs());

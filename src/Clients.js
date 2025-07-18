@@ -12,8 +12,9 @@ import {
   Thead,
   Tr,
 } from "@chakra-ui/react";
+import { BACKEND_URL } from "./config";
 
-const BACKEND_URL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+
 
 function Clients() {
   const [clients, setClients] = useState([]);

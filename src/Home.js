@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { BACKEND_URL } from "./config";
 
 function Home() {
   const navigate = useNavigate();

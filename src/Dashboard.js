@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BACKEND_URL } from "./config";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
