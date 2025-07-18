@@ -17,6 +17,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 function PlanForm() {
+  const backendURL = "https://radiant-beach-27998-21e0f72a6a44.herokuapp.com";
+
   const [plans, setPlans] = useState([]);
   const [clients, setClients] = useState([]);
   const [executors, setExecutors] = useState([]);
@@ -44,7 +46,7 @@ function PlanForm() {
   }, []);
 
   const loadData = () => {
-    fetch("/api/plans")
+    fetch(`${backendURL}/api/plans`)
       .then((res) => {
         if (!res.ok) throw new Error(`Plans API error! status: ${res.status}`);
         return res.json();
@@ -62,7 +64,7 @@ function PlanForm() {
         setPlans([]);
       });
 
-    fetch("/api/clients")
+    fetch(`${backendURL}/api/clients`)
       .then((res) => {
         if (!res.ok) throw new Error(`Clients API error! status: ${res.status}`);
         return res.json();
@@ -80,7 +82,7 @@ function PlanForm() {
         setClients([]);
       });
 
-    fetch("/api/executors")
+    fetch(`${backendURL}/api/executors`)
       .then((res) => {
         if (!res.ok) throw new Error(`Executors API error! status: ${res.status}`);
         return res.json();
@@ -110,7 +112,6 @@ function PlanForm() {
     setEditId(null);
   };
 
-  // Tvoja ostala logika bez izmjena:
   const savePlan = () => {
     if (!clientId) return alert("Molimo izaberite klijenta.");
     if (!executorId) return alert("Molimo izaberite izvođača.");
@@ -140,7 +141,7 @@ function PlanForm() {
     });
 
     if (recurrenceNumber === 1) {
-      fetch("/api/plans", {
+      fetch(`${backendURL}/api/plans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(createPlanPayload(date)),
@@ -172,7 +173,7 @@ function PlanForm() {
 
     Promise.all(
       plansToAdd.map((plan) =>
-        fetch("/api/plans", {
+        fetch(`${backendURL}/api/plans`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(plan),
@@ -194,7 +195,7 @@ function PlanForm() {
   };
 
   const deletePlan = (id) => {
-    fetch(`/api/plans/${id}`, { method: "DELETE" })
+    fetch(`${backendURL}/api/plans/${id}`, { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri brisanju plana");
         return res.json();
@@ -219,7 +220,6 @@ function PlanForm() {
     setPrice(plan.price !== undefined && plan.price !== null ? plan.price : "");
   };
 
-  // Zaštita filtera plans, clients i executors:
   const safePlans = Array.isArray(plans) ? plans : [];
   const safeClients = Array.isArray(clients) ? clients : [];
   const safeExecutors = Array.isArray(executors) ? executors : [];
@@ -283,7 +283,7 @@ function PlanForm() {
     if (!window.confirm("Da li ste sigurni da želite obrisati planove za izabrani period?")) return;
 
     try {
-      const res = await fetch("/api/plans/delete-by-client-and-period", {
+      const res = await fetch(`${backendURL}/api/plans/delete-by-client-and-period`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
