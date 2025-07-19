@@ -227,6 +227,30 @@ app.delete('/api/plans/:id', async (req, res) => {
   }
 });
 
+// --- NOVO: Brisanje planova po klijentu i periodu ---
+app.post('/api/plans/delete-by-client-and-period', async (req, res) => {
+  const { clientId, startDate, endDate } = req.body;
+
+  if (!clientId || !startDate || !endDate) {
+    return res.status(400).json({ success: false, error: "Nedostaju potrebni podaci." });
+  }
+
+  try {
+    console.log(`Brisanje planova za klijenta ${clientId} od ${startDate} do ${endDate}`);
+
+    const deletedCount = await db('plans')
+      .where('clientId', clientId)
+      .andWhere('date', '>=', startDate)
+      .andWhere('date', '<=', endDate)
+      .del();
+
+    res.json({ success: true, deletedCount });
+  } catch (error) {
+    console.error("Greška pri brisanju planova po klijentu i periodu:", error);
+    res.status(500).json({ success: false, error: "Greška pri brisanju planova" });
+  }
+});
+
 // --- INVOICES ---
 async function getNextInvoiceNumber(date) {
   const currentYear = new Date(date).getFullYear();
