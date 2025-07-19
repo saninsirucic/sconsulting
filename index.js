@@ -297,6 +297,10 @@ app.post('/api/invoices', async (req, res) => {
     return res.status(400).json({ error: "Nedostaju obavezni podaci za fakturu" });
   }
 
+  // Zamijeni prazne stringove sa null za datume i broj izvoda
+  const safePaymentDate = paymentDate === '' ? null : paymentDate;
+  const safePaymentOrderNumber = paymentOrderNumber === '' ? null : paymentOrderNumber;
+
   try {
     console.log("Poziv baze: unos nove fakture");
     const nextNumber = await getNextInvoiceNumber(date);
@@ -308,7 +312,7 @@ app.post('/api/invoices', async (req, res) => {
     await db('invoices').insert({
       id, number: invoiceNumber, clientId, date, description, quantity, price, unit,
       totalNoVat, vat, total, amountInWords, contractNumber,
-      paymentTerm, paymentDate, paymentOrderNumber
+      paymentTerm, paymentDate: safePaymentDate, paymentOrderNumber: safePaymentOrderNumber
     });
 
     const invoice = await db('invoices').where({ id }).first();
