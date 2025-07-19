@@ -28,7 +28,6 @@ function formatDate(isoString) {
 }
 
 function PlanForm() {
-
   const [plans, setPlans] = useState([]);
   const [clients, setClients] = useState([]);
   const [executors, setExecutors] = useState([]);
@@ -201,6 +200,7 @@ function PlanForm() {
       });
   };
 
+  // Ispravka: nakon brisanja ponovo učitaj planove
   const deletePlan = (id) => {
     fetch(`${BACKEND_URL}/api/plans/${id}`, { method: "DELETE" })
       .then((res) => {
@@ -208,7 +208,7 @@ function PlanForm() {
         return res.json();
       })
       .then(() => {
-        setPlans(plans.filter((p) => p.id !== id));
+        loadData(); // osvježi listu planova
       })
       .catch((err) => {
         console.error(err);
