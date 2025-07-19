@@ -258,7 +258,7 @@ async function getNextInvoiceNumber(date) {
 
   const lastInvoice = await db('invoices')
     .where('number', 'like', `%/${yearSuffix}`)
-    .orderByRaw("CAST(substr(number, 1, instr(number, '/') - 1) AS INTEGER) DESC")
+    .orderByRaw("CAST(substring(number from '^[0-9]+') AS INTEGER) DESC")
     .first();
 
   if (!lastInvoice) {
