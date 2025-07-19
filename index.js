@@ -252,6 +252,7 @@ app.post('/api/plans/delete-by-client-and-period', async (req, res) => {
 });
 
 // --- INVOICES ---
+
 async function getNextInvoiceNumber(date) {
   const currentYear = new Date(date).getFullYear();
   const yearSuffix = currentYear.toString().slice(-2);
@@ -267,6 +268,19 @@ async function getNextInvoiceNumber(date) {
 
   const lastNumber = parseInt(lastInvoice.number.split('/')[0], 10);
   return lastNumber + 1;
+}
+
+// NOVO: Funkcija za dobijanje sljedećeg fiskalnog broja (kreće od 913)
+async function getNextFiscalNumber() {
+  const lastInvoice = await db('invoices')
+    .orderByRaw("CAST(fiscalNumber AS INTEGER) DESC")
+    .first();
+
+  if (!lastInvoice || !lastInvoice.fiscalNumber) {
+    return 913;
+  }
+
+  return parseInt(lastInvoice.fiscalNumber, 10) + 1;
 }
 
 // ** OVJERENA RUTA SA JOINOM DA VRATI IME KLIJENTA **
@@ -307,12 +321,28 @@ app.post('/api/invoices', async (req, res) => {
     const yearSuffix = new Date(date).getFullYear().toString().slice(-2);
     const invoiceNumber = `${nextNumber}/${yearSuffix}`;
 
+    const nextFiscalNumber = await getNextFiscalNumber();
+
     const id = uuidv4();
 
     await db('invoices').insert({
-      id, number: invoiceNumber, clientId, date, description, quantity, price, unit,
-      totalNoVat, vat, total, amountInWords, contractNumber,
-      paymentTerm, paymentDate: safePaymentDate, paymentOrderNumber: safePaymentOrderNumber
+      id,
+      number: invoiceNumber,
+      fiscalNumber: nextFiscalNumber.toString(),
+      clientId,
+      date,
+      description,
+      quantity,
+      price,
+      unit,
+      totalNoVat,
+      vat,
+      total,
+      amountInWords,
+      contractNumber,
+      paymentTerm,
+      paymentDate: safePaymentDate,
+      paymentOrderNumber: safePaymentOrderNumber
     });
 
     const invoice = await db('invoices').where({ id }).first();
