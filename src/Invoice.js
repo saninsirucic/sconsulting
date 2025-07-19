@@ -48,8 +48,11 @@ function Invoice() {
 
   useEffect(() => {
     // Dohvati fakture
-    fetch(BACKEND_URL + "/api/invoices")
-      .then(res => res.json())
+    fetch(`${BACKEND_URL}/api/invoices`)
+      .then(res => {
+        if (!res.ok) throw new Error("Greška pri dohvatu faktura");
+        return res.json();
+      })
       .then(data => {
         setInvoices(data);
         if (data.length) {
@@ -60,24 +63,21 @@ function Invoice() {
           setNumber(maxNum + 1);
         }
       })
-      .catch(err => console.error("Greška pri dohvatu faktura:", err));
+      .catch(err => console.error(err.message));
 
     // Dohvati klijente
-    fetch(BACKEND_URL + "/api/clients")
-      .then(res => res.json())
+    fetch(`${BACKEND_URL}/api/clients`)
+      .then(res => {
+        if (!res.ok) throw new Error("Greška pri dohvatu klijenata");
+        return res.json();
+      })
       .then(setClients)
-      .catch(err => console.error("Greška pri dohvatu klijenata:", err));
+      .catch(err => console.error(err.message));
   }, []);
 
   useEffect(() => {
-    if (clientId) {
-      const selected = clients.find(c => c.id === clientId);
-      if (selected) {
-        setAmountInWords(selected.amountInWords || "");
-      } else {
-        setAmountInWords("");
-      }
-    }
+    const selected = clients.find(c => c.id === clientId);
+    setAmountInWords(selected?.amountInWords || "");
   }, [clientId, clients]);
 
   const selectedClient = clients.find(c => c.id === clientId) || {};
@@ -87,7 +87,10 @@ function Invoice() {
   const total = +(totalNoVat + vat).toFixed(2);
 
   const saveInvoice = () => {
-    if (!clientId || !price) return alert("Popunite sva polja!");
+    if (!clientId || price === "") {
+      alert("Popunite sva polja!");
+      return;
+    }
     const faktura = {
       number,
       clientId,
@@ -105,20 +108,24 @@ function Invoice() {
       paymentDate: "",
       paymentOrderNumber: "",
     };
-    fetch(BACKEND_URL + "/api/invoices", {
+    fetch(`${BACKEND_URL}/api/invoices`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(faktura),
     })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error("Greška pri čuvanju fakture");
+        return res.json();
+      })
       .then(newInvoice => {
-        setInvoices([...invoices, newInvoice]);
+        setInvoices(prev => [...prev, newInvoice]);
         setNumber(prev => prev + 1);
         setQuantity(1);
         setPrice("");
         setAmountInWords("");
         alert(`Faktura broj ${newInvoice.number} je sačuvana.`);
-      });
+      })
+      .catch(err => alert(err.message));
   };
 
   const exportToPDF = (invoice) => {
