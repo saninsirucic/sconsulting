@@ -269,10 +269,16 @@ async function getNextInvoiceNumber(date) {
   return lastNumber + 1;
 }
 
+// ** OVJERENA RUTA SA JOINOM DA VRATI IME KLIJENTA **
 app.get('/api/invoices', async (req, res) => {
   try {
-    console.log("Poziv baze: dohvatanje faktura");
-    const invoices = await db('invoices').select('*');
+    console.log("Poziv baze: dohvatanje faktura sa imenima klijenata");
+    const invoices = await db('invoices')
+      .select(
+        'invoices.*',
+        'clients.name as clientName'
+      )
+      .leftJoin('clients', 'invoices.clientId', 'clients.id');
     res.json(invoices);
   } catch (error) {
     console.error("Greška pri dohvatu faktura:", error);
