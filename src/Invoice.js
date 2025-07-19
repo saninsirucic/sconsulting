@@ -234,7 +234,7 @@ function Invoice() {
     doc.text(`Slovima: ${invoice.amountInWords || ""}`, textX, startY + 18, { align: "right" });
 
     // Ostali podaci ispod
-    doc.text(`Broj fiskalnog računa: ${719 + Number(invoice.number)}`, 14, startY + 30);
+    doc.text(`Broj fiskalnog računa: ${913 + Number(invoice.number)}`, 14, startY + 30);
     doc.text(`Broj ugovora: ${invoice.contractNumber || ""}`, 14, startY + 36);
     doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm || ""}`, 14, startY + 42);
     doc.text("Transakcijski račun broj: 1941410306700108 kod ProCredit banke", 14, startY + 48);
