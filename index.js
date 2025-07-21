@@ -22,12 +22,16 @@ const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 
-// Dozvoli CORS samo sa tvoje frontend adrese:
+// CORS konfiguracija — dozvoli samo tvoju frontend adresu
 const corsOptions = {
-  origin: 'https://saninsirucic.github.io',  // tvoja frontend URL
+  origin: 'https://saninsirucic.github.io',
   optionsSuccessStatus: 200
 };
+
+// PRVO postavi cors middleware
 app.use(cors(corsOptions));
+// Podrži OPTIONS preflight zahtjeve
+app.options('*', cors(corsOptions));
 
 app.use(bodyParser.json());
 
