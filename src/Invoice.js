@@ -27,7 +27,7 @@ const robotoBase64 = "AAEAAAASAQAABAAgR0RFRqZDpEwAAAOUAAACWEdQT1MH0trkAABd6AAAWM
 function formatDate(dateStr) {
   if (!dateStr) return "-";
   const d = new Date(dateStr);
-  if (isNaN(d)) return "-";
+  if (isNaN(d.getTime())) return "-"; // sigurnija provjera
   const day = d.getDate().toString().padStart(2, "0");
   const month = (d.getMonth() + 1).toString().padStart(2, "0");
   const year = d.getFullYear();
@@ -35,8 +35,6 @@ function formatDate(dateStr) {
 }
 
 function Invoice() {
-  const BACKEND_URL = "tvoj_backend_url_ovdje"; // zamijeni sa stvarnim backend URL-om
-
   const [clients, setClients] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [number, setNumber] = useState(223);
@@ -146,7 +144,6 @@ function Invoice() {
 
     const pageWidth = doc.internal.pageSize.getWidth();
     const rightMargin = 14;
-    const marginTop = 10;
 
     doc.setFontSize(10);
     doc.text("O.D. “S Consulting”  - vl. Siručić Sanin", 14, 20);
