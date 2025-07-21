@@ -25,7 +25,6 @@ const robotoBase64 = "AAEAAAASAQAABAAgR0RFRqZDpEwAAAOUAAACWEdQT1MH0trkAABd6AAAWM
 
 // Funkcija za formatiranje datuma u dd/mm/yyyy
 function formatDate(dateStr) {
-  console.log("Formatiram datum:", dateStr);
   if (!dateStr) return "-";
   const d = new Date(dateStr);
   if (isNaN(d)) return "-";
@@ -36,7 +35,7 @@ function formatDate(dateStr) {
 }
 
 function Invoice() {
-  const BACKEND_URL = "tvoj_backend_url_ovdje"; // zamijeni sa tvojim backend url-om
+  const BACKEND_URL = "tvoj_backend_url_ovdje"; // zamijeni sa stvarnim backend URL-om
 
   const [clients, setClients] = useState([]);
   const [invoices, setInvoices] = useState([]);
