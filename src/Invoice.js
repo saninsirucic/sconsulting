@@ -133,7 +133,15 @@ function Invoice() {
   const pageWidth = doc.internal.pageSize.getWidth();
   const rightMargin = 14;
 
+  // ——— LOGO (gore desno) ———
+  const logoWidth = 40;
+  const logoHeight = 15;
+  const logoX = pageWidth - rightMargin - logoWidth;
+  const logoY = 12;
+  doc.addImage(logo, "PNG", logoX, logoY, logoWidth, logoHeight);
+
   // ——— HEADER ———
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.text("O.D. “S Consulting”  - vl. Siručić Sanin", 14, 20);
   doc.text("Tvornička 3.", 14, 26);
@@ -158,9 +166,8 @@ function Invoice() {
   doc.setFontSize(26);
   doc.text(`Faktura broj: ${invoice.number}`, 14, 120);
 
-  // ——— SAMO OVDE MIJENJAMO DATUM ———
-  // umjesto formatDate() ili ISO stringa
-  const datumText = `Datum izdavanja: ${invoice.date ? invoice.date.slice(0,10) : "-"}`;
+  // ——— OVJERA DATUMA ———
+  const datumText = `Datum izdavanja: ${formatDate(invoice.date)}`;
   const datumX = pageWidth - rightMargin - doc.getTextWidth(datumText);
   doc.setFontSize(12);
   doc.text(datumText, datumX, 120);
@@ -212,35 +219,27 @@ function Invoice() {
   doc.text(`Ukupan iznos sa PDV-om: ${invoice.total.toFixed(2)} KM`, textX, startY + 12, { align: "right" });
   doc.text(`Slovima: ${invoice.amountInWords}`, textX, startY + 18, { align: "right" });
 
-  // ——— DNO ———
+  // ——— PODACI NA DNU ———
   doc.text(`Broj fiskalnog računa: ${913 + Number(invoice.number)}`, 14, startY + 30);
   doc.text(`Broj ugovora: ${invoice.contractNumber}`, 14, startY + 36);
   doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm}`, 14, startY + 42);
-  doc.text(
-    "Transakcijski račun broj: 1941410306700108 kod ProCredit banke",
-    14,
-    startY + 48
-  );
+  doc.text("Transakcijski račun broj: 1941410306700108 kod ProCredit banke", 14, startY + 48);
 
+  // ——— POTPIS ———
   const line = "_______________________________";
   const lineWidth = doc.getTextWidth(line);
   const vlasnikText = "VLASNIK";
   const vlasnikWidth = doc.getTextWidth(vlasnikText);
   const lineX = pageWidth - rightMargin - lineWidth;
   const vlasnikX = lineX + (lineWidth - vlasnikWidth) / 2;
-
   doc.text(vlasnikText, vlasnikX, startY + 78);
   doc.text(line, lineX, startY + 96);
 
   // ——— SPREMI PDF ———
   doc.save(
-    `Faktura_${formatInvoiceNumber(
-      invoice.number,
-      invoice.date
-    ).replace("/", "-")}.pdf`
+    `Faktura_${formatInvoiceNumber(invoice.number, invoice.date).replace("/", "-")}.pdf`
   );
 };
-
   const deleteInvoice = (id) => {
     if (!window.confirm("Da li ste sigurni da želite obrisati ovu fakturu?")) return;
     fetch(`${BACKEND_URL}/api/invoices/${id}`, { method: "DELETE" })
