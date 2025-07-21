@@ -16,7 +16,7 @@ import {
 } from "@chakra-ui/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import RobotoRegular from "./fonts/roboto-regular.base64";
+import RobotoRegular from "./fonts/roboto-regular.base64.js";
 import { BACKEND_URL } from "./config";
 
 // Ovdje stavi svoj Base64 string za logo i font
