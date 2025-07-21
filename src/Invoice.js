@@ -25,6 +25,7 @@ const robotoBase64 = "AAEAAAASAQAABAAgR0RFRqZDpEwAAAOUAAACWEdQT1MH0trkAABd6AAAWM
 
 // Funkcija za formatiranje datuma u dd/mm/yyyy
 function formatDate(dateStr) {
+  console.log("Formatiram datum:", dateStr);
   if (!dateStr) return "-";
   const d = new Date(dateStr);
   if (isNaN(d)) return "-";
