@@ -146,6 +146,11 @@ const exportToPDF = (invoice) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 14;
 
+  // ——— UGRADI CUSTOM FONT ———
+  doc.addFileToVFS("Roboto-Regular.ttf", RobotoRegular);
+  doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+  doc.setFont("Roboto", "normal");
+
   // ——— HEADER ———
   doc.setFontSize(10);
   doc.text('O.D. "S Consulting"  - vl. Siručić Sanin', margin, 20);
@@ -161,11 +166,11 @@ const exportToPDF = (invoice) => {
   // ——— KLIJENT ———
   const client = clients.find(c => c.id === invoice.clientId) || {};
   doc.setFontSize(12);
-  doc.text(`Klijent: ${client.name || ''}`, margin, 75);
-  doc.text(`Adresa: ${client.address || ''}`, margin, 82);
-  doc.text(`Poštanski broj: ${client.postalCode || ''}`, margin, 89);
-  doc.text(`ID broj: ${client.companyId || ''}`, margin, 96);
-  doc.text(`PDV broj: ${client.pib || ''}`, margin, 103);
+  doc.text(`Klijent: ${client.name || ""}`, margin, 72);
+  doc.text(`Adresa: ${client.address || ""}`, margin, 79);
+  doc.text(`Poštanski broj: ${client.postalCode || ""}`, margin, 86);
+  doc.text(`ID broj: ${client.companyId || ""}`, margin, 93);
+  doc.text(`PDV broj: ${client.pib || ""}`, margin, 100);
 
   // ——— NASLOV & DATUM na istoj liniji ———
   const titleY = 120;
@@ -174,17 +179,21 @@ const exportToPDF = (invoice) => {
 
   const dateText = `Datum izdavanja: ${formatDate(invoice.date)}`;
   doc.setFontSize(12);
-  const dateX = pageWidth - margin - doc.getTextWidth(dateText);
-  doc.text(dateText, dateX, titleY);
+  doc.text(dateText, pageWidth - margin, titleY, { align: 'right' });
 
   // ——— TABELA ———
   autoTable(doc, {
-    startY: titleY + 10,
+    startY: 130,
     margin: { left: margin, right: margin },
-    tableWidth: 'auto',
     head: [[
-      'Redni broj','Opis usluge','Količina','Cijena',
-      'Jedinica mjere','Iznos bez PDV','PDV (17%)','Ukupan iznos sa PDV-om'
+      'Redni broj',
+      'Opis usluge',
+      'Količina',
+      'Cijena',
+      'Jedinica mjere',
+      'Iznos bez PDV',
+      'PDV (17%)',
+      'Ukupan iznos sa PDV-om'
     ]],
     body: [[
       1,
@@ -194,9 +203,9 @@ const exportToPDF = (invoice) => {
       invoice.unit,
       invoice.totalNoVat.toFixed(2),
       invoice.vat.toFixed(2),
-      invoice.total.toFixed(2),
+      invoice.total.toFixed(2)
     ]],
-    styles: { fontSize: 8 },
+    styles: { font: 'Roboto', fontSize: 8 },
     headStyles: { fillColor: [41, 128, 185], fontSize: 9, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 12, halign: 'center' },
@@ -211,27 +220,27 @@ const exportToPDF = (invoice) => {
   });
 
   // ——— UKUPNI IZNOSI ———
-  const afterTable = doc.lastAutoTable.finalY + 10;
+  const afterTableY = doc.lastAutoTable.finalY + 10;
   const rightX = pageWidth - margin;
   doc.setFontSize(12);
-  doc.text(`Iznos bez PDV-a: ${invoice.totalNoVat.toFixed(2)} KM`, rightX, afterTable, { align: 'right' });
-  doc.text(`PDV (17%): ${invoice.vat.toFixed(2)} KM`, rightX, afterTable + 6, { align: 'right' });
-  doc.text(`Ukupan iznos sa PDV-om: ${invoice.total.toFixed(2)} KM`, rightX, afterTable + 12, { align: 'right' });
-  doc.text(`Slovima: ${invoice.amountInWords}`, rightX, afterTable + 18, { align: 'right' });
+  doc.text(`Iznos bez PDV-a: ${invoice.totalNoVat.toFixed(2)} KM`, rightX, afterTableY, { align: 'right' });
+  doc.text(`PDV (17%): ${invoice.vat.toFixed(2)} KM`, rightX, afterTableY + 6, { align: 'right' });
+  doc.text(`Ukupan iznos sa PDV-om: ${invoice.total.toFixed(2)} KM`, rightX, afterTableY + 12, { align: 'right' });
+  doc.text(`Slovima: ${invoice.amountInWords}`, rightX, afterTableY + 18, { align: 'right' });
 
-  // ——— PODACI NA DNU ———
+  // ——— DNO ———
   doc.setFontSize(10);
-  doc.text(`Broj fiskalnog računa: ${913 + Number(invoice.number)}`, margin, afterTable + 32);
-  doc.text(`Broj ugovora: ${invoice.contractNumber}`, margin, afterTable + 38);
-  doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm}`, margin, afterTable + 44);
-  doc.text('Transakcijski račun broj: 1941410306700108 kod ProCredit banke', margin, afterTable + 50);
+  doc.text(`Broj fiskalnog računa: ${913 + Number(invoice.number)}`, margin, afterTableY + 30);
+  doc.text(`Broj ugovora: ${invoice.contractNumber}`, margin, afterTableY + 36);
+  doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm}`, margin, afterTableY + 42);
+  doc.text('Transakcijski račun broj: 1941410306700108 kod ProCredit banke', margin, afterTableY + 48);
 
   // ——— POTPIS ———
   const sigLine = '_______________________________';
-  const sigY = afterTable + 78;
   const sigW = doc.getTextWidth(sigLine);
   const sigX = pageWidth - margin - sigW;
-  doc.text('VLASNIK', sigX + (sigW - doc.getTextWidth('VLASNIK'))/2, sigY);
+  const sigY = afterTableY + 78;
+  doc.text('VLASNIK', sigX + (sigW - doc.getTextWidth('VLASNIK')) / 2, sigY);
   doc.text(sigLine, sigX, sigY + 18);
 
   // ——— SPREMI PDF ———
