@@ -36,6 +36,8 @@ function formatDate(dateStr) {
 }
 
 function Invoice() {
+  const BACKEND_URL = "tvoj_backend_url_ovdje"; // zamijeni sa tvojim backend url-om
+
   const [clients, setClients] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [number, setNumber] = useState(223);
@@ -143,18 +145,9 @@ function Invoice() {
   const exportToPDF = (invoice) => {
     const doc = new jsPDF();
 
-    // Dodaj logo i ostalo, formatiraj datum
     const pageWidth = doc.internal.pageSize.getWidth();
     const rightMargin = 14;
     const marginTop = 10;
-    const logoWidth = 40;
-    const logoHeight = 20;
-
-    const xPos = pageWidth - rightMargin - logoWidth;
-    const yPos = marginTop;
-
-    // Pretpostavljam da imaš logoBase64 definisan negdje
-    // doc.addImage(logoBase64, "PNG", xPos, yPos, logoWidth, logoHeight);
 
     doc.setFontSize(10);
     doc.text("O.D. “S Consulting”  - vl. Siručić Sanin", 14, 20);
