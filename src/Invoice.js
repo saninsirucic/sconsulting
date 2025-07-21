@@ -181,7 +181,7 @@ const exportToPDF = (invoice) => {
     startY: 130,
     margin: { left: M, right: M },
     head: [[
-      "Redni broj","Opis usluge","Kolicina","Cijena",
+      "Redni broj","Opis usluge","Količina","Cijena",
       "Jedinica mjere","Iznos bez PDV","PDV (17%)","Ukupan iznos sa PDV-om"
     ]],
     body: [[
@@ -224,7 +224,13 @@ const exportToPDF = (invoice) => {
 
   // — DNO & POTPIS —
   doc.setFontSize(10);
-  doc.text(`Broj fiskalnog računa: ${913 + Number(invoice.number)}`, M, afterY+30);
+
+  // ovdje vadimo samo broj prije "/" i parsiramo ga u integer
+  const rawNum = String(invoice.number).split("/")[0];
+  const numVal = parseInt(rawNum, 10) || 0;
+  const fiscalNum = 913 + numVal;
+
+  doc.text(`Broj fiskalnog računa: ${fiscalNum}`, M, afterY+30);
   doc.text(`Broj ugovora: ${invoice.contractNumber}`, M, afterY+36);
   doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm}`, M, afterY+42);
   doc.text("Transakcijski račun broj: 1941410306700108 kod ProCredit banke", M, afterY+48);
@@ -240,7 +246,6 @@ const exportToPDF = (invoice) => {
   const name = formatInvoiceNumber(invoice.number, invoice.date).replace(/\//g,"-");
   doc.save(`Faktura_${name}.pdf`);
 };
-
 
   const deleteInvoice = (id) => {
     if (!window.confirm("Da li ste sigurni da želite obrisati ovu fakturu?")) return;
