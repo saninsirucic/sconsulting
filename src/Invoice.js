@@ -16,7 +16,7 @@ import {
 } from "@chakra-ui/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { robotoFont } from './Roboto-Regular-normal';
+import RobotoRegular from "./fonts/roboto-regular.base64";
 import { BACKEND_URL } from "./config";
 
 // Ovdje stavi svoj Base64 string za logo i font
@@ -146,6 +146,12 @@ const exportToPDF = (invoice) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 14;
+
+  // ——— UGRADI CUSTOM FONT ———
+doc.addFileToVFS("Roboto-Regular.ttf", RobotoRegular);
+doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+doc.setFont("Roboto", "normal");
+doc.setFontSize(10);
 
   // ——— HEADER ———
   doc.setFontSize(10);
