@@ -48,40 +48,40 @@ function Invoice() {
   }
 
   useEffect(() => {
-    // Dohvati fakture
     fetch(`${BACKEND_URL}/api/invoices`)
-      .then(res => {
+      .then((res) => {
         if (!res.ok) throw new Error("Greška pri dohvatu faktura");
         return res.json();
       })
-      .then(data => {
+      .then((data) => {
         setInvoices(data);
         if (data.length) {
-          const maxNum = Math.max(...data.map(f => {
-            const numPart = f.number?.split('/')[0];
-            return Number(numPart) || 223;
-          }));
+          const maxNum = Math.max(
+            ...data.map((f) => {
+              const numPart = f.number?.split("/")[0];
+              return Number(numPart) || 223;
+            })
+          );
           setNumber(maxNum + 1);
         }
       })
-      .catch(err => console.error(err.message));
+      .catch((err) => console.error(err.message));
 
-    // Dohvati klijente
     fetch(`${BACKEND_URL}/api/clients`)
-      .then(res => {
+      .then((res) => {
         if (!res.ok) throw new Error("Greška pri dohvatu klijenata");
         return res.json();
       })
       .then(setClients)
-      .catch(err => console.error(err.message));
+      .catch((err) => console.error(err.message));
   }, []);
 
   useEffect(() => {
-    const selected = clients.find(c => c.id === clientId);
+    const selected = clients.find((c) => c.id === clientId);
     setAmountInWords(selected?.amountInWords || "");
   }, [clientId, clients]);
 
-  const selectedClient = clients.find(c => c.id === clientId) || {};
+  const selectedClient = clients.find((c) => c.id === clientId) || {};
 
   const totalNoVat = Number(quantity) * Number(price || 0);
   const vat = +(totalNoVat * 0.17).toFixed(2);
@@ -114,42 +114,40 @@ function Invoice() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(faktura),
     })
-      .then(res => {
+      .then((res) => {
         if (!res.ok) throw new Error("Greška pri čuvanju fakture");
         return res.json();
       })
-      .then(newInvoice => {
-        setInvoices(prev => [...prev, newInvoice]);
-        setNumber(prev => prev + 1);
+      .then((newInvoice) => {
+        setInvoices((prev) => [...prev, newInvoice]);
+        setNumber((prev) => prev + 1);
         setQuantity(1);
         setPrice("");
         setAmountInWords("");
         alert(`Faktura broj ${newInvoice.number} je sačuvana.`);
       })
-      .catch(err => alert(err.message));
+      .catch((err) => alert(err.message));
   };
 
   const exportToPDF = (invoice) => {
     const doc = new jsPDF();
 
-    // Dodaj logo u gornji desni ugao
+    // Dodaj logo i ostalo, formatiraj datum
     const pageWidth = doc.internal.pageSize.getWidth();
-    const marginRight = 10;
+    const rightMargin = 14;
     const marginTop = 10;
     const logoWidth = 40;
     const logoHeight = 20;
 
-    const xPos = pageWidth - marginRight - logoWidth;
+    const xPos = pageWidth - rightMargin - logoWidth;
     const yPos = marginTop;
 
     doc.addImage(logoBase64, "PNG", xPos, yPos, logoWidth, logoHeight);
 
-    // Font Roboto
     doc.addFileToVFS("Roboto-Regular.ttf", robotoFont);
     doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
     doc.setFont("Roboto");
 
-    // Podaci o firmi
     doc.setFontSize(10);
     doc.text("O.D. “S Consulting”  - vl. Siručić Sanin", 14, 20);
     doc.text("Tvornička 3.", 14, 26);
@@ -159,12 +157,10 @@ function Invoice() {
     doc.text("+387/33 848-871", 14, 50);
     doc.text("info@s-consulting.ba", 14, 56);
 
-    const rightMargin = 14;
     doc.setLineWidth(0.5);
     doc.line(14, 65, pageWidth - 14, 65);
 
-    // Podaci o klijentu
-    const client = clients.find(c => c.id === invoice.clientId) || {};
+    const client = clients.find((c) => c.id === invoice.clientId) || {};
     doc.setFontSize(12);
     doc.text(`Klijent: ${client.name || ""}`, 14, 72);
     doc.text(`Adresa: ${client.address || ""}`, 14, 79);
@@ -172,15 +168,13 @@ function Invoice() {
     doc.text(`ID broj: ${client.companyId || ""}`, 14, 93);
     doc.text(`PDV broj: ${client.pib || ""}`, 14, 100);
 
-// Faktura broj i datum
-doc.setFontSize(26);
-doc.text(`Faktura broj: ${invoice.number}`, 14, 120);
-doc.setFontSize(12);
-const datumText = `Datum izdavanja: ${dayjs(invoice.date).format('DD/MM/YYYY')}`;
-const datumX = pageWidth - rightMargin - doc.getTextWidth(datumText);
-doc.text(datumText, datumX, 120);
+    doc.setFontSize(26);
+    doc.text(`Faktura broj: ${invoice.number}`, 14, 120);
+    const datumText = `Datum izdavanja: ${dayjs(invoice.date).format("DD/MM/YYYY")}`;
+    const datumX = pageWidth - rightMargin - doc.getTextWidth(datumText);
+    doc.setFontSize(12);
+    doc.text(datumText, datumX, 120);
 
-    // Tabela fakture
     autoTable(doc, {
       startY: 130,
       margin: { left: 14, right: 14 },
@@ -189,7 +183,7 @@ doc.text(datumText, datumX, 120);
         [
           "Redni broj",
           "Opis usluge",
-          "Kolicina",
+          "Količina",
           "Cijena",
           "Jedinica mjere",
           "Iznos bez PDV",
@@ -223,24 +217,32 @@ doc.text(datumText, datumX, 120);
       },
     });
 
-    // Iznosi ispod tabele desno
     const startY = doc.lastAutoTable.finalY + 10;
     const textX = pageWidth - rightMargin;
 
-    doc.text(`Iznos bez PDV-a: ${invoice.totalNoVat.toFixed(2)} KM`, textX, startY, { align: "right" });
-    doc.text(`PDV (17%): ${invoice.vat.toFixed(2)} KM`, textX, startY + 6, { align: "right" });
-    doc.text(`Ukupan iznos sa PDV-om: ${invoice.total.toFixed(2)} KM`, textX, startY + 12, { align: "right" });
+    doc.text(`Iznos bez PDV-a: ${invoice.totalNoVat.toFixed(2)} KM`, textX, startY, {
+      align: "right",
+    });
+    doc.text(`PDV (17%): ${invoice.vat.toFixed(2)} KM`, textX, startY + 6, {
+      align: "right",
+    });
+    doc.text(`Ukupan iznos sa PDV-om: ${invoice.total.toFixed(2)} KM`, textX, startY + 12, {
+      align: "right",
+    });
 
-    // Slovima ispod ukupnog iznosa
-    doc.text(`Slovima: ${invoice.amountInWords || ""}`, textX, startY + 18, { align: "right" });
+    doc.text(`Slovima: ${invoice.amountInWords || ""}`, textX, startY + 18, {
+      align: "right",
+    });
 
-    // Ostali podaci ispod
     doc.text(`Broj fiskalnog računa: ${913 + Number(invoice.number)}`, 14, startY + 30);
     doc.text(`Broj ugovora: ${invoice.contractNumber || ""}`, 14, startY + 36);
     doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm || ""}`, 14, startY + 42);
-    doc.text("Transakcijski račun broj: 1941410306700108 kod ProCredit banke", 14, startY + 48);
+    doc.text(
+      "Transakcijski račun broj: 1941410306700108 kod ProCredit banke",
+      14,
+      startY + 48
+    );
 
-    // Potpis vlasnika
     const line = "_______________________________";
     const lineWidth = doc.getTextWidth(line);
     const vlasnikText = "VLASNIK";
@@ -251,22 +253,22 @@ doc.text(datumText, datumX, 120);
     doc.text(vlasnikText, vlasnikX, startY + 78);
     doc.text(line, lineX, startY + 96);
 
-    doc.save(`Faktura_${formatInvoiceNumber(invoice.number, invoice.date).replace('/', '-')}.pdf`);
+    doc.save(`Faktura_${formatInvoiceNumber(invoice.number, invoice.date).replace("/", "-")}.pdf`);
   };
 
   const deleteInvoice = (id) => {
     if (!window.confirm("Da li ste sigurni da želite obrisati ovu fakturu?")) return;
     fetch(`${BACKEND_URL}/api/invoices/${id}`, { method: "DELETE" })
-      .then(res => {
+      .then((res) => {
         if (!res.ok) throw new Error("Greška pri brisanju");
-        setInvoices(invoices.filter(inv => inv.id !== id));
+        setInvoices(invoices.filter((inv) => inv.id !== id));
       })
-      .catch(err => alert(err.message));
+      .catch((err) => alert(err.message));
   };
 
   function updateInvoiceField(id, field, value) {
-    setInvoices(prevInvoices =>
-      prevInvoices.map(invoice =>
+    setInvoices((prevInvoices) =>
+      prevInvoices.map((invoice) =>
         invoice.id === id ? { ...invoice, [field]: value } : invoice
       )
     );
@@ -277,7 +279,7 @@ doc.text(datumText, datumX, 120);
     }).catch(() => alert("Greška pri ažuriranju fakture"));
   }
 
-  const filteredInvoices = invoices.filter(inv => {
+  const filteredInvoices = invoices.filter((inv) => {
     if (showUnpaidOnly && inv.paymentDate) return false;
     if (showPaidOnly && !inv.paymentDate) return false;
     if (filterClientId && inv.clientId !== filterClientId) return false;
@@ -292,12 +294,12 @@ doc.text(datumText, datumX, 120);
         <Select
           placeholder="Filtriraj po klijentu"
           value={filterClientId}
-          onChange={e => setFilterClientId(e.target.value)}
+          onChange={(e) => setFilterClientId(e.target.value)}
           maxW="200px"
           size="sm"
         >
           <option value="">Svi klijenti</option>
-          {clients.map(c => (
+          {clients.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
@@ -310,7 +312,7 @@ doc.text(datumText, datumX, 120);
             id="unpaidOnly"
             checked={showUnpaidOnly}
             onChange={() => {
-              setShowUnpaidOnly(prev => !prev);
+              setShowUnpaidOnly((prev) => !prev);
               if (!showUnpaidOnly) setShowPaidOnly(false);
             }}
           />
@@ -323,7 +325,7 @@ doc.text(datumText, datumX, 120);
             id="paidOnly"
             checked={showPaidOnly}
             onChange={() => {
-              setShowPaidOnly(prev => !prev);
+              setShowPaidOnly((prev) => !prev);
               if (!showPaidOnly) setShowUnpaidOnly(false);
             }}
           />
@@ -334,7 +336,9 @@ doc.text(datumText, datumX, 120);
           colorScheme="blue"
           onClick={() => {
             if (!filterClientId && !showUnpaidOnly && !showPaidOnly) {
-              alert("Molimo odaberite bar jedan filter: klijent ili plaćene/neplaćene fakture.");
+              alert(
+                "Molimo odaberite bar jedan filter: klijent ili plaćene/neplaćene fakture."
+              );
               return;
             }
             if (filteredInvoices.length === 0) {
@@ -346,17 +350,21 @@ doc.text(datumText, datumX, 120);
             doc.setFontSize(16);
             doc.text("Izvještaj faktura", 14, 20);
 
-         const bodyData = filteredInvoices.map((inv, idx) => {
-  const clientName = clients.find(c => c.id === inv.clientId)?.name || "Nepoznat";
-  const formattedDate = inv.date ? dayjs(inv.date).format('DD/MM/YYYY') : "";
-  return [
-    idx + 1,
-    inv.number,
-    clientName,
-    formattedDate,
-    typeof inv.total === "number" ? inv.total.toFixed(2) : "-"
-  ];
-});
+            const bodyData = filteredInvoices.map((inv, idx) => {
+              const clientName =
+                clients.find((c) => c.id === inv.clientId)?.name || "Nepoznat";
+              const formattedDate = inv.date
+                ? dayjs(inv.date).format("DD/MM/YYYY")
+                : "-";
+
+              return [
+                idx + 1,
+                inv.number,
+                clientName,
+                formattedDate,
+                typeof inv.total === "number" ? inv.total.toFixed(2) : "-",
+              ];
+            });
 
             autoTable(doc, {
               head: [["Br.", "Broj fakture", "Klijent", "Datum", "Ukupno KM"]],
@@ -367,14 +375,24 @@ doc.text(datumText, datumX, 120);
               alternateRowStyles: { fillColor: [240, 240, 240] },
             });
 
-            const totalSum = filteredInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+            const totalSum = filteredInvoices.reduce(
+              (sum, inv) => sum + (inv.total || 0),
+              0
+            );
 
             const finalY = doc.lastAutoTable?.finalY || 40;
             doc.setFontSize(12);
             doc.setTextColor(0, 0, 0);
-            doc.text(`Ukupno: ${totalSum.toFixed(2)} KM`, doc.internal.pageSize.getWidth() - 14, finalY + 10, { align: "right" });
+            doc.text(
+              `Ukupno: ${totalSum.toFixed(2)} KM`,
+              doc.internal.pageSize.getWidth() - 14,
+              finalY + 10,
+              { align: "right" }
+            );
 
-            doc.save(`Izvjestaj_faktura_${new Date().toISOString().slice(0, 10)}.pdf`);
+            doc.save(
+              `Izvjestaj_faktura_${new Date().toISOString().slice(0, 10)}.pdf`
+            );
           }}
           minW="200px"
         >
@@ -382,16 +400,28 @@ doc.text(datumText, datumX, 120);
         </Button>
       </Flex>
 
-      <Flex wrap="wrap" gap={2} mb={6} alignItems="center" justifyContent="flex-start">
-        <Input value={number} isReadOnly placeholder="Broj fakture" maxW="100px" size="sm" />
+      <Flex
+        wrap="wrap"
+        gap={2}
+        mb={6}
+        alignItems="center"
+        justifyContent="flex-start"
+      >
+        <Input
+          value={number}
+          isReadOnly
+          placeholder="Broj fakture"
+          maxW="100px"
+          size="sm"
+        />
         <Select
           placeholder="Odaberi klijenta"
           value={clientId}
-          onChange={e => setClientId(e.target.value)}
+          onChange={(e) => setClientId(e.target.value)}
           maxW="200px"
           size="sm"
         >
-          {clients.map(c => (
+          {clients.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
@@ -400,7 +430,7 @@ doc.text(datumText, datumX, 120);
         <Input
           type="date"
           value={date}
-          onChange={e => setDate(e.target.value)}
+          onChange={(e) => setDate(e.target.value)}
           maxW="160px"
           size="sm"
         />
@@ -415,7 +445,7 @@ doc.text(datumText, datumX, 120);
           type="number"
           value={quantity}
           min={1}
-          onChange={e => setQuantity(Number(e.target.value))}
+          onChange={(e) => setQuantity(Number(e.target.value))}
           maxW="80px"
           size="sm"
         />
@@ -423,7 +453,7 @@ doc.text(datumText, datumX, 120);
           type="number"
           value={price}
           min={0}
-          onChange={e => setPrice(e.target.value)}
+          onChange={(e) => setPrice(e.target.value)}
           placeholder="Cijena"
           maxW="100px"
           size="sm"
@@ -445,12 +475,17 @@ doc.text(datumText, datumX, 120);
         />
         <Input
           value={amountInWords}
-          onChange={e => setAmountInWords(e.target.value)}
+          onChange={(e) => setAmountInWords(e.target.value)}
           placeholder="Slovima"
           maxW="200px"
           size="sm"
         />
-        <Button colorScheme="green" onClick={saveInvoice} fontWeight="bold" size="sm">
+        <Button
+          colorScheme="green"
+          onClick={saveInvoice}
+          fontWeight="bold"
+          size="sm"
+        >
           Snimi fakturu
         </Button>
         <Button
@@ -467,75 +502,107 @@ doc.text(datumText, datumX, 120);
       </Flex>
 
       <Flex justify="space-between" mb={4} fontWeight="bold" maxW="450px" mr="auto">
-        <Text>Iznos bez PDV: {typeof totalNoVat === "number" ? totalNoVat.toFixed(2) : "-"} KM</Text>
+        <Text>
+          Iznos bez PDV:{" "}
+          {typeof totalNoVat === "number" ? totalNoVat.toFixed(2) : "-"} KM
+        </Text>
         <Text>PDV 17%: {typeof vat === "number" ? vat.toFixed(2) : "-"} KM</Text>
         <Text>Ukupno: {typeof total === "number" ? total.toFixed(2) : "-"} KM</Text>
       </Flex>
 
-      <Heading size="md" mb={4}>Lista faktura</Heading>
+      <Heading size="md" mb={4}>
+        Lista faktura
+      </Heading>
 
-  <Table variant="striped" colorScheme="orange" size="sm" borderRadius="md" overflow="hidden">
-  <Thead bg="transparent" color="inherit">
-    <Tr>
-      <Th>Broj fakture</Th>
-      <Th>Klijent</Th>
-      <Th>Datum izdavanja</Th>
-      <Th>Ukupno (KM)</Th>
-      <Th>Datum plaćanja</Th>
-      <Th>Broj izvoda</Th>
-      <Th>Akcije</Th>
-    </Tr>
-  </Thead>
-  <Tbody bg="orange.50">
-    {filteredInvoices.length === 0 ? (
-      <Tr>
-        <Td colSpan={7} textAlign="center">Nema unesenih faktura.</Td>
-      </Tr>
-    ) : (
-      filteredInvoices.map(inv => {
-        const clientName = clients.find(c => c.id === inv.clientId)?.name || "Nepoznat";
-        return (
-          <Tr key={inv.id} _even={{ bg: "orange.100" }}>
-            <Td>{inv.number}</Td>
-            <Td>{clientName}</Td>
-            <Td>{inv.date ? dayjs(inv.date).format('DD/MM/YYYY') : "-"}</Td>
-            <Td>{typeof inv.total === "number" ? inv.total.toFixed(2) : "-"}</Td>
-            <Td>
-              <Input
-                type="date"
-                value={inv.paymentDate || ""}
-                onChange={e => updateInvoiceField(inv.id, "paymentDate", e.target.value)}
-                width="140px"
-                size="sm"
-              />
-            </Td>
-            <Td>
-              <Input
-                type="text"
-                value={inv.paymentOrderNumber || ""}
-                onChange={e => updateInvoiceField(inv.id, "paymentOrderNumber", e.target.value)}
-                placeholder="Broj izvoda"
-                width="140px"
-                size="sm"
-              />
-            </Td>
-            <Td>
-              <Button size="sm" colorScheme="red" onClick={() => exportToPDF(inv)} mr={2}>
-                PDF
-              </Button>
-              <Button size="sm" colorScheme="yellow" onClick={() => alert("Opcija uređivanja u pripremi")} mr={2}>
-                Uredi
-              </Button>
-              <Button size="sm" colorScheme="red" onClick={() => deleteInvoice(inv.id)}>
-                Obriši
-              </Button>
-            </Td>
+      <Table
+        variant="striped"
+        colorScheme="orange"
+        size="sm"
+        borderRadius="md"
+        overflow="hidden"
+      >
+        <Thead bg="transparent" color="inherit">
+          <Tr>
+            <Th>Broj fakture</Th>
+            <Th>Klijent</Th>
+            <Th>Datum izdavanja</Th>
+            <Th>Ukupno (KM)</Th>
+            <Th>Datum plaćanja</Th>
+            <Th>Broj izvoda</Th>
+            <Th>Akcije</Th>
           </Tr>
-        );
-      })
-    )}
-  </Tbody>
-</Table>
+        </Thead>
+        <Tbody bg="orange.50">
+          {filteredInvoices.length === 0 ? (
+            <Tr>
+              <Td colSpan={7} textAlign="center">
+                Nema unesenih faktura.
+              </Td>
+            </Tr>
+          ) : (
+            filteredInvoices.map((inv) => {
+              const clientName =
+                clients.find((c) => c.id === inv.clientId)?.name || "Nepoznat";
+              return (
+                <Tr key={inv.id} _even={{ bg: "orange.100" }}>
+                  <Td>{inv.number}</Td>
+                  <Td>{clientName}</Td>
+                  <Td>{inv.date ? dayjs(inv.date).format("DD/MM/YYYY") : "-"}</Td>
+                  <Td>{typeof inv.total === "number" ? inv.total.toFixed(2) : "-"}</Td>
+                  <Td>
+                    <Input
+                      type="date"
+                      value={inv.paymentDate || ""}
+                      onChange={(e) =>
+                        updateInvoiceField(inv.id, "paymentDate", e.target.value)
+                      }
+                      width="140px"
+                      size="sm"
+                    />
+                  </Td>
+                  <Td>
+                    <Input
+                      type="text"
+                      value={inv.paymentOrderNumber || ""}
+                      onChange={(e) =>
+                        updateInvoiceField(inv.id, "paymentOrderNumber", e.target.value)
+                      }
+                      placeholder="Broj izvoda"
+                      width="140px"
+                      size="sm"
+                    />
+                  </Td>
+                  <Td>
+                    <Button
+                      size="sm"
+                      colorScheme="red"
+                      onClick={() => exportToPDF(inv)}
+                      mr={2}
+                    >
+                      PDF
+                    </Button>
+                    <Button
+                      size="sm"
+                      colorScheme="yellow"
+                      onClick={() => alert("Opcija uređivanja u pripremi")}
+                      mr={2}
+                    >
+                      Uredi
+                    </Button>
+                    <Button
+                      size="sm"
+                      colorScheme="red"
+                      onClick={() => deleteInvoice(inv.id)}
+                    >
+                      Obriši
+                    </Button>
+                  </Td>
+                </Tr>
+              );
+            })
+          )}
+        </Tbody>
+      </Table>
     </Box>
   );
 }
