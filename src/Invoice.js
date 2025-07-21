@@ -67,7 +67,6 @@ function Invoice() {
         return res.json();
       })
       .then((data) => {
-        // Ne moramo posebno konvertovati ovdje, jer formatDate radi provjeru
         setInvoices(data);
         if (data.length) {
           const maxNum = Math.max(
