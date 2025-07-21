@@ -276,18 +276,26 @@ function Invoice() {
       .catch((err) => alert(err.message));
   };
 
-  function updateInvoiceField(id, field, value) {
-    setInvoices((prevInvoices) =>
-      prevInvoices.map((invoice) =>
-        invoice.id === id ? { ...invoice, [field]: value } : invoice
-      )
-    );
-    fetch(`${BACKEND_URL}/api/invoices/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    }).catch(() => alert("Greška pri ažuriranju fakture"));
+function updateInvoiceField(id, field, value) {
+  let updatedValue = value;
+
+  // Ako se briše datum ili broj izvoda, šalji null umjesto ""
+  if ((field === "paymentDate" || field === "paymentOrderNumber") && (value === "" || value === null)) {
+    updatedValue = null;
   }
+
+  setInvoices((prevInvoices) =>
+    prevInvoices.map((invoice) =>
+      invoice.id === id ? { ...invoice, [field]: updatedValue } : invoice
+    )
+  );
+
+  fetch(`${BACKEND_URL}/api/invoices/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [field]: updatedValue }),
+  }).catch(() => alert("Greška pri ažuriranju fakture"));
+}
 
   const filteredInvoices = invoices.filter((inv) => {
     if (showUnpaidOnly && inv.paymentDate) return false;
