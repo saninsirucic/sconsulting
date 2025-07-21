@@ -181,7 +181,7 @@ const exportToPDF = (invoice) => {
     startY: 130,
     margin: { left: M, right: M },
     head: [[
-      "Redni broj","Opis usluge","Količina","Cijena",
+      "Redni broj","Opis usluge","Kolicina","Cijena",
       "Jedinica mjere","Iznos bez PDV","PDV (17%)","Ukupan iznos sa PDV-om"
     ]],
     body: [[
