@@ -346,13 +346,14 @@ function Invoice() {
             doc.setFontSize(16);
             doc.text("Izvještaj faktura", 14, 20);
 
-            const bodyData = filteredInvoices.map((inv, idx) => {
+         const bodyData = filteredInvoices.map((inv, idx) => {
   const clientName = clients.find(c => c.id === inv.clientId)?.name || "Nepoznat";
+  const formattedDate = inv.date ? dayjs(inv.date).format('DD/MM/YYYY') : "";
   return [
     idx + 1,
     inv.number,
     clientName,
-    dayjs(inv.date).format('DD/MM/YYYY'),
+    formattedDate,
     typeof inv.total === "number" ? inv.total.toFixed(2) : "-"
   ];
 });
