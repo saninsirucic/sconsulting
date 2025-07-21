@@ -284,347 +284,349 @@ function updateInvoiceField(id, field, value) {
     updatedValue = null;
   }
 
-  setInvoices((prevInvoices) =>
-    prevInvoices.map((invoice) =>
-      invoice.id === id ? { ...invoice, [field]: updatedValue } : invoice
-    )
-  );
-
   fetch(`${BACKEND_URL}/api/invoices/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ [field]: updatedValue }),
-  }).catch(() => alert("Greška pri ažuriranju fakture"));
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error("Greška pri ažuriranju fakture");
+      // Nakon uspješnog updatea ponovo dohvat faktura
+      return fetch(`${BACKEND_URL}/api/invoices`);
+    })
+    .then((res) => res.json())
+    .then((data) => setInvoices(data)) // Update state sa novim podacima
+    .catch(() => alert("Greška pri ažuriranju fakture"));
 }
 
-  const filteredInvoices = invoices.filter((inv) => {
-    if (showUnpaidOnly && inv.paymentDate) return false;
-    if (showPaidOnly && !inv.paymentDate) return false;
-    if (filterClientId && inv.clientId !== filterClientId) return false;
-    return true;
-  });
+const filteredInvoices = invoices.filter((inv) => {
+  if (showUnpaidOnly && inv.paymentDate) return false;
+  if (showPaidOnly && !inv.paymentDate) return false;
+  if (filterClientId && inv.clientId !== filterClientId) return false;
+  return true;
+});
 
-  return (
-    <Box p={5}>
-      <Heading mb={6}>Nova faktura</Heading>
+return (
+  <Box p={5}>
+    <Heading mb={6}>Nova faktura</Heading>
 
-      <Flex mb={4} gap={4} alignItems="center">
-        <Select
-          placeholder="Filtriraj po klijentu"
-          value={filterClientId}
-          onChange={(e) => setFilterClientId(e.target.value)}
-          maxW="200px"
-          size="sm"
-        >
-          <option value="">Svi klijenti</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
-
-        <Flex alignItems="center" gap={2}>
-          <input
-            type="checkbox"
-            id="unpaidOnly"
-            checked={showUnpaidOnly}
-            onChange={() => {
-              setShowUnpaidOnly((prev) => !prev);
-              if (!showUnpaidOnly) setShowPaidOnly(false);
-            }}
-          />
-          <label htmlFor="unpaidOnly">Prikaži samo neplaćene</label>
-        </Flex>
-
-        <Flex alignItems="center" gap={2} ml={4}>
-          <input
-            type="checkbox"
-            id="paidOnly"
-            checked={showPaidOnly}
-            onChange={() => {
-              setShowPaidOnly((prev) => !prev);
-              if (!showPaidOnly) setShowUnpaidOnly(false);
-            }}
-          />
-          <label htmlFor="paidOnly">Prikaži samo plaćene</label>
-        </Flex>
-
-        <Button
-          colorScheme="blue"
-          onClick={() => {
-            if (!filterClientId && !showUnpaidOnly && !showPaidOnly) {
-              alert(
-                "Molimo odaberite bar jedan filter: klijent ili plaćene/neplaćene fakture."
-              );
-              return;
-            }
-            if (filteredInvoices.length === 0) {
-              alert("Nema faktura koje zadovoljavaju kriterije.");
-              return;
-            }
-            const doc = new jsPDF();
-
-            doc.setFontSize(16);
-            doc.text("Izvještaj faktura", 14, 20);
-
-            const bodyData = filteredInvoices.map((inv, idx) => {
-              const clientName =
-                clients.find((c) => c.id === inv.clientId)?.name || "Nepoznat";
-              const formattedDate = formatDate(inv.date);
-
-              return [
-                idx + 1,
-                inv.number,
-                clientName,
-                formattedDate,
-                typeof inv.total === "number" ? inv.total.toFixed(2) : "-",
-              ];
-            });
-
-            autoTable(doc, {
-              head: [["Br.", "Broj fakture", "Klijent", "Datum", "Ukupno KM"]],
-              body: bodyData,
-              startY: 30,
-              styles: { fontSize: 10 },
-              headStyles: { fillColor: [41, 128, 185] },
-              alternateRowStyles: { fillColor: [240, 240, 240] },
-            });
-
-            const totalSum = filteredInvoices.reduce(
-              (sum, inv) => sum + (inv.total || 0),
-              0
-            );
-
-            const finalY = doc.lastAutoTable?.finalY || 40;
-            doc.setFontSize(12);
-            doc.setTextColor(0, 0, 0);
-            doc.text(
-              `Ukupno: ${totalSum.toFixed(2)} KM`,
-              doc.internal.pageSize.getWidth() - 14,
-              finalY + 10,
-              { align: "right" }
-            );
-
-            doc.save(
-              `Izvjestaj_faktura_${new Date().toISOString().slice(0, 10)}.pdf`
-            );
-          }}
-          minW="200px"
-        >
-          Generiši PDF (Filtrirano)
-        </Button>
-      </Flex>
-
-      <Flex
-        wrap="wrap"
-        gap={2}
-        mb={6}
-        alignItems="center"
-        justifyContent="flex-start"
-      >
-        <Input
-          value={number}
-          isReadOnly
-          placeholder="Broj fakture"
-          maxW="100px"
-          size="sm"
-        />
-        <Select
-          placeholder="Odaberi klijenta"
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          maxW="200px"
-          size="sm"
-        >
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
-        <Input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          maxW="160px"
-          size="sm"
-        />
-        <Input
-          value={description}
-          readOnly
-          maxW="220px"
-          size="sm"
-          textAlign="center"
-        />
-        <Input
-          type="number"
-          value={quantity}
-          min={1}
-          onChange={(e) => setQuantity(Number(e.target.value))}
-          maxW="80px"
-          size="sm"
-        />
-        <Input
-          type="number"
-          value={price}
-          min={0}
-          onChange={(e) => setPrice(e.target.value)}
-          placeholder="Cijena"
-          maxW="100px"
-          size="sm"
-        />
-        <Input value={unit} readOnly maxW="80px" size="sm" />
-        <Input
-          value={selectedClient.contractNumber || ""}
-          readOnly
-          placeholder="Broj ugovora"
-          maxW="120px"
-          size="sm"
-        />
-        <Input
-          value={selectedClient.paymentTerm || ""}
-          readOnly
-          placeholder="Rok plaćanja (dana)"
-          maxW="120px"
-          size="sm"
-        />
-        <Input
-          value={amountInWords}
-          onChange={(e) => setAmountInWords(e.target.value)}
-          placeholder="Slovima"
-          maxW="200px"
-          size="sm"
-        />
-        <Button
-          colorScheme="green"
-          onClick={saveInvoice}
-          fontWeight="bold"
-          size="sm"
-        >
-          Snimi fakturu
-        </Button>
-        <Button
-          colorScheme="red"
-          onClick={() => {
-            if (!invoices.length)
-              return alert("Nema sačuvanih faktura za izvoz.");
-            exportToPDF(invoices[invoices.length - 1]);
-          }}
-          fontWeight="bold"
-          size="sm"
-        >
-          Izvezi PDF zadnje fakture
-        </Button>
-      </Flex>
-
-      <Flex justify="space-between" mb={4} fontWeight="bold" maxW="450px" mr="auto">
-        <Text>
-          Iznos bez PDV:{" "}
-          {typeof totalNoVat === "number" ? totalNoVat.toFixed(2) : "-"} KM
-        </Text>
-        <Text>PDV 17%: {typeof vat === "number" ? vat.toFixed(2) : "-"} KM</Text>
-        <Text>Ukupno: {typeof total === "number" ? total.toFixed(2) : "-"} KM</Text>
-      </Flex>
-
-      <Heading size="md" mb={4}>
-        Lista faktura
-      </Heading>
-
-      <Table
-        variant="striped"
-        colorScheme="orange"
+    <Flex mb={4} gap={4} alignItems="center">
+      <Select
+        placeholder="Filtriraj po klijentu"
+        value={filterClientId}
+        onChange={(e) => setFilterClientId(e.target.value)}
+        maxW="200px"
         size="sm"
-        borderRadius="md"
-        overflow="hidden"
       >
-        <Thead bg="transparent" color="inherit">
+        <option value="">Svi klijenti</option>
+        {clients.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </Select>
+
+      <Flex alignItems="center" gap={2}>
+        <input
+          type="checkbox"
+          id="unpaidOnly"
+          checked={showUnpaidOnly}
+          onChange={() => {
+            setShowUnpaidOnly((prev) => !prev);
+            if (!showUnpaidOnly) setShowPaidOnly(false);
+          }}
+        />
+        <label htmlFor="unpaidOnly">Prikaži samo neplaćene</label>
+      </Flex>
+
+      <Flex alignItems="center" gap={2} ml={4}>
+        <input
+          type="checkbox"
+          id="paidOnly"
+          checked={showPaidOnly}
+          onChange={() => {
+            setShowPaidOnly((prev) => !prev);
+            if (!showPaidOnly) setShowUnpaidOnly(false);
+          }}
+        />
+        <label htmlFor="paidOnly">Prikaži samo plaćene</label>
+      </Flex>
+
+      <Button
+        colorScheme="blue"
+        onClick={() => {
+          if (!filterClientId && !showUnpaidOnly && !showPaidOnly) {
+            alert(
+              "Molimo odaberite bar jedan filter: klijent ili plaćene/neplaćene fakture."
+            );
+            return;
+          }
+          if (filteredInvoices.length === 0) {
+            alert("Nema faktura koje zadovoljavaju kriterije.");
+            return;
+          }
+          const doc = new jsPDF();
+
+          doc.setFontSize(16);
+          doc.text("Izvještaj faktura", 14, 20);
+
+          const bodyData = filteredInvoices.map((inv, idx) => {
+            const clientName =
+              clients.find((c) => c.id === inv.clientId)?.name || "Nepoznat";
+            const formattedDate = formatDate(inv.date);
+
+            return [
+              idx + 1,
+              inv.number,
+              clientName,
+              formattedDate,
+              typeof inv.total === "number" ? inv.total.toFixed(2) : "-",
+            ];
+          });
+
+          autoTable(doc, {
+            head: [["Br.", "Broj fakture", "Klijent", "Datum", "Ukupno KM"]],
+            body: bodyData,
+            startY: 30,
+            styles: { fontSize: 10 },
+            headStyles: { fillColor: [41, 128, 185] },
+            alternateRowStyles: { fillColor: [240, 240, 240] },
+          });
+
+          const totalSum = filteredInvoices.reduce(
+            (sum, inv) => sum + (inv.total || 0),
+            0
+          );
+
+          const finalY = doc.lastAutoTable?.finalY || 40;
+          doc.setFontSize(12);
+          doc.setTextColor(0, 0, 0);
+          doc.text(
+            `Ukupno: ${totalSum.toFixed(2)} KM`,
+            doc.internal.pageSize.getWidth() - 14,
+            finalY + 10,
+            { align: "right" }
+          );
+
+          doc.save(
+            `Izvjestaj_faktura_${new Date().toISOString().slice(0, 10)}.pdf`
+          );
+        }}
+        minW="200px"
+      >
+        Generiši PDF (Filtrirano)
+      </Button>
+    </Flex>
+
+    <Flex
+      wrap="wrap"
+      gap={2}
+      mb={6}
+      alignItems="center"
+      justifyContent="flex-start"
+    >
+      <Input
+        value={number}
+        isReadOnly
+        placeholder="Broj fakture"
+        maxW="100px"
+        size="sm"
+      />
+      <Select
+        placeholder="Odaberi klijenta"
+        value={clientId}
+        onChange={(e) => setClientId(e.target.value)}
+        maxW="200px"
+        size="sm"
+      >
+        {clients.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </Select>
+      <Input
+        type="date"
+        value={date}
+        onChange={(e) => setDate(e.target.value)}
+        maxW="160px"
+        size="sm"
+      />
+      <Input
+        value={description}
+        readOnly
+        maxW="220px"
+        size="sm"
+        textAlign="center"
+      />
+      <Input
+        type="number"
+        value={quantity}
+        min={1}
+        onChange={(e) => setQuantity(Number(e.target.value))}
+        maxW="80px"
+        size="sm"
+      />
+      <Input
+        type="number"
+        value={price}
+        min={0}
+        onChange={(e) => setPrice(e.target.value)}
+        placeholder="Cijena"
+        maxW="100px"
+        size="sm"
+      />
+      <Input value={unit} readOnly maxW="80px" size="sm" />
+      <Input
+        value={selectedClient.contractNumber || ""}
+        readOnly
+        placeholder="Broj ugovora"
+        maxW="120px"
+        size="sm"
+      />
+      <Input
+        value={selectedClient.paymentTerm || ""}
+        readOnly
+        placeholder="Rok plaćanja (dana)"
+        maxW="120px"
+        size="sm"
+      />
+      <Input
+        value={amountInWords}
+        onChange={(e) => setAmountInWords(e.target.value)}
+        placeholder="Slovima"
+        maxW="200px"
+        size="sm"
+      />
+      <Button
+        colorScheme="green"
+        onClick={saveInvoice}
+        fontWeight="bold"
+        size="sm"
+      >
+        Snimi fakturu
+      </Button>
+      <Button
+        colorScheme="red"
+        onClick={() => {
+          if (!invoices.length)
+            return alert("Nema sačuvanih faktura za izvoz.");
+          exportToPDF(invoices[invoices.length - 1]);
+        }}
+        fontWeight="bold"
+        size="sm"
+      >
+        Izvezi PDF zadnje fakture
+      </Button>
+    </Flex>
+
+    <Flex justify="space-between" mb={4} fontWeight="bold" maxW="450px" mr="auto">
+      <Text>
+        Iznos bez PDV:{" "}
+        {typeof totalNoVat === "number" ? totalNoVat.toFixed(2) : "-"} KM
+      </Text>
+      <Text>PDV 17%: {typeof vat === "number" ? vat.toFixed(2) : "-"} KM</Text>
+      <Text>Ukupno: {typeof total === "number" ? total.toFixed(2) : "-"} KM</Text>
+    </Flex>
+
+    <Heading size="md" mb={4}>
+      Lista faktura
+    </Heading>
+
+    <Table
+      variant="striped"
+      colorScheme="orange"
+      size="sm"
+      borderRadius="md"
+      overflow="hidden"
+    >
+      <Thead bg="transparent" color="inherit">
+        <Tr>
+          <Th>Broj fakture</Th>
+          <Th>Klijent</Th>
+          <Th>Datum izdavanja</Th>
+          <Th>Ukupno (KM)</Th>
+          <Th>Datum plaćanja</Th>
+          <Th>Broj izvoda</Th>
+          <Th>Akcije</Th>
+        </Tr>
+      </Thead>
+      <Tbody bg="orange.50">
+        {filteredInvoices.length === 0 ? (
           <Tr>
-            <Th>Broj fakture</Th>
-            <Th>Klijent</Th>
-            <Th>Datum izdavanja</Th>
-            <Th>Ukupno (KM)</Th>
-            <Th>Datum plaćanja</Th>
-            <Th>Broj izvoda</Th>
-            <Th>Akcije</Th>
+            <Td colSpan={7} textAlign="center">
+              Nema unesenih faktura.
+            </Td>
           </Tr>
-        </Thead>
-        <Tbody bg="orange.50">
-          {filteredInvoices.length === 0 ? (
-            <Tr>
-              <Td colSpan={7} textAlign="center">
-                Nema unesenih faktura.
-              </Td>
-            </Tr>
-          ) : (
-            filteredInvoices.map((inv) => {
-              const clientName =
-                clients.find((c) => c.id === inv.clientId)?.name || "Nepoznat";
-              return (
-                <Tr key={inv.id} _even={{ bg: "orange.100" }}>
-                  <Td>{inv.number}</Td>
-                  <Td>{clientName}</Td>
-                  <Td>{formatDate(inv.date)}</Td>
-                  <Td>{typeof inv.total === "number" ? inv.total.toFixed(2) : "-"}</Td>
-                  <Td>
-                    <Input
-                      type="date"
-                      value={inv.paymentDate ? inv.paymentDate.slice(0, 10) : ""}
-                      onChange={(e) =>
-                        updateInvoiceField(
-                          inv.id,
-                          "paymentDate",
-                          e.target.value === "" ? null : e.target.value
-                        )
-                      }
-                      width="140px"
-                      size="sm"
-                    />
-                  </Td>
-                  <Td>
-                    <Input
-                      type="text"
-                      value={inv.paymentOrderNumber || ""}
-                      onChange={(e) =>
-                        updateInvoiceField(inv.id, "paymentOrderNumber", e.target.value)
-                      }
-                      placeholder="Broj izvoda"
-                      width="140px"
-                      size="sm"
-                    />
-                  </Td>
-                  <Td>
-                    <Button
-                      size="sm"
-                      colorScheme="red"
-                      onClick={() => exportToPDF(inv)}
-                      mr={2}
-                    >
-                      PDF
-                    </Button>
-                    <Button
-                      size="sm"
-                      colorScheme="yellow"
-                      onClick={() => alert("Opcija uređivanja u pripremi")}
-                      mr={2}
-                    >
-                      Uredi
-                    </Button>
-                    <Button
-                      size="sm"
-                      colorScheme="red"
-                      onClick={() => deleteInvoice(inv.id)}
-                    >
-                      Obriši
-                    </Button>
-                  </Td>
-                </Tr>
-              );
-            })
-          )}
-        </Tbody>
-      </Table>
-    </Box>
+        ) : (
+          filteredInvoices.map((inv) => {
+            const clientName =
+              clients.find((c) => c.id === inv.clientId)?.name || "Nepoznat";
+            return (
+              <Tr key={inv.id} _even={{ bg: "orange.100" }}>
+                <Td>{inv.number}</Td>
+                <Td>{clientName}</Td>
+                <Td>{formatDate(inv.date)}</Td>
+                <Td>{typeof inv.total === "number" ? inv.total.toFixed(2) : "-"}</Td>
+                <Td>
+                  <Input
+                    type="date"
+                    value={inv.paymentDate ? inv.paymentDate.slice(0, 10) : ""}
+                    onChange={(e) =>
+                      updateInvoiceField(
+                        inv.id,
+                        "paymentDate",
+                        e.target.value === "" ? null : e.target.value
+                      )
+                    }
+                    width="140px"
+                    size="sm"
+                  />
+                </Td>
+                <Td>
+                  <Input
+                    type="text"
+                    value={inv.paymentOrderNumber || ""}
+                    onChange={(e) =>
+                      updateInvoiceField(inv.id, "paymentOrderNumber", e.target.value)
+                    }
+                    placeholder="Broj izvoda"
+                    width="140px"
+                    size="sm"
+                  />
+                </Td>
+                <Td>
+                  <Button
+                    size="sm"
+                    colorScheme="red"
+                    onClick={() => exportToPDF(inv)}
+                    mr={2}
+                  >
+                    PDF
+                  </Button>
+                  <Button
+                    size="sm"
+                    colorScheme="yellow"
+                    onClick={() => alert("Opcija uređivanja u pripremi")}
+                    mr={2}
+                  >
+                    Uredi
+                  </Button>
+                  <Button
+                    size="sm"
+                    colorScheme="red"
+                    onClick={() => deleteInvoice(inv.id)}
+                  >
+                    Obriši
+                  </Button>
+                </Td>
+              </Tr>
+            );
+          })
+        )}
+      </Tbody>
+    </Table>
+  </Box>
   );
 }
 
