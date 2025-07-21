@@ -474,68 +474,68 @@ doc.text(datumText, datumX, 120);
 
       <Heading size="md" mb={4}>Lista faktura</Heading>
 
-      <Table variant="striped" colorScheme="orange" size="sm" borderRadius="md" overflow="hidden">
-        <Thead bg="transparent" color="inherit">
-          <Tr>
-            <Th>Broj fakture</Th>
-            <Th>Klijent</Th>
-            <Th>Datum izdavanja</Th>
-            <Th>Ukupno (KM)</Th>
-            <Th>Datum plaćanja</Th>
-            <Th>Broj izvoda</Th>
-            <Th>Akcije</Th>
+  <Table variant="striped" colorScheme="orange" size="sm" borderRadius="md" overflow="hidden">
+  <Thead bg="transparent" color="inherit">
+    <Tr>
+      <Th>Broj fakture</Th>
+      <Th>Klijent</Th>
+      <Th>Datum izdavanja</Th>
+      <Th>Ukupno (KM)</Th>
+      <Th>Datum plaćanja</Th>
+      <Th>Broj izvoda</Th>
+      <Th>Akcije</Th>
+    </Tr>
+  </Thead>
+  <Tbody bg="orange.50">
+    {filteredInvoices.length === 0 ? (
+      <Tr>
+        <Td colSpan={7} textAlign="center">Nema unesenih faktura.</Td>
+      </Tr>
+    ) : (
+      filteredInvoices.map(inv => {
+        const clientName = clients.find(c => c.id === inv.clientId)?.name || "Nepoznat";
+        return (
+          <Tr key={inv.id} _even={{ bg: "orange.100" }}>
+            <Td>{inv.number}</Td>
+            <Td>{clientName}</Td>
+            <Td>{inv.date ? dayjs(inv.date).format('DD/MM/YYYY') : "-"}</Td>
+            <Td>{typeof inv.total === "number" ? inv.total.toFixed(2) : "-"}</Td>
+            <Td>
+              <Input
+                type="date"
+                value={inv.paymentDate || ""}
+                onChange={e => updateInvoiceField(inv.id, "paymentDate", e.target.value)}
+                width="140px"
+                size="sm"
+              />
+            </Td>
+            <Td>
+              <Input
+                type="text"
+                value={inv.paymentOrderNumber || ""}
+                onChange={e => updateInvoiceField(inv.id, "paymentOrderNumber", e.target.value)}
+                placeholder="Broj izvoda"
+                width="140px"
+                size="sm"
+              />
+            </Td>
+            <Td>
+              <Button size="sm" colorScheme="red" onClick={() => exportToPDF(inv)} mr={2}>
+                PDF
+              </Button>
+              <Button size="sm" colorScheme="yellow" onClick={() => alert("Opcija uređivanja u pripremi")} mr={2}>
+                Uredi
+              </Button>
+              <Button size="sm" colorScheme="red" onClick={() => deleteInvoice(inv.id)}>
+                Obriši
+              </Button>
+            </Td>
           </Tr>
-        </Thead>
-        <Tbody bg="orange.50">
-          {filteredInvoices.length === 0 ? (
-            <Tr>
-              <Td colSpan={7} textAlign="center">Nema unesenih faktura.</Td>
-            </Tr>
-          ) : (
-            filteredInvoices.map(inv => {
-              const clientName = clients.find(c => c.id === inv.clientId)?.name || "Nepoznat";
-              return (
-                <Tr key={inv.id} _even={{ bg: "orange.100" }}>
-                  <Td>{inv.number}</Td>
-                  <Td>{clientName}</Td>
-                  <Td>{inv.date}</Td>
-                  <Td>{typeof inv.total === "number" ? inv.total.toFixed(2) : "-"}</Td>
-                  <Td>
-                    <Input
-                      type="date"
-                      value={inv.paymentDate || ""}
-                      onChange={e => updateInvoiceField(inv.id, "paymentDate", e.target.value)}
-                      width="140px"
-                      size="sm"
-                    />
-                  </Td>
-                  <Td>
-                    <Input
-                      type="text"
-                      value={inv.paymentOrderNumber || ""}
-                      onChange={e => updateInvoiceField(inv.id, "paymentOrderNumber", e.target.value)}
-                      placeholder="Broj izvoda"
-                      width="140px"
-                      size="sm"
-                    />
-                  </Td>
-                  <Td>
-                    <Button size="sm" colorScheme="red" onClick={() => exportToPDF(inv)} mr={2}>
-                      PDF
-                    </Button>
-                    <Button size="sm" colorScheme="yellow" onClick={() => alert("Opcija uređivanja u pripremi")} mr={2}>
-                      Uredi
-                    </Button>
-                    <Button size="sm" colorScheme="red" onClick={() => deleteInvoice(inv.id)}>
-                      Obriši
-                    </Button>
-                  </Td>
-                </Tr>
-              );
-            })
-          )}
-        </Tbody>
-      </Table>
+        );
+      })
+    )}
+  </Tbody>
+</Table>
     </Box>
   );
 }
