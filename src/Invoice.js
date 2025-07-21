@@ -172,13 +172,13 @@ function Invoice() {
     doc.text(`ID broj: ${client.companyId || ""}`, 14, 93);
     doc.text(`PDV broj: ${client.pib || ""}`, 14, 100);
 
-    // Faktura broj i datum
-    doc.setFontSize(26);
-    doc.text(`Faktura broj: ${invoice.number}`, 14, 120);
-    doc.setFontSize(12);
-    const datumText = `Datum izdavanja: ${invoice.date}`;
-    const datumX = pageWidth - rightMargin - doc.getTextWidth(datumText);
-    doc.text(datumText, datumX, 120);
+// Faktura broj i datum
+doc.setFontSize(26);
+doc.text(`Faktura broj: ${invoice.number}`, 14, 120);
+doc.setFontSize(12);
+const datumText = `Datum izdavanja: ${dayjs(invoice.date).format('DD/MM/YYYY')}`;
+const datumX = pageWidth - rightMargin - doc.getTextWidth(datumText);
+doc.text(datumText, datumX, 120);
 
     // Tabela fakture
     autoTable(doc, {
