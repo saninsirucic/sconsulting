@@ -276,8 +276,9 @@ async function getNextInvoiceNumber(date) {
 
 // NOVO: Funkcija za dobijanje sljedećeg fiskalnog broja (kreće od 913)
 async function getNextFiscalNumber() {
+  // Evo ispravljen SQL sa navodnicima oko kolone
   const lastInvoice = await db('invoices')
-    .orderByRaw("CAST(fiscalNumber AS INTEGER) DESC")
+    .orderByRaw('CAST("fiscalNumber" AS INTEGER) DESC')
     .first();
 
   if (!lastInvoice || !lastInvoice.fiscalNumber) {
