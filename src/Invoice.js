@@ -181,7 +181,7 @@ const exportToPDF = (invoice) => {
     startY: 130,
     margin: { left: M, right: M },
     head: [[
-      "Redni broj","Opis usluge","Količina","Cijena",
+      "Redni broj","Opis usluge","Kolicina","Cijena",
       "Jedinica mjere","Iznos bez PDV","PDV (17%)","Ukupan iznos sa PDV-om"
     ]],
     body: [[
@@ -228,7 +228,7 @@ const exportToPDF = (invoice) => {
   // ovdje vadimo samo broj prije "/" i parsiramo ga u integer
   const rawNum = String(invoice.number).split("/")[0];
   const numVal = parseInt(rawNum, 10) || 0;
-  const fiscalNum = 913 + numVal;
+  const fiscalNum = 490 + numVal;
 
   doc.text(`Broj fiskalnog računa: ${fiscalNum}`, M, afterY+30);
   doc.text(`Broj ugovora: ${invoice.contractNumber}`, M, afterY+36);
