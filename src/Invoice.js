@@ -96,47 +96,53 @@ function Invoice() {
   const vat = +(totalNoVat * 0.17).toFixed(2);
   const total = +(totalNoVat + vat).toFixed(2);
 
-  const saveInvoice = () => {
-    if (!clientId || price === "") {
-      alert("Popunite sva polja!");
-      return;
-    }
-    const faktura = {
-      number,
-      clientId,
-      date,
-      description,
-      quantity,
-      price: Number(price),
-      unit,
-      contractNumber: selectedClient.contractNumber,
-      paymentTerm: selectedClient.paymentTerm,
-      totalNoVat,
-      vat,
-      total,
-      amountInWords,
-      paymentDate: "",
-      paymentOrderNumber: "",
-    };
-    fetch(`${BACKEND_URL}/api/invoices`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(faktura),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Greška pri čuvanju fakture");
-        return res.json();
-      })
-      .then((newInvoice) => {
-        setInvoices((prev) => [...prev, newInvoice]);
-        setNumber((prev) => prev + 1);
-        setQuantity(1);
-        setPrice("");
-        setAmountInWords("");
-        alert(`Faktura broj ${newInvoice.number} je sačuvana.`);
-      })
-      .catch((err) => alert(err.message));
+ const saveInvoice = () => {
+  if (!clientId || price === "") {
+    alert("Popunite sva polja!");
+    return;
+  }
+
+  // Formatiraj broj fakture s godinom (npr. "225/25")
+  const formattedNumber = formatInvoiceNumber(number, date);
+
+  const faktura = {
+    number: formattedNumber,
+    clientId,
+    date,
+    description,
+    quantity,
+    price: Number(price),
+    unit,
+    contractNumber: selectedClient.contractNumber,
+    paymentTerm: selectedClient.paymentTerm,
+    totalNoVat,
+    vat,
+    total,
+    amountInWords,
+    paymentDate: null,             // šalje NULL umjesto ""
+    paymentOrderNumber: null       // šalje NULL umjesto ""
   };
+
+  fetch(`${BACKEND_URL}/api/invoices`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(faktura),
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error("Greška pri čuvanju fakture");
+      return res.json();
+    })
+    .then((newInvoice) => {
+      setInvoices((prev) => [...prev, newInvoice]);
+      setNumber((prev) => prev + 1);
+      setQuantity(1);
+      setPrice("");
+      setAmountInWords("");
+      alert(`Faktura broj ${newInvoice.number} je sačuvana.`);
+    })
+    .catch((err) => alert(err.message));
+};
+
 
 const exportToPDF = (invoice) => {
   const doc = new jsPDF();
