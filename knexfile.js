@@ -1,31 +1,34 @@
+// backend/knexfile.js
+const path = require('path');
+
 module.exports = {
   development: {
-    client: "sqlite3",
+    client: 'sqlite3',
     connection: {
-      filename: "./data/mydb.sqlite"
+      filename: path.resolve(__dirname, 'data', 'mydb.sqlite')
     },
     useNullAsDefault: true,
     migrations: {
-      directory: './migrations'
+      directory: path.resolve(__dirname, 'migrations'),
+      tableName: 'knex_migrations'
     },
     seeds: {
-      directory: './seeds'
+      directory: path.resolve(__dirname, 'seeds')
     }
   },
 
   production: {
-    client: "pg",
+    client: 'pg',
     connection: {
       connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      }
+      ssl: { rejectUnauthorized: false }
     },
     migrations: {
-      directory: './migrations'
+      directory: path.resolve(__dirname, 'migrations'),
+      tableName: 'knex_migrations'
     },
     seeds: {
-      directory: './seeds'
+      directory: path.resolve(__dirname, 'seeds')
     },
     pool: {
       min: 0,
