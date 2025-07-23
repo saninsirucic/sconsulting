@@ -278,15 +278,15 @@ async function getNextInvoiceNumber(date) {
 async function getNextFiscalNumber() {
   // Evo ispravljen SQL sa navodnicima oko kolone
   const lastInvoice = await db('invoices')
-    .orderByRaw('CAST("fiscalNumber" AS INTEGER) DESC')
+    .orderByRaw('CAST("fiscal_number" AS INTEGER) DESC')
     .first();
 
-  if (!lastInvoice || !lastInvoice.fiscalNumber) {
+  if (!lastInvoice || !lastInvoice.fiscal_number) {
     return 913;
   }
 
-  return parseInt(lastInvoice.fiscalNumber, 10) + 1;
-}
+  return parseInt(lastInvoice.fiscal_number, 10) + 1;
+ }
 
 // ** OVJERENA RUTA SA JOINOM DA VRATI IME KLIJENTA **
 app.get('/api/invoices', async (req, res) => {
@@ -331,24 +331,24 @@ app.post('/api/invoices', async (req, res) => {
     const id = uuidv4();
 
     await db('invoices').insert({
-      id,
-      number: invoiceNumber,
-      fiscalNumber: nextFiscalNumber.toString(),
-      clientId,
-      date,
-      description,
-      quantity,
-      price,
-      unit,
-      totalNoVat,
-      vat,
-      total,
-      amountInWords,
-      contractNumber,
-      paymentTerm,
-      paymentDate: safePaymentDate,
-      paymentOrderNumber: safePaymentOrderNumber
-    });
+  id,
+  number: invoiceNumber,
+  fiscal_number: nextFiscalNumber.toString(),
+  clientId,
+  date,
+  description,
+  quantity,
+  price,
+  unit,
+  totalNoVat,
+  vat,
+  total,
+  amountInWords,
+  contractNumber,
+  paymentTerm,
+  paymentDate: safePaymentDate,
+  paymentOrderNumber: safePaymentOrderNumber
+});
 
     const invoice = await db('invoices').where({ id }).first();
     res.json(invoice);
