@@ -3,7 +3,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 
 const knex = require("knex");
-const environment = process.env.NODE_ENV || 'development';
+const environment = process.env.DATABASE_URL ? "production" : "development";
 const config = require("./knexfile")[environment];
 const db = knex(config);
 
