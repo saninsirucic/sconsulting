@@ -267,7 +267,7 @@ async function getNextInvoiceNumber(date) {
     .first();
 
   if (!lastInvoice) {
-    return 223;
+    return 1;
   }
 
   const lastNumber = parseInt(lastInvoice.number.split('/')[0], 10);
@@ -506,6 +506,25 @@ app.delete('/api/kufs/:id', async (req, res) => {
 
 app.get('/', (req, res) => {
   res.send('✅ Backend server radi ispravno!');
+});
+
+// ✅ DEBUG: verzija backenda (da znamo koji kod radi)
+app.get("/api/version", (req, res) => {
+  res.json({
+    build: "INV_START_01_TEST_2026-01-17",
+    time: new Date().toISOString()
+  });
+});
+
+// ✅ DEBUG: koliko faktura ima u bazi
+app.get("/api/invoices/debug-count", async (req, res) => {
+  try {
+    const total = await db("invoices").count("* as c").first();
+    const y26 = await db("invoices").whereRaw("number LIKE ?", ["%/26"]).count("* as c").first();
+    res.json({ total: Number(total.c), y26: Number(y26.c) });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 // START SERVER
