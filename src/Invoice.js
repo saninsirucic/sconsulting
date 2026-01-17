@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
@@ -307,19 +308,13 @@ function Invoice() {
     doc.text(`Rok plaćanja (dana): ${invoice.paymentTerm}`, M, afterY + 42);
     doc.text("Transakcijski račun broj: 1941410306700108 kod ProCredit banke", M, afterY + 48);
 
-<<<<<<< HEAD
     const line = "_______________________________";
     const lw = doc.getTextWidth(line);
     const lx = W - M - lw;
     const ly = afterY + 78;
     doc.text("VLASNIK", lx + (lw - doc.getTextWidth("VLASNIK")) / 2, ly);
     doc.text(line, lx, ly + 18);
-=======
-  // ovdje vadimo samo broj prije "/" i parsiramo ga u integer
-  const rawNum = String(invoice.number).split("/")[0];
-  const numVal = parseInt(rawNum, 10) || 0;
-  const fiscalNum = 496 + numVal;  // 496 = 719 - 223
->>>>>>> ec9592fe6cc6da95adbe46d61be7f207f71deac1
+
 
     // — SPREMI PDF —
     // invoice.number je već u formatu "NN/YY" (npr. 01/26) → samo zamijeni "/" u "-"
