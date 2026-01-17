@@ -278,7 +278,7 @@ async function getNextInvoiceNumber(date) {
 async function getNextFiscalNumber() {
   // Sad koristimo kolonu fiscal_number kako stvarno postoji u DB
   const lastInvoice = await db('invoices')
-    .orderByRaw('CAST("fiscal_number" AS INTEGER) DESC')
+    .orderByRaw('CAST(\"fiscal_number\" AS INTEGER) DESC')
     .first();
 
   if (!lastInvoice || !lastInvoice.fiscal_number) {
@@ -287,7 +287,6 @@ async function getNextFiscalNumber() {
 
   return parseInt(lastInvoice.fiscal_number, 10) + 1;
 }
-
 
 // ** OVJERENA RUTA SA JOINOM DA VRATI IME KLIJENTA **
 app.get('/api/invoices', async (req, res) => {
@@ -323,33 +322,37 @@ app.post('/api/invoices', async (req, res) => {
 
   try {
     console.log("Poziv baze: unos nove fakture");
+
     const nextNumber = await getNextInvoiceNumber(date);
     const yearSuffix = new Date(date).getFullYear().toString().slice(-2);
-    const invoiceNumber = `${nextNumber}/${yearSuffix}`;
+
+    // ✅ KLJUČNA IZMJENA: broj fakture uvijek ima 2 cifre (01/26, 02/26, ...)
+    const padded = String(nextNumber).padStart(2, "0");
+    const invoiceNumber = `${padded}/${yearSuffix}`;
 
     const nextFiscalNumber = await getNextFiscalNumber();
 
     const id = uuidv4();
 
     await db('invoices').insert({
-  id,
-  number: invoiceNumber,
-  fiscal_number: nextFiscalNumber.toString(),
-  clientId,
-  date,
-  description,
-  quantity,
-  price,
-  unit,
-  totalNoVat,
-  vat,
-  total,
-  amountInWords,
-  contractNumber,
-  paymentTerm,
-  paymentDate: safePaymentDate,
-  paymentOrderNumber: safePaymentOrderNumber
-});
+      id,
+      number: invoiceNumber,
+      fiscal_number: nextFiscalNumber.toString(),
+      clientId,
+      date,
+      description,
+      quantity,
+      price,
+      unit,
+      totalNoVat,
+      vat,
+      total,
+      amountInWords,
+      contractNumber,
+      paymentTerm,
+      paymentDate: safePaymentDate,
+      paymentOrderNumber: safePaymentOrderNumber
+    });
 
     const invoice = await db('invoices').where({ id }).first();
     res.json(invoice);
