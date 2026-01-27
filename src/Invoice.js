@@ -305,7 +305,7 @@ function Invoice() {
     // ovdje vadimo samo broj prije "/" i parsiramo ga u integer
     const rawNum = String(invoice.number).split("/")[0];
     const numVal = parseInt(rawNum, 10) || 0;
-    const fiscalNum = 490 + numVal;
+    const fiscalNum = 956 + numVal;
 
     doc.text(`Broj fiskalnog računa: ${fiscalNum}`, M, afterY + 30);
     doc.text(`Broj ugovora: ${invoice.contractNumber}`, M, afterY + 36);
