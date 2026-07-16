@@ -1,6 +1,9 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const { authenticateCredentials, createAccessToken } = require('./aiEmail/auth');
+const { createAiEmailRouter } = require('./aiEmail/router');
 
 const knex = require("knex");
 const environment = process.env.NODE_ENV || 'development';
@@ -8,7 +11,6 @@ const config = require("./knexfile")[environment];
 const db = knex(config);
 
 console.log("NODE_ENV =", process.env.NODE_ENV);
-console.log("DATABASE_URL =", process.env.DATABASE_URL);
 
 db.raw('select 1+1 as result')
   .then(() => {
@@ -23,8 +25,24 @@ const { v4: uuidv4 } = require("uuid");
 const app = express();
 
 // CORS konfiguracija — dozvoli samo tvoju frontend adresu
+const configuredOrigin = (() => {
+  try {
+    return process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : null;
+  } catch (error) {
+    return null;
+  }
+})();
+const allowedOrigins = new Set([
+  'https://saninsirucic.github.io',
+  'http://localhost:3000',
+  'http://localhost:3002',
+  configuredOrigin
+].filter(Boolean));
 const corsOptions = {
-  origin: 'https://saninsirucic.github.io',
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('CORS origin nije dozvoljen'));
+  },
   optionsSuccessStatus: 200
 };
 
@@ -33,21 +51,26 @@ app.use(cors(corsOptions));
 // Podrži OPTIONS preflight zahtjeve
 app.options('*', cors(corsOptions));
 
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '1mb' }));
 
 // Ograniči broj istovremenih konekcija na bazu ako treba
 // db.client.pool.max = 5; // opcionalno
 
-let users = [
-  { username: "sanin", password: "1234" }
-];
-
 // LOGIN
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = users.find(u => u.username === username && u.password === password);
-  res.json({ success: !!user });
+  try {
+    const user = await authenticateCredentials(username, password);
+    if (!user) return res.status(401).json({ success: false, error: 'Pogrešno korisničko ime ili lozinka.' });
+    return res.json({ success: true, token: createAccessToken(user), user });
+  } catch (error) {
+    console.error('Greška konfiguracije prijave:', error.message);
+    return res.status(503).json({ success: false, error: 'Prijava trenutno nije dostupna.' });
+  }
 });
+
+// Novi modul je izolovan i sve njegove rute zahtijevaju JWT.
+app.use('/api/ai-email', createAiEmailRouter({ db }));
 
 // --- CLIENTS ---
 app.get('/api/clients', async (req, res) => {
@@ -509,5 +532,14 @@ app.get('/', (req, res) => {
 });
 
 // START SERVER
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = Number(error.status || (error.name === 'MulterError' ? 400 : 500));
+  if (status >= 500) console.error('AI mail API greška:', error.message);
+  return res.status(status).json({
+    error: status >= 500 ? 'Došlo je do interne greške.' : error.message
+  });
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅ Backend server radi na portu ${PORT}`));
