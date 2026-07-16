@@ -22,6 +22,7 @@ import {
   FaFileAlt,
   FaHome,
   FaCalendarAlt,
+  FaEnvelopeOpenText,
 } from "react-icons/fa";
 import dayjs from "dayjs";
 
@@ -31,6 +32,7 @@ import PlanForm from "./PlanForm";
 import Invoice from "./Invoice";
 import KUF from "./KUF";
 import Sanitarne from "./Sanitarne";
+import AiMailModule from "./AiMailModule";
 import logo from "./logo.png";
 import { BACKEND_URL } from "./config";
 
@@ -43,6 +45,7 @@ const menuItems = [
   { key: "kuf", label: "KUF", icon: FaFileAlt },
   { key: "sanitarne", label: "Sanitarne knjižice", icon: FaBookOpen },
   { key: "calendar", label: "Kalendar", icon: FaCalendarAlt },
+  { key: "ai-mailovi", label: "AI mailovi", icon: FaEnvelopeOpenText },
 ];
 
 const mainColor = "#f68b1f";
@@ -52,13 +55,26 @@ function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
-    // Ako želiš login preko backenda, zamijeni ovaj dio s fetchom na BACKEND_URL/api/auth/login
-    if (username === "admin" && password === "1234") {
-      onLogin(username);
-    } else {
-      setError("Pogrešno korisničko ime ili lozinka.");
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success || !result.token) {
+        throw new Error(result.error || "Pogrešno korisničko ime ili lozinka.");
+      }
+      onLogin({ user: result.user, token: result.token });
+    } catch (requestError) {
+      setError(requestError.message || "Prijava trenutno nije dostupna.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -76,9 +92,10 @@ function Login({ onLogin }) {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
         />
         {error && <Text color="red.500">{error}</Text>}
-        <Button colorScheme="orange" width="full" onClick={handleSubmit}>
+        <Button colorScheme="orange" width="full" isLoading={loading} onClick={handleSubmit}>
           Prijavi se
         </Button>
       </VStack>
@@ -170,7 +187,14 @@ function Calendar() {
 }
 
 function App() {
-  const [user, setUser] = useState(null);
+  const [session, setSession] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("sconsulting-session")) || null;
+    } catch (error) {
+      return null;
+    }
+  });
+  const user = session?.user;
   const [page, setPage] = useState("home");
   const [clients, setClients] = useState([]);
 
@@ -184,12 +208,16 @@ function App() {
   }, [user]);
 
   const handleLogout = () => {
-    setUser(null);
+    sessionStorage.removeItem("sconsulting-session");
+    setSession(null);
     setPage("home");
   };
 
   if (!user) {
-    return <Login onLogin={(username) => setUser(username)} />;
+    return <Login onLogin={(nextSession) => {
+      sessionStorage.setItem("sconsulting-session", JSON.stringify(nextSession));
+      setSession(nextSession);
+    }} />;
   }
 
   const HomePage = () => (
@@ -241,8 +269,8 @@ function App() {
         align="center"
         bg={mainColor}
         color="#fff"
-        h="70px"
-        px="34px"
+        minH="70px"
+        px={{ base: "12px", md: "34px" }}
         boxShadow="0 2px 10px rgba(246,139,31,0.09)"
       >
         <Image
@@ -321,12 +349,12 @@ function App() {
 
       {/* SADRŽAJ */}
       <Box
-        maxW="1100px"
+        maxW={page === "ai-mailovi" ? "1500px" : "1100px"}
         mx="auto"
-        mt="40px"
+        mt={{ base: "18px", md: "40px" }}
         bg="#fff"
         borderRadius="20px"
-        p="40px"
+        p={{ base: "16px", md: "40px" }}
         boxShadow="0 2px 18px 0px #f68b1f19, 0 1.5px 2px #1dba5b13"
         minH="400px"
       >
@@ -338,6 +366,7 @@ function App() {
         {page === "kuf" && <KUF clients={clients} />}
         {page === "sanitarne" && <Sanitarne />}
         {page === "calendar" && <Calendar />}
+        {page === "ai-mailovi" && <AiMailModule token={session.token} />}
       </Box>
     </Box>
   );

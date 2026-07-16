@@ -1,9 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
-import { BACKEND_URL } from "./config";
 
-test('renders learn react link', () => {
+beforeEach(() => sessionStorage.clear());
+
+test('prikazuje sigurnu prijavu prije internog dashboarda', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByText('Prijava')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Prijavi se' })).toBeInTheDocument();
 });

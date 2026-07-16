@@ -198,15 +198,6 @@ function KUF() {
     }
   }
 
-  function handleKufIzvodChange(index, value) {
-    if (editIndex === index) {
-      setEditData((prev) => ({ ...prev, izvodBroj: value }));
-    } else {
-      const kuf = kufs[index];
-      updateKuf(kuf.id, { ...kuf, izvodBroj: value });
-    }
-  }
-
   const filteredKufs = kufs.filter((kuf) => {
     if (showPaidOnly) return kuf.placeno === true;
     if (showUnpaidOnly) return kuf.placeno === false;

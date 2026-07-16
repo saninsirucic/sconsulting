@@ -3,4 +3,10 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
-import { BACKEND_URL } from "./config";
+import { TextDecoder, TextEncoder } from 'util';
+
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder;
+
+// jsPDF provjerava canvas pri importu; jsdom ga nema bez native canvas paketa.
+HTMLCanvasElement.prototype.getContext = jest.fn(() => null);
