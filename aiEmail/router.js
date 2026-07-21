@@ -5,6 +5,21 @@ const { allowRoles, authenticateRequest } = require('./auth');
 const { FIELD_DEFINITIONS, isValidEmail, normalizeCompanyName, normalizeEmail } = require('./contactUtils');
 const { analyzeExcel } = require('./excelService');
 const { importContacts } = require('./importService');
+const { logActivity } = require('./activityLog');
+const { generateEmailDraft } = require('./draftGenerator');
+const {
+  approveDraft,
+  createCampaign,
+  generateCampaignDrafts,
+  getCampaign,
+  getDraft,
+  listCampaigns,
+  listDrafts,
+  returnDraftForEditing,
+  saveDraft,
+  submitDraft,
+  updateCampaign
+} = require('./campaignService');
 
 const CONTACT_SORT_FIELDS = new Set([
   'company_name', 'email', 'country', 'city', 'priority', 'status', 'created_at', 'updated_at'
@@ -65,24 +80,12 @@ function normalizeContactInput(body, existing = {}) {
   };
 }
 
-async function audit(db, user, action, entityType, entityId, metadata = {}) {
-  await db('email_activity_logs').insert({
-    id: uuidv4(),
-    actor_id: user.id,
-    action,
-    entity_type: entityType,
-    entity_id: entityId,
-    metadata_json: JSON.stringify(metadata),
-    created_at: new Date()
-  });
-}
-
 async function scalarCount(query) {
   const row = await query.count({ count: '*' }).first();
   return Number(row ? row.count : 0);
 }
 
-function createAiEmailRouter({ db }) {
+function createAiEmailRouter({ db, draftGenerator = generateEmailDraft }) {
   const router = express.Router();
   const maxUploadBytes = parsePositiveInt(process.env.AI_EMAIL_MAX_UPLOAD_MB, 10, 25) * 1024 * 1024;
   const upload = multer({
@@ -113,7 +116,8 @@ function createAiEmailRouter({ db }) {
           && process.env.MICROSOFT_CLIENT_ID
           && process.env.MICROSOFT_CLIENT_SECRET
         ),
-        openAiConfigured: Boolean(process.env.OPENAI_API_KEY)
+        openAiConfigured: Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL),
+        openAiModel: process.env.OPENAI_MODEL || null
       }
     });
   });
@@ -209,7 +213,7 @@ function createAiEmailRouter({ db }) {
       created_at: now,
       updated_at: now
     });
-    await audit(db, req.user, 'CONTACT_CREATED', 'email_contact', id);
+    await logActivity(db, req.user, 'CONTACT_CREATED', 'email_contact', id);
     res.status(201).json(await db('email_contacts').where({ id }).first());
   }));
 
@@ -223,7 +227,7 @@ function createAiEmailRouter({ db }) {
       .first();
     if (duplicate) return res.status(409).json({ error: 'Kontakt sa ovom e-mail adresom već postoji.' });
     await db('email_contacts').where({ id: existing.id }).update({ ...contact, updated_at: new Date() });
-    await audit(db, req.user, 'CONTACT_UPDATED', 'email_contact', existing.id);
+    await logActivity(db, req.user, 'CONTACT_UPDATED', 'email_contact', existing.id);
     res.json(await db('email_contacts').where({ id: existing.id }).first());
   }));
 
@@ -233,7 +237,7 @@ function createAiEmailRouter({ db }) {
       updated_at: new Date()
     });
     if (!updated) return res.status(404).json({ error: 'Kontakt nije pronađen.' });
-    await audit(db, req.user, 'CONTACT_ARCHIVED', 'email_contact', req.params.id);
+    await logActivity(db, req.user, 'CONTACT_ARCHIVED', 'email_contact', req.params.id);
     res.json({ success: true });
   }));
 
@@ -257,7 +261,7 @@ function createAiEmailRouter({ db }) {
         status: 'CANCELLED', cancel_reason: 'SUPPRESSED', updated_at: now
       });
     });
-    await audit(db, req.user, 'CONTACT_SUPPRESSED', 'email_contact', contact.id, { reason });
+    await logActivity(db, req.user, 'CONTACT_SUPPRESSED', 'email_contact', contact.id, { reason });
     res.json({ success: true });
   }));
 
@@ -307,11 +311,80 @@ function createAiEmailRouter({ db }) {
       }
     });
 
-    await audit(db, req.user, action === 'ARCHIVE' ? 'CONTACTS_ARCHIVED' : 'CONTACTS_SUPPRESSED', 'email_contact_batch', null, {
+    await logActivity(db, req.user, action === 'ARCHIVE' ? 'CONTACTS_ARCHIVED' : 'CONTACTS_SUPPRESSED', 'email_contact_batch', null, {
       requested: ids.length,
       affected: contacts.length
     });
     res.json({ success: true, affected: contacts.length });
+  }));
+
+  router.get('/campaigns', asyncRoute(async (req, res) => {
+    res.json(await listCampaigns(db));
+  }));
+
+  router.post('/campaigns', asyncRoute(async (req, res) => {
+    res.status(201).json(await createCampaign({ db, user: req.user, body: req.body || {} }));
+  }));
+
+  router.get('/campaigns/:id', asyncRoute(async (req, res) => {
+    const campaign = await getCampaign(db, req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Kampanja nije pronađena.' });
+    res.json(campaign);
+  }));
+
+  router.put('/campaigns/:id', asyncRoute(async (req, res) => {
+    res.json(await updateCampaign({
+      db,
+      user: req.user,
+      campaignId: req.params.id,
+      body: req.body || {}
+    }));
+  }));
+
+  router.post('/campaigns/:id/generate-drafts', asyncRoute(async (req, res) => {
+    res.status(201).json(await generateCampaignDrafts({
+      db,
+      user: req.user,
+      campaignId: req.params.id,
+      contactIds: req.body && req.body.contact_ids,
+      regenerate: Boolean(req.body && req.body.regenerate),
+      confirmed: Boolean(req.body && req.body.confirmed),
+      draftGenerator
+    }));
+  }));
+
+  router.get('/drafts', asyncRoute(async (req, res) => {
+    res.json(await listDrafts(db, {
+      campaignId: req.query.campaignId,
+      status: req.query.status
+    }));
+  }));
+
+  router.get('/drafts/:id', asyncRoute(async (req, res) => {
+    const draft = await getDraft(db, req.params.id);
+    if (!draft) return res.status(404).json({ error: 'Nacrt nije pronađen.' });
+    res.json(draft);
+  }));
+
+  router.put('/drafts/:id', asyncRoute(async (req, res) => {
+    res.json(await saveDraft({ db, user: req.user, messageId: req.params.id, body: req.body || {} }));
+  }));
+
+  router.post('/drafts/:id/submit', asyncRoute(async (req, res) => {
+    res.json(await submitDraft({ db, user: req.user, messageId: req.params.id }));
+  }));
+
+  router.post('/drafts/:id/approve', allowRoles('direktor'), asyncRoute(async (req, res) => {
+    res.json(await approveDraft({ db, user: req.user, messageId: req.params.id }));
+  }));
+
+  router.post('/drafts/:id/return', asyncRoute(async (req, res) => {
+    res.json(await returnDraftForEditing({
+      db,
+      user: req.user,
+      messageId: req.params.id,
+      reason: req.body && req.body.reason
+    }));
   }));
 
   router.post('/import/analyze', upload.single('file'), asyncRoute(async (req, res) => {

@@ -19,8 +19,10 @@
     "jsonwebtoken": "^9.0.2",
     "knex": "^3.1.0",
     "multer": "^2.2.0",
+    "openai": "^6.48.0",
     "pg": "^8.16.3",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "zod": "^4.4.3"
   },
   "overrides": {
     "exceljs": {
