@@ -61,6 +61,7 @@ import {
   FaUsers
 } from 'react-icons/fa';
 import { aiMailRequest } from './aiMail/api';
+import { CampaignsPanel, DraftsPanel } from './aiMail/PhaseTwoPanels';
 
 const orange = '#f68b1f';
 const green = '#1dba5b';
@@ -183,7 +184,7 @@ function DashboardPanel({ token, refreshKey }) {
             <AlertIcon />
             <Box>
               <Text fontWeight="bold">Stvarno slanje nije aktivno</Text>
-              <Text fontSize="sm">Faza 1 nema mail provider niti queue putanju, pa nijedan mail ne može biti poslan.</Text>
+              <Text fontSize="sm">Faza 2 podržava samo generisanje, verzionisanje i ručno odobravanje nacrta. Mail provider i queue putanja ne postoje.</Text>
             </Box>
           </Alert>
         </Box>
@@ -567,18 +568,23 @@ function FuturePanel({ section }) {
   return <EmptyState title={`${section.label} — Faza ${section.phase}`} text="Podatkovna struktura je pripremljena, a funkcionalni UI dolazi u narednoj kontrolisanoj fazi." icon={section.icon} />;
 }
 
-function AiMailModule({ token }) {
+function AiMailModule({ token, user }) {
   const [sectionKey, setSectionKey] = useState('dashboard');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [draftCampaignId, setDraftCampaignId] = useState('');
   const section = MODULE_SECTIONS.find((item) => item.key === sectionKey) || MODULE_SECTIONS[0];
   const refresh = () => setRefreshKey((value) => value + 1);
+  const openCampaignDrafts = (campaignId) => {
+    setDraftCampaignId(campaignId);
+    setSectionKey('drafts');
+  };
 
   return (
     <Box>
-      <Flex justify="space-between" align={{ base: 'start', md: 'center' }} direction={{ base: 'column', md: 'row' }} gap={3} mb={5}>
+      <Flex justify="space-between" align={{ base: 'start', lg: 'center' }} direction={{ base: 'column', lg: 'row' }} gap={3} mb={5}>
         <Box>
-          <HStack><Icon as={FaRobot} color={orange} boxSize={6} /><Heading size="lg">AI mailovi</Heading><Badge colorScheme="orange">Faza 1</Badge></HStack>
-          <Text color="gray.600" mt={1}>Kontakti, siguran Excel uvoz i pregled prodajnih aktivnosti</Text>
+          <HStack><Icon as={FaRobot} color={orange} boxSize={6} /><Heading size="lg">AI mailovi</Heading><Badge colorScheme="orange">Faza 2</Badge></HStack>
+          <Text color="gray.600" mt={1}>Kontakti, kampanje te kontrolisano AI generisanje i odobravanje nacrta</Text>
         </Box>
         <Badge colorScheme="green" px={3} py={2} borderRadius="full">Testni režim • slanje isključeno</Badge>
       </Flex>
@@ -595,7 +601,9 @@ function AiMailModule({ token }) {
       {sectionKey === 'dashboard' && <DashboardPanel token={token} refreshKey={refreshKey} />}
       {sectionKey === 'contacts' && <ContactsPanel token={token} refreshKey={refreshKey} onChanged={refresh} />}
       {sectionKey === 'import' && <ImportPanel token={token} onImported={refresh} />}
-      {!['dashboard', 'contacts', 'import'].includes(sectionKey) && <FuturePanel section={section} />}
+      {sectionKey === 'campaigns' && <CampaignsPanel token={token} refreshKey={refreshKey} onChanged={refresh} onOpenDrafts={openCampaignDrafts} />}
+      {sectionKey === 'drafts' && <DraftsPanel token={token} user={user} campaignId={draftCampaignId} refreshKey={refreshKey} onChanged={refresh} />}
+      {!['dashboard', 'contacts', 'import', 'campaigns', 'drafts'].includes(sectionKey) && <FuturePanel section={section} />}
     </Box>
   );
 }

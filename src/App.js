@@ -266,42 +266,50 @@ function App() {
     <Box fontFamily="'Roboto', Arial, sans-serif" bg="#f5f7fa" minH="100vh">
       {/* TOP BAR */}
       <Flex
-        align="center"
+        align={{ base: "stretch", "2xl": "center" }}
+        direction={{ base: "column", "2xl": "row" }}
         bg={mainColor}
         color="#fff"
         minH="70px"
         px={{ base: "12px", md: "34px" }}
+        py={{ base: "12px", "2xl": 0 }}
+        gap={{ base: "10px", "2xl": 0 }}
         boxShadow="0 2px 10px rgba(246,139,31,0.09)"
       >
-        <Image
-          src={logo}
-          alt="S Consulting"
-          h="52px"
-          mr="22px"
-          bg="#fff"
-          borderRadius="13px"
-          p="5px"
-          cursor="pointer"
-          onClick={() => setPage("home")}
-        />
-        <Text
-          fontWeight="700"
-          fontSize="20px"
-          letterSpacing="1.5px"
-          color="#fff"
-          textShadow="0 1px 8px #f68b1f77"
-          cursor="pointer"
-          onClick={() => setPage("home")}
-          whiteSpace="nowrap"
-        >
-          Dobrodošli u S Consulting • Interni sistem
-        </Text>
-        <Spacer />
+        <Flex align="center" minW={0}>
+          <Image
+            src={logo}
+            alt="S Consulting"
+            h={{ base: "44px", md: "52px" }}
+            mr={{ base: "12px", md: "22px" }}
+            bg="#fff"
+            borderRadius="13px"
+            p="5px"
+            cursor="pointer"
+            flexShrink={0}
+            onClick={() => setPage("home")}
+          />
+          <Text
+            fontWeight="700"
+            fontSize={{ base: "16px", md: "20px" }}
+            letterSpacing={{ base: "0.6px", md: "1.5px" }}
+            color="#fff"
+            textShadow="0 1px 8px #f68b1f77"
+            cursor="pointer"
+            onClick={() => setPage("home")}
+            whiteSpace={{ base: "normal", sm: "nowrap" }}
+          >
+            Dobrodošli u S Consulting • Interni sistem
+          </Text>
+        </Flex>
+        <Spacer display={{ base: "none", "2xl": "block" }} />
         <Flex
           gap="12px"
           alignItems="center"
           flexWrap="nowrap"
           overflowX="auto"
+          w={{ base: "100%", "2xl": "auto" }}
+          pb={{ base: "2px", "2xl": 0 }}
           sx={{
             "&::-webkit-scrollbar": { display: "none" },
             scrollbarWidth: "none",
@@ -324,6 +332,7 @@ function App() {
                   borderBottom={page === item.key ? "4px solid #fff" : "none"}
                   boxShadow={page === item.key ? "0 3px 16px #1dba5b22" : "none"}
                   whiteSpace="nowrap"
+                  flexShrink={0}
                   _hover={{ bg: greenColor }}
                 >
                   {item.label}
@@ -335,8 +344,9 @@ function App() {
             fontWeight="bold"
             fontSize={{ base: "12px", sm: "14px", md: "16px", lg: "16px" }}
             borderRadius="9px"
-            ml="30px"
+            ml={{ base: 0, "2xl": "30px" }}
             px={{ base: "12px", sm: "16px", md: "20px", lg: "22px" }}
+            flexShrink={0}
             onClick={handleLogout}
             borderBottom="3px solid #fff"
             boxShadow="0 2px 14px #fff4"
@@ -366,7 +376,7 @@ function App() {
         {page === "kuf" && <KUF clients={clients} />}
         {page === "sanitarne" && <Sanitarne />}
         {page === "calendar" && <Calendar />}
-        {page === "ai-mailovi" && <AiMailModule token={session.token} />}
+        {page === "ai-mailovi" && <AiMailModule token={session.token} user={session.user} />}
       </Box>
     </Box>
   );
