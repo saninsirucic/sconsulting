@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "manage-user": "node scripts/manageUser.js"
   },
   "keywords": [],
   "author": "",

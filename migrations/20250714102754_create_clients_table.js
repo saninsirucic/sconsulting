@@ -1,4 +1,8 @@
-exports.up = function(knex) {
+exports.up = async function(knex) {
+  // The original production database predates Knex migration tracking for
+  // this table. Treat an existing table as the reconciled baseline so later
+  // migrations can run safely; fresh databases still create the table here.
+  if (await knex.schema.hasTable("clients")) return;
   return knex.schema.createTable("clients", (table) => {
     table.string("id").primary();
     table.string("name").notNullable();

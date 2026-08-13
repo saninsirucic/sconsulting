@@ -2,8 +2,23 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const { authenticateCredentials, createAccessToken } = require('./aiEmail/auth');
+const {
+  allowRoles,
+  authenticateCredentials,
+  authenticateRequest,
+  changePassword,
+  createAccessToken,
+  refreshAuthenticatedUser,
+  requirePasswordChangeCompleted
+} = require('./aiEmail/auth');
 const { createAiEmailRouter } = require('./aiEmail/router');
+const { createCommercialRouter } = require('./commercial/router');
+const {
+  createLoginAttemptLimiter,
+  limiterOptionsFromEnv,
+  loginAttemptKey,
+  sendRateLimitResponse
+} = require('./security/loginAttemptLimiter');
 
 const knex = require("knex");
 const environment = process.env.NODE_ENV || 'development';
@@ -23,6 +38,9 @@ db.raw('select 1+1 as result')
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
+// Heroku terminira TLS na jednom pouzdanom proxy hopu; req.ip tada ostaje stvarni klijent.
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+const loginAttemptLimiter = createLoginAttemptLimiter(limiterOptionsFromEnv());
 
 // CORS konfiguracija — dozvoli samo tvoju frontend adresu
 const configuredOrigin = (() => {
@@ -58,10 +76,21 @@ app.use(bodyParser.json({ limit: '1mb' }));
 
 // LOGIN
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } = req.body || {};
+  if (!String(username || '').trim() || !password) {
+    return res.status(400).json({ success: false, error: 'Korisničko ime i lozinka su obavezni.' });
+  }
+  const attemptKey = loginAttemptKey(req, username);
+  const currentLimit = loginAttemptLimiter.check(attemptKey);
+  if (currentLimit.blocked) return sendRateLimitResponse(res, currentLimit);
   try {
-    const user = await authenticateCredentials(username, password);
-    if (!user) return res.status(401).json({ success: false, error: 'Pogrešno korisničko ime ili lozinka.' });
+    const user = await authenticateCredentials(db, username, password);
+    if (!user) {
+      const failedLimit = loginAttemptLimiter.recordFailure(attemptKey);
+      if (failedLimit.blocked) return sendRateLimitResponse(res, failedLimit);
+      return res.status(401).json({ success: false, error: 'Pogrešno korisničko ime ili lozinka.' });
+    }
+    loginAttemptLimiter.clear(attemptKey);
     return res.json({ success: true, token: createAccessToken(user), user });
   } catch (error) {
     console.error('Greška konfiguracije prijave:', error.message);
@@ -69,8 +98,42 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Novi modul je izolovan i sve njegove rute zahtijevaju JWT.
-app.use('/api/ai-email', createAiEmailRouter({ db }));
+app.post(
+  '/api/auth/change-password',
+  authenticateRequest,
+  refreshAuthenticatedUser(db),
+  async (req, res, next) => {
+    try {
+      const user = await changePassword(
+        db,
+        req.user,
+        req.body && req.body.currentPassword,
+        req.body && req.body.newPassword
+      );
+      return res.json({ success: true, token: createAccessToken(user), user });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+// Sve API rute poslije login/change-password zahtijevaju aktivan JWT nalog.
+app.use('/api', authenticateRequest, refreshAuthenticatedUser(db), requirePasswordChangeCompleted);
+
+app.use('/api/commercial', createCommercialRouter({ db }));
+
+// Mail ostaje direktor-only do zasebno odobrene Outlook integracije.
+app.use('/api/ai-email', allowRoles('direktor'), createAiEmailRouter({ db }));
+
+// Naslijeđeni poslovni API nikad nije imao role; sada je izričito direktor-only.
+app.use([
+  '/api/clients',
+  '/api/executors',
+  '/api/plans',
+  '/api/invoices',
+  '/api/sanitarne',
+  '/api/kufs'
+], allowRoles('direktor'));
 
 // --- CLIENTS ---
 app.get('/api/clients', async (req, res) => {

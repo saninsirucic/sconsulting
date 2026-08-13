@@ -12,7 +12,8 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    const user = await authenticateCredentials(username, password);
+    // Compatibility-only router has no DB instance; use configured-user fallback.
+    const user = await authenticateCredentials(null, username, password);
     if (!user) return res.status(401).json({ error: 'Pogrešno korisničko ime ili lozinka.' });
     return res.json({ token: createAccessToken(user), user });
   } catch (error) {
