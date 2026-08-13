@@ -81,6 +81,7 @@ const defaultAttachmentLimit = 5;
 const defaultAttachmentBytes = 2500000;
 const defaultTotalAttachmentBytes = 5000000;
 const signatureLogoUrl = 'https://www.s-consulting.ba/logo-wordmark.png';
+const statusRetryDelays = process.env.NODE_ENV === 'test' ? [0, 0, 0] : [0, 1000, 3000];
 
 const folderIcons = {
   inbox: FaInbox,
@@ -118,6 +119,20 @@ function normalizeStatus(payload = {}) {
     maxAttachmentBytes: numericLimit(payload.limits?.maxAttachmentBytes ?? payload.limits?.max_attachment_bytes ?? payload.maxAttachmentBytes, defaultAttachmentBytes),
     maxTotalAttachmentBytes: numericLimit(payload.limits?.maxTotalAttachmentBytes ?? payload.limits?.max_total_attachment_bytes ?? payload.maxTotalAttachmentBytes, defaultTotalAttachmentBytes),
   };
+}
+
+async function getStatusWithRetry() {
+  let lastError;
+  for (const delay of statusRetryDelays) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      return await outlookApi.getStatus();
+    } catch (requestError) {
+      lastError = requestError;
+      if ([401, 403].includes(Number(requestError?.status))) throw requestError;
+    }
+  }
+  throw lastError || new Error('Outlook status nije dostupan.');
 }
 
 function buildFolderList(payload) {
@@ -174,6 +189,28 @@ function SetupRequired({ status, user }) {
           </Box>
         </Alert>
         {user?.role !== 'direktor' && <Text mt={4} fontSize="sm" color="gray.500">Obratite se direktoru kada administratorska postavka bude spremna.</Text>}
+      </Box>
+    </Flex>
+  );
+}
+
+function TemporarilyUnavailable({ message, onRetry, retrying }) {
+  return (
+    <Flex minH="470px" align="center" justify="center" p={{ base: 4, md: 10 }}>
+      <Box maxW="680px" w="full" border="1px solid" borderColor="blue.200" bg="blue.50" borderRadius="2xl" p={{ base: 6, md: 9 }}>
+        <Flex boxSize="56px" borderRadius="full" bg="white" color={outlookBlue} align="center" justify="center" boxShadow="sm" mb={5}>
+          <Icon as={FaRedo} boxSize={5} />
+        </Flex>
+        <Heading size="md">Outlook se ponovo povezuje</Heading>
+        <Text mt={3} color="gray.700">
+          Mailbox <Text as="span" fontWeight="bold">{OUTLOOK_MAILBOX}</Text> je podešen. Server je trenutno u kratkom restartu ili veza kasni; Microsoft dozvole nisu izgubljene.
+        </Text>
+        {message && <Text mt={3} fontSize="sm" color="gray.600">{message}</Text>}
+        <Alert status="info" mt={5} bg="white" borderRadius="xl">
+          <AlertIcon />
+          <AlertDescription>Aplikacija će automatski ponavljati provjeru. Nije potrebna nova administratorska postavka.</AlertDescription>
+        </Alert>
+        <Button mt={5} colorScheme="blue" leftIcon={<FaRedo />} onClick={onRetry} isLoading={retrying}>Pokušaj ponovo sada</Button>
       </Box>
     </Flex>
   );
@@ -534,6 +571,7 @@ export default function OutlookModule({ user }) {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [attachmentLoadingId, setAttachmentLoadingId] = useState('');
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [error, setError] = useState('');
   const [composeMode, setComposeMode] = useState('compose');
   const { isOpen: composeOpen, onOpen: openCompose, onClose: closeCompose } = useDisclosure();
@@ -580,11 +618,12 @@ export default function OutlookModule({ user }) {
     }
   }, [activeFolder, configured, search, unreadOnly]);
 
-  const initialize = useCallback(async () => {
-    setLoadingStatus(true);
+  const initialize = useCallback(async ({ showLoader = true } = {}) => {
+    if (showLoader) setLoadingStatus(true);
+    setStatusUnavailable(false);
     setError('');
     try {
-      const payload = normalizeStatus(await outlookApi.getStatus());
+      const payload = normalizeStatus(await getStatusWithRetry());
       setStatus(payload);
       if (payload.configured) {
         try {
@@ -609,13 +648,19 @@ export default function OutlookModule({ user }) {
       }
     } catch (requestError) {
       setError(requestError.message || 'Outlook status nije dostupan.');
-      setStatus(normalizeStatus({ configured: false, writeEnabled: false, message: 'Server trenutno ne može provjeriti Microsoft 365 konfiguraciju.' }));
+      setStatusUnavailable(true);
     } finally {
-      setLoadingStatus(false);
+      if (showLoader) setLoadingStatus(false);
     }
   }, [loadFolders]);
 
   useEffect(() => { initialize(); }, [initialize]);
+
+  useEffect(() => {
+    if (!statusUnavailable) return undefined;
+    const timer = setTimeout(() => initialize({ showLoader: false }), 10000);
+    return () => clearTimeout(timer);
+  }, [initialize, statusUnavailable]);
 
   useEffect(() => {
     if (!configured) return undefined;
@@ -712,7 +757,8 @@ export default function OutlookModule({ user }) {
     }
   };
 
-  if (loadingStatus) return <Flex minH="500px" align="center" justify="center" gap={3}><Spinner color={orange} size="lg" /><Text color="gray.600">Provjera shared mailboxa...</Text></Flex>;
+  if (loadingStatus || (!status && !statusUnavailable)) return <Flex minH="500px" align="center" justify="center" gap={3}><Spinner color={orange} size="lg" /><Text color="gray.600">Provjera shared mailboxa...</Text></Flex>;
+  if (!status && statusUnavailable) return <TemporarilyUnavailable message={error} onRetry={() => initialize()} retrying={loadingStatus} />;
 
   return (
     <Box mx={{ base: -2, md: -5 }} my={{ base: -2, md: -5 }}>
@@ -731,7 +777,7 @@ export default function OutlookModule({ user }) {
             <Text fontSize="xs" color="gray.500">{status.displayName || 'Nalog'}</Text>
             <HStack spacing={2}><Box boxSize="7px" borderRadius="full" bg={configured ? green : orange} /><Text fontSize="sm" fontWeight="bold">{status.mailbox}</Text></HStack>
           </Box>
-          <Badge colorScheme={configured ? 'green' : 'orange'} borderRadius="full" px={3} py={1}>{configured ? 'Aktivan' : 'Podešavanje potrebno'}</Badge>
+          <Badge colorScheme={statusUnavailable ? 'blue' : configured ? 'green' : 'orange'} borderRadius="full" px={3} py={1}>{statusUnavailable ? 'Ponovno povezivanje' : configured ? 'Aktivan' : 'Podešavanje potrebno'}</Badge>
           <Tooltip label={!writeEnabled ? 'Slanje je trenutno onemogućeno na serveru.' : ''} isDisabled={writeEnabled}>
             <Button bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPen />} isDisabled={!configured || !writeEnabled} onClick={() => openComposeFor('compose')}>Nova poruka</Button>
           </Tooltip>
@@ -746,7 +792,7 @@ export default function OutlookModule({ user }) {
               <Box><AlertTitle>Mailbox je u režimu samo za čitanje</AlertTitle><AlertDescription>Poruke možete pregledati i preuzimati priloge, ali slanje i izmjene su privremeno onemogućeni na serveru.</AlertDescription></Box>
             </Alert>
           )}
-          {error && <Alert status="error" borderRadius="none"><AlertIcon /><AlertDescription flex="1">{error}</AlertDescription><Button size="sm" variant="outline" colorScheme="red" onClick={refresh}>Pokušaj ponovo</Button></Alert>}
+          {error && <Alert status={statusUnavailable ? 'info' : 'error'} borderRadius="none"><AlertIcon /><AlertDescription flex="1">{error}</AlertDescription><Button size="sm" variant="outline" colorScheme={statusUnavailable ? 'blue' : 'red'} onClick={statusUnavailable ? () => initialize({ showLoader: false }) : refresh}>Pokušaj ponovo</Button></Alert>}
 
           <Grid templateColumns={{ base: '1fr', xl: '220px minmax(0, 1fr)' }} borderBottom="1px solid" borderColor="gray.200">
             <FolderNavigation folders={folders} activeFolder={activeFolder} onChange={(folder) => { setActiveFolder(normalizeFolderKey(folder)); setMessages([]); setNextCursor(''); setSelectedId(''); setSelectedMessage(null); }} />

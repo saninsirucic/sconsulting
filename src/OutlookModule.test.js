@@ -143,6 +143,34 @@ test('prikazuje jasan administratorski setup kada mailbox nije konfigurisan', as
   expect(screen.getByRole('button', { name: 'Nova poruka' })).toBeDisabled();
 });
 
+test('kratki prekid status poziva automatski se oporavlja bez lažnog setup alarma', async () => {
+  outlookApi.getStatus
+    .mockRejectedValueOnce(new Error('Privremeni restart servera'))
+    .mockResolvedValueOnce({ configured: true, writeEnabled: true, mailbox: 'sales@s-consulting.ba' });
+
+  renderModule();
+
+  expect(await screen.findByText('Ponuda za HACCP')).toBeInTheDocument();
+  expect(outlookApi.getStatus).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText('Outlook mailbox još nije podešen')).not.toBeInTheDocument();
+});
+
+test('duži prekid prikazuje ponovno povezivanje i ručni retry, ne administratorski setup', async () => {
+  outlookApi.getStatus.mockRejectedValue(new Error('Server se pokreće'));
+  renderModule();
+
+  expect(await screen.findByText('Outlook se ponovo povezuje')).toBeInTheDocument();
+  expect(outlookApi.getStatus).toHaveBeenCalledTimes(3);
+  expect(screen.queryByText('Outlook mailbox još nije podešen')).not.toBeInTheDocument();
+  expect(screen.getByText(/Microsoft dozvole nisu izgubljene/)).toBeInTheDocument();
+
+  outlookApi.getStatus.mockResolvedValue({ configured: true, writeEnabled: true, mailbox: 'sales@s-consulting.ba' });
+  fireEvent.click(screen.getByRole('button', { name: 'Pokušaj ponovo sada' }));
+
+  expect(await screen.findByText('Ponuda za HACCP')).toBeInTheDocument();
+  expect(screen.queryByText('Outlook se ponovo povezuje')).not.toBeInTheDocument();
+});
+
 test('read-only mailbox blokira sve write akcije', async () => {
   outlookApi.getStatus.mockResolvedValue({ configured: true, writeEnabled: false, mailbox: 'sales@s-consulting.ba' });
   renderModule();
