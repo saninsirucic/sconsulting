@@ -162,24 +162,24 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
         borderRadius={{ base: 0, md: 'md' }}
       >
         <ModalHeader px={{ base: 4, md: 6 }}>{record ? 'Uredi komitenta' : 'Novi komitent'}</ModalHeader>
-        <ModalCloseButton />
+        <ModalCloseButton minW="44px" minH="44px" />
         <ModalBody px={{ base: 4, md: 6 }}>
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
             {EDIT_FIELDS.map((field) => (
               <FormControl key={field.key} isRequired={field.required} gridColumn={{ md: field.wide ? 'span 2' : 'auto' }}>
                 <FormLabel fontSize="sm">{field.label}</FormLabel>
                 {field.type === 'textarea' ? (
-                  <Textarea rows={field.rows || 3} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
+                  <Textarea minH={{ base: '88px', md: '80px' }} rows={field.rows || 3} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
                 ) : field.type === 'status' ? (
-                  <Select value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
+                  <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
                     {CRM_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
                   </Select>
                 ) : field.type === 'priority' ? (
-                  <Select value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
+                  <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
                     {PRIORITIES.map((priority) => <option key={priority} value={priority}>{displayStatus(priority)}</option>)}
                   </Select>
                 ) : (
-                  <Input type={field.type || 'text'} step={field.step} isReadOnly={field.readOnly} bg={field.readOnly ? 'gray.50' : 'white'} value={form[field.key] ?? ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
+                  <Input minH={{ base: '44px', md: '40px' }} type={field.type || 'text'} step={field.step} isReadOnly={field.readOnly} bg={field.readOnly ? 'gray.50' : 'white'} value={form[field.key] ?? ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
                 )}
               </FormControl>
             ))}
@@ -365,6 +365,7 @@ function DashboardCards({ dashboard }) {
 }
 
 function RecordCard({ record, onEdit, onRemove }) {
+  const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
@@ -407,14 +408,21 @@ function RecordCard({ record, onEdit, onRemove }) {
       )}
 
       {contactDetails.length > 0 && (
-        <VStack align="stretch" spacing={3} mt={4} pt={4} borderTop="1px solid" borderColor="gray.100">
-          {contactDetails.map(([label, value]) => (
-            <Box key={label}>
-              <Text fontSize="xs" color="gray.500">{label}</Text>
-              <Text fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">{value}</Text>
-            </Box>
-          ))}
-        </VStack>
+        <>
+          <Button w="full" minH="44px" mt={4} size="sm" variant="ghost" colorScheme="orange" onClick={details.onToggle}>
+            {details.isOpen ? 'Sakrij kontakt i napomene' : 'Prikaži kontakt i napomene'}
+          </Button>
+          <Collapse in={details.isOpen} animateOpacity>
+            <VStack align="stretch" spacing={3} mt={2} pt={4} borderTop="1px solid" borderColor="gray.100">
+              {contactDetails.map(([label, value]) => (
+                <Box key={label}>
+                  <Text fontSize="xs" color="gray.500">{label}</Text>
+                  <Text fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">{value}</Text>
+                </Box>
+              ))}
+            </VStack>
+          </Collapse>
+        </>
       )}
 
       <SimpleGrid columns={2} spacing={2} mt={4}>
@@ -618,8 +626,8 @@ export default function CommercialModule({ user }) {
         <EmptyState title="Nema dodijeljenih komercijalnih baza" text="Vašem profilu trenutno nije dodijeljen pristup nijednoj komercijalnoj bazi. Obratite se direktoru." />
       ) : (
         <Tabs colorScheme="orange" variant="enclosed" isLazy>
-          <TabList overflowX="auto" overflowY="hidden">
-            {brands.map((brand) => <Tab key={brand.code} flexShrink={0} fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
+          <TabList overflowX="auto" overflowY="hidden" sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
+            {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
           </TabList>
           <TabPanels>
             {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} /> : <WaitingBrand brand={brand} />}</TabPanel>)}

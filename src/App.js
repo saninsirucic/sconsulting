@@ -19,6 +19,10 @@ import {
   FormControl,
   FormLabel,
   HStack,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
 } from "@chakra-ui/react";
 import {
   FaUsers,
@@ -31,6 +35,7 @@ import {
   FaCalendarAlt,
   FaEnvelopeOpenText,
   FaBriefcase,
+  FaBars,
 } from "react-icons/fa";
 import dayjs from "dayjs";
 
@@ -421,11 +426,33 @@ function App() {
           </Text>
         </Flex>
         <Spacer display={{ base: "none", "2xl": "block" }} />
+        {!compactCommercialNavigation && (
+          <Flex display={{ base: "flex", "2xl": "none" }} align="center" gap={2} w="full">
+            <Menu placement="bottom-start">
+              <MenuButton as={Button} leftIcon={<FaBars />} minH="44px" bg="white" color={mainColor} _hover={{ bg: "orange.50" }}>
+                Meni
+              </MenuButton>
+              <MenuList color="gray.800" maxH="70vh" overflowY="auto" zIndex={20}>
+                {allowedMenuItems.map((item) => (
+                  <MenuItem key={item.key} icon={<Icon as={item.icon} />} minH="44px" fontWeight={page === item.key ? "bold" : "normal"} color={page === item.key ? greenColor : "gray.800"} onClick={() => setPage(item.key)}>
+                    {item.label}
+                  </MenuItem>
+                ))}
+              </MenuList>
+            </Menu>
+            <Text flex="1" minW={0} noOfLines={1} fontSize="sm" fontWeight="bold" textAlign="center">
+              {allowedMenuItems.find((item) => item.key === page)?.label}
+            </Text>
+            <Button minH="44px" bg="white" color={mainColor} px={4} flexShrink={0} onClick={handleLogout} _hover={{ bg: "orange.50" }}>
+              Odjava
+            </Button>
+          </Flex>
+        )}
         <Flex
           gap="12px"
           alignItems="center"
           flexWrap="nowrap"
-          display={{ base: compactCommercialNavigation ? "grid" : "flex", "2xl": "flex" }}
+          display={{ base: compactCommercialNavigation ? "grid" : "none", "2xl": "flex" }}
           gridTemplateColumns={{ base: compactCommercialNavigation ? "repeat(3, minmax(0, 1fr))" : undefined }}
           overflowX={compactCommercialNavigation ? "visible" : "auto"}
           w={{ base: "100%", "2xl": "auto" }}

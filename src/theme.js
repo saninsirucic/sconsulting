@@ -25,6 +25,7 @@ const theme = extendTheme({
         },
         button: {
           touchAction: 'manipulation',
+          minHeight: '44px',
         },
       },
     },

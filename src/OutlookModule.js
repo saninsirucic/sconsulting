@@ -220,7 +220,7 @@ function TemporarilyUnavailable({ message, onRetry, retrying }) {
 function FolderNavigation({ folders, activeFolder, onChange }) {
   return (
     <Box borderRight={{ base: 'none', xl: '1px solid' }} borderBottom={{ base: '1px solid', xl: 'none' }} borderColor="gray.200" bg="#f8fafc" p={{ base: 3, xl: 4 }}>
-      <Stack direction={{ base: 'row', xl: 'column' }} spacing={2} overflowX="auto" pb={{ base: 1, xl: 0 }}>
+      <Stack direction={{ base: 'row', xl: 'column' }} spacing={2} overflowX="auto" pb={{ base: 1, xl: 0 }} sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
         {folders.map((folder) => {
           const active = folder.key === activeFolder;
           return (
@@ -321,7 +321,7 @@ function AttachmentCard({ attachment, onDownload, loading }) {
         <Text fontWeight="semibold" fontSize="sm" noOfLines={1}>{attachment.name}</Text>
         <Text fontSize="xs" color="gray.500">{formatBytes(attachment.size)}</Text>
       </Box>
-      <Tooltip label="Preuzmi prilog"><IconButton aria-label={`Preuzmi ${attachment.name}`} size="sm" variant="ghost" icon={<FaDownload />} isLoading={loading} onClick={() => onDownload(attachment)} /></Tooltip>
+       <Tooltip label="Preuzmi prilog"><IconButton aria-label={`Preuzmi ${attachment.name}`} minW="44px" minH="44px" variant="ghost" icon={<FaDownload />} isLoading={loading} onClick={() => onDownload(attachment)} /></Tooltip>
     </Flex>
   );
 }
@@ -344,28 +344,28 @@ function ReadingPane({ message, loading, writeEnabled, actionLoading, attachment
     <Box p={{ base: 4, md: 6 }} maxH={{ base: 'none', lg: '750px' }} overflowY="auto">
       <Flex gap={3} direction={{ base: 'column', md: 'row' }} align={{ base: 'stretch', md: 'center' }} mb={5}>
         <HStack spacing={2} flexWrap="wrap">
-          <Button size="sm" leftIcon={<FaReply />} onClick={() => onComposeAction('reply')} isDisabled={!writeEnabled}>Odgovori</Button>
-          <Button size="sm" leftIcon={<FaReplyAll />} onClick={() => onComposeAction('reply-all')} isDisabled={!writeEnabled}>Odgovori svima</Button>
-          <Button size="sm" leftIcon={<FaForward />} onClick={() => onComposeAction('forward')} isDisabled={!writeEnabled}>Proslijedi</Button>
+          <Button minH="44px" leftIcon={<FaReply />} onClick={() => onComposeAction('reply')} isDisabled={!writeEnabled}>Odgovori</Button>
+          <Button minH="44px" leftIcon={<FaReplyAll />} onClick={() => onComposeAction('reply-all')} isDisabled={!writeEnabled}>Odgovori svima</Button>
+          <Button minH="44px" leftIcon={<FaForward />} onClick={() => onComposeAction('forward')} isDisabled={!writeEnabled}>Proslijedi</Button>
         </HStack>
         <HStack ml={{ md: 'auto' }} spacing={1}>
-          <Tooltip label={message.isRead ? 'Označi kao nepročitano' : 'Označi kao pročitano'}><IconButton aria-label={message.isRead ? 'Označi kao nepročitano' : 'Označi kao pročitano'} size="sm" variant="ghost" icon={message.isRead ? <FaEnvelope /> : <FaEnvelopeOpen />} onClick={onToggleRead} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
-          <Tooltip label="Arhiviraj"><IconButton aria-label="Arhiviraj poruku" size="sm" variant="ghost" icon={<FaArchive />} onClick={onArchive} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
-          <Tooltip label="Premjesti u Obrisano"><IconButton aria-label="Obriši poruku" size="sm" colorScheme="red" variant="ghost" icon={<FaTrash />} onClick={onDelete} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
+          <Tooltip label={message.isRead ? 'Označi kao nepročitano' : 'Označi kao pročitano'}><IconButton aria-label={message.isRead ? 'Označi kao nepročitano' : 'Označi kao pročitano'} minW="44px" minH="44px" variant="ghost" icon={message.isRead ? <FaEnvelope /> : <FaEnvelopeOpen />} onClick={onToggleRead} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
+          <Tooltip label="Arhiviraj"><IconButton aria-label="Arhiviraj poruku" minW="44px" minH="44px" variant="ghost" icon={<FaArchive />} onClick={onArchive} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
+          <Tooltip label="Premjesti u Obrisano"><IconButton aria-label="Obriši poruku" minW="44px" minH="44px" colorScheme="red" variant="ghost" icon={<FaTrash />} onClick={onDelete} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
         </HStack>
       </Flex>
 
-      <Heading size="md" lineHeight="1.35" mb={5}>{message.subject}</Heading>
+      <Heading size="md" lineHeight="1.35" mb={5} overflowWrap="anywhere">{message.subject}</Heading>
       <Flex gap={3} align="flex-start">
         <Avatar name={displayName(message.from)} bg="blue.100" color={outlookBlue} />
         <Box minW={0} flex="1">
           <Flex gap={2} align="baseline" flexWrap="wrap">
             <Text fontWeight="bold">{displayName(message.from)}</Text>
-            {message.from?.name && <Text fontSize="sm" color="gray.500">&lt;{message.from.address}&gt;</Text>}
+            {message.from?.name && <Text fontSize="sm" color="gray.500" overflowWrap="anywhere">&lt;{message.from.address}&gt;</Text>}
             <Text ml={{ md: 'auto' }} fontSize="sm" color="gray.500">{formatMailDate(message.receivedAt)}</Text>
           </Flex>
-          {toText && <Text fontSize="sm" color="gray.600" mt={1}><Text as="span" fontWeight="semibold">Za:</Text> {toText}</Text>}
-          {ccText && <Text fontSize="sm" color="gray.600"><Text as="span" fontWeight="semibold">Cc:</Text> {ccText}</Text>}
+          {toText && <Text fontSize="sm" color="gray.600" mt={1} overflowWrap="anywhere"><Text as="span" fontWeight="semibold">Za:</Text> {toText}</Text>}
+          {ccText && <Text fontSize="sm" color="gray.600" overflowWrap="anywhere"><Text as="span" fontWeight="semibold">Cc:</Text> {ccText}</Text>}
         </Box>
       </Flex>
       <Divider my={5} />
@@ -531,7 +531,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
         <ModalBody py={{ base: 4, md: 5 }} px={{ base: 3, sm: 6 }}>
           <VStack spacing={4} align="stretch">
             <FormControl isRequired={mode === 'compose' || mode === 'forward'}>
-              <Flex align="center"><FormLabel mb={1}>Za</FormLabel><Button ml="auto" size="xs" variant="ghost" color={outlookBlue} onClick={() => setShowCopies((value) => !value)}>Cc / Bcc</Button></Flex>
+              <Flex align="center"><FormLabel mb={1}>Za</FormLabel><Button ml="auto" minH="44px" size="sm" variant="ghost" color={outlookBlue} onClick={() => setShowCopies((value) => !value)}>Cc / Bcc</Button></Flex>
               <Input aria-label="Primaoci" placeholder="ime@firma.ba; druga@firma.ba" value={form.to} onChange={(event) => setForm((current) => ({ ...current, to: event.target.value }))} isReadOnly={mode === 'reply' || mode === 'reply-all'} />
             </FormControl>
             {showCopies && (
@@ -550,11 +550,11 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
                   <AutomaticSignaturePreview embedded />
                 </Box>
               </Box>
-              <Text fontSize="xs" color="gray.500" mt={2}>Potpis je dio poruke i automatski se dodaje pri slanju.</Text>
+              <Text fontSize="xs" color="gray.500" mt={2}>Pregled automatskog potpisa — sistem ga dodaje jednom pri slanju.</Text>
             </FormControl>
             <Box>
               <input ref={fileRef} hidden type="file" multiple onChange={addFiles} />
-              <Button size="sm" variant="outline" leftIcon={<FaPaperclip />} onClick={() => fileRef.current?.click()}>Dodaj prilog</Button>
+              <Button minH="44px" variant="outline" leftIcon={<FaPaperclip />} onClick={() => fileRef.current?.click()}>Dodaj prilog</Button>
               <Text as="span" ml={3} fontSize="xs" color="gray.500">do {status.maxAttachments} priloga, pojedinačno do {formatBytes(status.maxAttachmentBytes)}</Text>
               {files.length > 0 && <Wrap mt={3}>{files.map((file) => <WrapItem key={attachmentFileKey(file)}><Badge p={2} borderRadius="lg" colorScheme="blue">{file.name} · {formatBytes(file.size)} <Button aria-label={`Ukloni ${file.name}`} ml={2} size="xs" variant="ghost" onClick={() => setFiles((items) => items.filter((item) => attachmentFileKey(item) !== attachmentFileKey(file)))}>×</Button></Badge></WrapItem>)}</Wrap>}
             </Box>
@@ -562,8 +562,8 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
           </VStack>
         </ModalBody>
         <ModalFooter borderTop="1px solid" borderColor="gray.100" gap={3} px={{ base: 3, sm: 6 }} pb={{ base: 'max(12px, env(safe-area-inset-bottom))', md: 4 }}>
-          <Button flex={{ base: 1, sm: 'none' }} variant="ghost" onClick={onClose} isDisabled={sending}>Odustani</Button>
-          <Button flex={{ base: 1, sm: 'none' }} type="submit" bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPaperPlane />} isLoading={sending}>Pošalji</Button>
+          <Button minH="44px" flex={{ base: 1, sm: 'none' }} variant="ghost" onClick={onClose} isDisabled={sending}>Odustani</Button>
+          <Button minH="44px" flex={{ base: 1, sm: 'none' }} type="submit" bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPaperPlane />} isLoading={sending}>Pošalji</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>
@@ -820,7 +820,7 @@ export default function OutlookModule({ user }) {
                 </InputGroup>
                 <HStack ml={{ md: 'auto' }} spacing={3}>
                   <Checkbox isChecked={unreadOnly} onChange={(event) => { setNextCursor(''); setUnreadOnly(event.target.checked); }} colorScheme="blue">Samo nepročitano</Checkbox>
-                  <Tooltip label="Osvježi"><IconButton aria-label="Osvježi poruke" icon={<FaRedo />} variant="outline" isLoading={loadingMessages} onClick={refresh} /></Tooltip>
+                  <Tooltip label="Osvježi"><IconButton aria-label="Osvježi poruke" minW="44px" minH="44px" icon={<FaRedo />} variant="outline" isLoading={loadingMessages} onClick={refresh} /></Tooltip>
                 </HStack>
               </Flex>
 
@@ -841,7 +841,7 @@ export default function OutlookModule({ user }) {
                   />
                 </Box>
                 <Box display={{ base: mobileReadingOpen ? 'block' : 'none', lg: 'block' }} minW={0}>
-                  <Button display={{ base: 'inline-flex', lg: 'none' }} m={3} size="sm" variant="ghost" leftIcon={<FaArrowLeft />} onClick={() => setMobileReadingOpen(false)}>Nazad na poruke</Button>
+                  <Button display={{ base: 'inline-flex', lg: 'none' }} m={3} minH="44px" variant="ghost" leftIcon={<FaArrowLeft />} onClick={() => setMobileReadingOpen(false)}>Nazad na poruke</Button>
                   <ReadingPane
                     message={selectedMessage}
                     loading={loadingDetail}

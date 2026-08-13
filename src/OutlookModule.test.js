@@ -89,7 +89,7 @@ test('odgovara na poruku kroz shared mailbox', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Odgovori' }));
   expect(screen.getByLabelText('Primaoci')).toHaveValue('nabavka@primjer.ba');
   expect(screen.getByTestId('automatic-email-signature')).toHaveTextContent('Ermina Siručić');
-  expect(screen.getByText('Potpis je dio poruke i automatski se dodaje pri slanju.')).toBeInTheDocument();
+  expect(screen.getByText('Pregled automatskog potpisa — sistem ga dodaje jednom pri slanju.')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Hvala, ponudu šaljemo danas.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
 
@@ -97,6 +97,7 @@ test('odgovara na poruku kroz shared mailbox', async () => {
     body: 'Hvala, ponudu šaljemo danas.',
     attachments: [],
   })));
+  expect(outlookApi.reply.mock.calls[0][1].body).not.toMatch(/Ermina|S-Consulting Group|logo-wordmark/);
 });
 
 test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => {
@@ -115,7 +116,9 @@ test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => 
   await waitFor(() => expect(outlookApi.send).toHaveBeenCalledWith(expect.objectContaining({
     to: ['info@firma.ba', 'uprava@firma.ba'],
     subject: 'S Consulting ponuda',
+    body: 'Poštovani, u prilogu je naša ponuda.',
   })));
+  expect(outlookApi.send.mock.calls[0][0].body).not.toMatch(/Ermina|S-Consulting Group|logo-wordmark/);
 });
 
 test('prosljeđivanje ne šalje read-only originalni subject izvan backend allowliste', async () => {
