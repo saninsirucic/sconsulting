@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from './App';
 
 jest.mock('./CommercialModule', () => () => <div>Komercijalni CRM ekran</div>);
+jest.mock('./OutlookModule', () => () => <div>Shared Outlook ekran</div>);
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -24,7 +25,21 @@ test('komercijalista ide direktno u CRM i ne vidi direktorove module', () => {
   expect(screen.getByText('Komercijalni CRM ekran')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Klijenti' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Fakture' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Outlook' })).toBeInTheDocument();
   expect(screen.getByText('Komercijalista')).toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test('komercijalista može otvoriti shared Outlook bez poziva direktorovih API-ja', () => {
+  sessionStorage.setItem('sconsulting-session', JSON.stringify({
+    token: 'commercial-token',
+    user: { username: 'prodaja', displayName: 'Komercijalista', role: 'komercijala' },
+  }));
+
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: 'Outlook' }));
+  expect(screen.getByText('Shared Outlook ekran')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Klijenti' })).not.toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
 });
 

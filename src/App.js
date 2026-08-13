@@ -42,6 +42,7 @@ import KUF from "./KUF";
 import Sanitarne from "./Sanitarne";
 import AiMailModule from "./AiMailModule";
 import CommercialModule from "./CommercialModule";
+import OutlookModule from "./OutlookModule";
 import logo from "./logo.png";
 import {
   apiFetch,
@@ -62,6 +63,7 @@ const menuItems = [
   { key: "calendar", label: "Kalendar", icon: FaCalendarAlt, roles: ["direktor"] },
   { key: "ai-mailovi", label: "AI mailovi", icon: FaEnvelopeOpenText, roles: ["direktor"] },
   { key: "commercial", label: "Komercijala", icon: FaBriefcase, roles: ["direktor", "komercijala"] },
+  { key: "outlook", label: "Outlook", icon: FaEnvelopeOpenText, roles: ["direktor", "komercijala"] },
 ];
 
 const mainColor = "#f68b1f";
@@ -475,7 +477,7 @@ function App() {
 
       {/* SADRŽAJ */}
       <Box
-        maxW={["ai-mailovi", "commercial"].includes(page) ? "1600px" : "1100px"}
+        maxW={["ai-mailovi", "commercial", "outlook"].includes(page) ? "1600px" : "1100px"}
         mx="auto"
         mt={{ base: "18px", md: "40px" }}
         bg="#fff"
@@ -494,6 +496,7 @@ function App() {
         {page === "calendar" && <Calendar />}
         {page === "ai-mailovi" && <AiMailModule token={session.token} user={session.user} />}
         {page === "commercial" && <CommercialModule user={session.user} />}
+        {page === "outlook" && <OutlookModule user={session.user} />}
       </Box>
     </Box>
   );
