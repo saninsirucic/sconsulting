@@ -54,11 +54,15 @@ beforeEach(() => {
   commercialApi.createDailyList.mockResolvedValue({ items: [] });
 });
 
-test('prikazuje Visiocast Excel kolone i odvojene prazne SAN Pest / FS App cjeline', async () => {
+test('prikazuje operativne Visiocast kolone bez iznosa i odvojene SAN Pest / FS App cjeline', async () => {
   renderModule();
   expect((await screen.findAllByText('Primjer d.o.o.')).length).toBeGreaterThan(0);
   expect(screen.getAllByText('Nazvati u petak').length).toBeGreaterThan(0);
-  expect(screen.getAllByText('88.562,00 KM').length).toBeGreaterThan(0);
+  expect(screen.queryByText('88.562,00 KM')).not.toBeInTheDocument();
+  expect(screen.queryByText('65.800,00 KM')).not.toBeInTheDocument();
+  expect(screen.queryByRole('columnheader', { name: 'Iznos' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('columnheader', { name: 'Ukupno' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('columnheader', { name: 'Profit' })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
   expect(await screen.findByText('Tabela još nije dostavljena')).toBeInTheDocument();
@@ -89,8 +93,14 @@ test('prikazuje samo brendove koje je backend dodijelio korisniku', async () => 
   expect(screen.queryByRole('tab', { name: /FS App/ })).not.toBeInTheDocument();
 });
 
-test('automatski priprema Današnjih 30 kada je dnevna lista prazna', async () => {
+test('Današnjih 30 je početno skriveno i učitava se tek nakon otvaranja', async () => {
   renderModule();
+  const toggle = await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' });
+  expect(toggle).not.toBeChecked();
+  expect(commercialApi.getDailyList).not.toHaveBeenCalled();
+  expect(commercialApi.createDailyList).not.toHaveBeenCalled();
+
+  fireEvent.click(toggle);
   await waitFor(() => expect(commercialApi.createDailyList).toHaveBeenCalledWith('VISIOCAST'));
   expect(screen.getByText(/Lista se automatski priprema svaki dan/)).toBeInTheDocument();
 });

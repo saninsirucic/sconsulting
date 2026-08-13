@@ -71,14 +71,6 @@ import {
 const orange = '#f68b1f';
 const green = '#1dba5b';
 
-function formatBam(value) {
-  const numericValue = Number(value);
-  const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
-  const [whole, decimals] = Math.abs(safeValue).toFixed(2).split('.');
-  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `${safeValue < 0 ? '-' : ''}${groupedWhole},${decimals} KM`;
-}
-
 function ErrorAlert({ message, onRetry }) {
   return (
     <Alert status="error" borderRadius="xl" alignItems={{ base: 'flex-start', sm: 'center' }} flexWrap="wrap" gap={2}>
@@ -348,13 +340,11 @@ function DashboardCards({ dashboard }) {
   const today = dashboard?.today || {};
   const cards = [
     ['Ukupno zapisa', totals.count ?? totals.total ?? totals.totalRecords ?? totals.total_records ?? 0, FaUsers, 'orange'],
-    ['Ukupni iznos', formatBam(totals.total_amount ?? totals.totalAmount), FaBuilding, 'yellow'],
-    ['Ukupni profit', formatBam(totals.profit_amount ?? totals.profitAmount), FaBuilding, 'green'],
     ['Današnjih 30', today.total ?? today.assigned ?? totals.todayAssigned ?? 0, FaCalendarCheck, 'blue'],
   ];
 
   return (
-    <SimpleGrid columns={{ base: 2, xl: 4 }} spacing={{ base: 2, md: 4 }}>
+    <SimpleGrid columns={{ base: 2 }} spacing={{ base: 2, md: 4 }}>
       {cards.map(([label, value, icon, scheme]) => (
         <Stat key={label} minW={0} border="1px solid" borderColor={`${scheme}.100`} bg="white" borderRadius="xl" p={{ base: 3, md: 4 }} boxShadow="sm">
           <Flex justify="space-between" gap={2}><Box minW={0}><StatLabel color="gray.600" fontSize={{ base: 'xs', md: 'sm' }}>{label}</StatLabel><StatNumber fontSize={{ base: 'lg', md: '2xl' }} overflowWrap="anywhere">{value}</StatNumber></Box><Flex display={{ base: 'none', sm: 'flex' }} flexShrink={0} boxSize="38px" borderRadius="full" align="center" justify="center" bg={`${scheme}.50`} color={`${scheme}.500`}><Icon as={icon} /></Flex></Flex>
@@ -369,7 +359,6 @@ function RecordCard({ record, onEdit, onRemove }) {
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
-  const formatAmount = (value) => value === '' || value === null || value === undefined ? '—' : formatBam(value);
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const contactDetails = [
     ['Mail', recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email')],
@@ -395,9 +384,6 @@ function RecordCard({ record, onEdit, onRemove }) {
         <Box><Text fontSize="xs" color="gray.500">Vrsta</Text><Text fontSize="sm">{recordValue(record, 'record_type') || '—'}</Text></Box>
         <Box><Text fontSize="xs" color="gray.500">Lokacija</Text><Text fontSize="sm" overflowWrap="anywhere">{recordValue(record, 'location') || '—'}</Text></Box>
         <Box><Text fontSize="xs" color="gray.500">Poslovnice</Text><Text fontSize="sm">{recordValue(record, 'branch_count') || '—'}</Text></Box>
-        <Box><Text fontSize="xs" color="gray.500">Iznos po poslovnici</Text><Text fontSize="sm">{formatAmount(recordValue(record, 'unit_amount'))}</Text></Box>
-        <Box><Text fontSize="xs" color="gray.500">Ukupno</Text><Text fontSize="sm" fontWeight="semibold">{formatAmount(recordValue(record, 'total_amount'))}</Text></Box>
-        <Box><Text fontSize="xs" color="gray.500">Profit</Text><Text fontSize="sm" fontWeight="semibold" color="green.600">{formatAmount(recordValue(record, 'profit_amount'))}</Text></Box>
       </SimpleGrid>
 
       {nextContact && (
@@ -445,7 +431,7 @@ function BrandPanel({ brand }) {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [dailyOpen, setDailyOpen] = useState(true);
+  const [dailyOpen, setDailyOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const brandCode = brand.code || brand.slug;
 
@@ -523,21 +509,17 @@ function BrandPanel({ brand }) {
             {items.map((record) => <RecordCard key={record.id} record={record} onEdit={openEdit} onRemove={remove} />)}
           </VStack>
           <Box display={{ base: 'none', xl: 'block' }} overflowX="auto" border="1px solid" borderColor="gray.200" borderRadius="xl">
-            <Table size="sm" minW="2200px">
-            <Thead bg="orange.50"><Tr><Th>N/R</Th><Th>Komitent</Th><Th>Vrsta</Th><Th isNumeric>Broj poslovnica</Th><Th isNumeric>Iznos</Th><Th isNumeric>Ukupno</Th><Th isNumeric>Profit</Th><Th>Mail</Th><Th>Kontakt</Th><Th>Komentar</Th><Th>Lokacija</Th><Th>Status</Th><Th>Prioritet</Th><Th>Sljedeći kontakt</Th><Th>CRM napomene</Th><Th>Akcije</Th></Tr></Thead>
+            <Table size="sm" minW="1600px">
+            <Thead bg="orange.50"><Tr><Th>N/R</Th><Th>Komitent</Th><Th>Vrsta</Th><Th isNumeric>Broj poslovnica</Th><Th>Mail</Th><Th>Kontakt</Th><Th>Komentar</Th><Th>Lokacija</Th><Th>Status</Th><Th>Prioritet</Th><Th>Sljedeći kontakt</Th><Th>CRM napomene</Th><Th>Akcije</Th></Tr></Thead>
             <Tbody>{items.map((record) => {
               const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
               const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
-              const formatAmount = (value) => value === '' || value === null || value === undefined ? '—' : formatBam(value);
               return (
                 <Tr key={record.id} _hover={{ bg: 'gray.50' }}>
                   <Td>{recordValue(record, 'source_row_number', 'nr') || '—'}</Td>
                   <Td maxW="230px" whiteSpace="normal"><Text fontWeight="semibold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text></Td>
                   <Td>{recordValue(record, 'record_type') || '—'}</Td>
                   <Td isNumeric>{recordValue(record, 'branch_count') || '—'}</Td>
-                  <Td isNumeric>{formatAmount(recordValue(record, 'unit_amount'))}</Td>
-                  <Td isNumeric>{formatAmount(recordValue(record, 'total_amount'))}</Td>
-                  <Td isNumeric>{formatAmount(recordValue(record, 'profit_amount'))}</Td>
                   <Td maxW="320px" whiteSpace="pre-wrap" wordBreak="break-word">{recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email') || '—'}</Td>
                   <Td maxW="300px" whiteSpace="pre-wrap" wordBreak="break-word">{recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone') || '—'}</Td>
                   <Td maxW="360px" whiteSpace="pre-wrap" wordBreak="break-word">{recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar') || '—'}</Td>
