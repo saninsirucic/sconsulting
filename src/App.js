@@ -104,27 +104,32 @@ function Login({ onLogin }) {
   };
 
   return (
-    <Box maxW="sm" mx="auto" mt="100px" p={8} bg="white" borderRadius="md" boxShadow="md">
-      <VStack spacing={4}>
-        <Text fontSize="2xl" fontWeight="bold">Prijava</Text>
-        <Input
-          placeholder="Korisničko ime"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-        <Input
-          placeholder="Lozinka"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-        />
-        {error && <Text color="red.500">{error}</Text>}
-        <Button colorScheme="orange" width="full" isLoading={loading} onClick={handleSubmit}>
-          Prijavi se
-        </Button>
-      </VStack>
-    </Box>
+    <Flex minH="100dvh" align="center" justify="center" px={4} py={8}>
+      <Box w="full" maxW="sm" p={{ base: 6, sm: 8 }} bg="white" borderRadius="2xl" boxShadow="md">
+        <VStack spacing={4}>
+          <Image src={logo} alt="S Consulting" h="70px" />
+          <Text fontSize="2xl" fontWeight="bold">Prijava</Text>
+          <Input
+            placeholder="Korisničko ime"
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <Input
+            placeholder="Lozinka"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          />
+          {error && <Text color="red.500" fontSize="sm">{error}</Text>}
+          <Button colorScheme="orange" width="full" minH="44px" isLoading={loading} onClick={handleSubmit}>
+            Prijavi se
+          </Button>
+        </VStack>
+      </Box>
+    </Flex>
   );
 }
 
@@ -228,15 +233,16 @@ function Calendar() {
 
   return (
     <Box>
-      <Flex mb={4} alignItems="center">
-        <Button onClick={() => changeMonth(-1)}>Prethodni mjesec</Button>
+      <Flex mb={4} alignItems="center" gap={2} flexWrap="wrap">
+        <Button size={{ base: 'sm', md: 'md' }} onClick={() => changeMonth(-1)}>Prethodni</Button>
         <Spacer />
-        <Text fontWeight="bold" fontSize="xl">{currentMonth.format("MMMM YYYY")}</Text>
+        <Text fontWeight="bold" fontSize={{ base: 'md', md: 'xl' }}>{currentMonth.format("MMMM YYYY")}</Text>
         <Spacer />
-        <Button onClick={() => changeMonth(1)}>Sljedeći mjesec</Button>
+        <Button size={{ base: 'sm', md: 'md' }} onClick={() => changeMonth(1)}>Sljedeći</Button>
       </Flex>
 
-      <Box display="grid" gridTemplateColumns="repeat(7, 1fr)" gap={3}>
+      <Box overflowX="auto" pb={2}>
+      <Box display="grid" gridTemplateColumns="repeat(7, minmax(92px, 1fr))" gap={3} minW="700px">
         {[...Array(firstDayOfMonth)].map((_, i) => (
           <Box key={"empty" + i} h="60px" />
         ))}
@@ -273,6 +279,7 @@ function Calendar() {
           );
         })}
       </Box>
+      </Box>
     </Box>
   );
 }
@@ -283,6 +290,7 @@ function App() {
   const [page, setPage] = useState(() => defaultPageForUser(readStoredSession()?.user));
   const [clients, setClients] = useState([]);
   const allowedMenuItems = useMemo(() => allowedMenuForUser(user), [user]);
+  const compactCommercialNavigation = user?.role === "komercijala";
 
   useEffect(() => {
     if (user?.role === "direktor" && !user.mustChangePassword) {
@@ -350,7 +358,9 @@ function App() {
               alignItems="center"
               justifyContent="center"
               height="120px"
-              width="160px"
+              width="full"
+              maxW="220px"
+              mx="auto"
             >
               <Center
                 bg={mainColor}
@@ -379,7 +389,7 @@ function App() {
         bg={mainColor}
         color="#fff"
         minH="70px"
-        px={{ base: "12px", md: "34px" }}
+        px={{ base: "10px", md: "34px" }}
         py={{ base: "12px", "2xl": 0 }}
         gap={{ base: "10px", "2xl": 0 }}
         boxShadow="0 2px 10px rgba(246,139,31,0.09)"
@@ -415,7 +425,9 @@ function App() {
           gap="12px"
           alignItems="center"
           flexWrap="nowrap"
-          overflowX="auto"
+          display={{ base: compactCommercialNavigation ? "grid" : "flex", "2xl": "flex" }}
+          gridTemplateColumns={{ base: compactCommercialNavigation ? "repeat(3, minmax(0, 1fr))" : undefined }}
+          overflowX={compactCommercialNavigation ? "visible" : "auto"}
           w={{ base: "100%", "2xl": "auto" }}
           pb={{ base: "2px", "2xl": 0 }}
           sx={{
@@ -441,12 +453,14 @@ function App() {
                   boxShadow={page === item.key ? "0 3px 16px #1dba5b22" : "none"}
                   whiteSpace="nowrap"
                   flexShrink={0}
+                  w={{ base: compactCommercialNavigation ? "full" : "auto", "2xl": "auto" }}
+                  minW={0}
                   _hover={{ bg: greenColor }}
                 >
                   {item.label}
                 </Button>
               ))}
-          <HStack flexShrink={0} spacing={2} px={{ base: 1, md: 2 }}>
+          <HStack display={{ base: "none", md: "flex" }} flexShrink={0} spacing={2} px={{ base: 1, md: 2 }}>
             <Box textAlign="right" display={{ base: "none", md: "block" }}>
               <Text fontWeight="bold" fontSize="sm" lineHeight="short">
                 {user.displayName || user.display_name || user.username}
@@ -465,6 +479,8 @@ function App() {
             ml={{ base: 0, "2xl": "30px" }}
             px={{ base: "12px", sm: "16px", md: "20px", lg: "22px" }}
             flexShrink={0}
+            w={{ base: compactCommercialNavigation ? "full" : "auto", "2xl": "auto" }}
+            minW={0}
             onClick={handleLogout}
             borderBottom="3px solid #fff"
             boxShadow="0 2px 14px #fff4"
@@ -478,12 +494,13 @@ function App() {
       {/* SADRŽAJ */}
       <Box
         maxW={["ai-mailovi", "commercial", "outlook"].includes(page) ? "1600px" : "1100px"}
+        w="full"
         mx="auto"
-        mt={{ base: "18px", md: "40px" }}
+        mt={{ base: 0, sm: "14px", md: "40px" }}
         bg="#fff"
-        borderRadius="20px"
-        p={{ base: "16px", md: "40px" }}
-        boxShadow="0 2px 18px 0px #f68b1f19, 0 1.5px 2px #1dba5b13"
+        borderRadius={{ base: 0, sm: "20px" }}
+        p={{ base: ["ai-mailovi", "commercial", "outlook"].includes(page) ? "8px" : "12px", sm: "16px", md: "40px" }}
+        boxShadow={{ base: "none", sm: "0 2px 18px 0px #f68b1f19, 0 1.5px 2px #1dba5b13" }}
         minH="400px"
       >
         {page === "home" && <HomePage />}

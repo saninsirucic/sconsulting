@@ -83,10 +83,13 @@ test('prikazuje shared mailbox, foldere, listu i sigurni reading pane', async ()
 
 test('odgovara na poruku kroz shared mailbox', async () => {
   renderModule();
+  fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
   await screen.findByRole('button', { name: 'Odgovori' });
 
   fireEvent.click(screen.getByRole('button', { name: 'Odgovori' }));
   expect(screen.getByLabelText('Primaoci')).toHaveValue('nabavka@primjer.ba');
+  expect(screen.getByTestId('automatic-email-signature')).toHaveTextContent('Ermina Siručić');
+  expect(screen.getByText('Potpis je dio poruke i automatski se dodaje pri slanju.')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Hvala, ponudu šaljemo danas.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
 
@@ -117,8 +120,10 @@ test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => 
 
 test('prosljeđivanje ne šalje read-only originalni subject izvan backend allowliste', async () => {
   renderModule();
+  fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
   await screen.findByRole('button', { name: 'Proslijedi' });
   fireEvent.click(screen.getByRole('button', { name: 'Proslijedi' }));
+  expect(screen.getByTestId('automatic-email-signature')).toHaveTextContent('Ermina Siručić');
   fireEvent.change(screen.getByLabelText('Primaoci'), { target: { value: 'kolega@firma.ba' } });
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Prosljeđujem zaprimljeni upit.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
@@ -176,6 +181,7 @@ test('read-only mailbox blokira sve write akcije', async () => {
   renderModule();
 
   expect(await screen.findByText('Mailbox je u režimu samo za čitanje')).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
   await screen.findByRole('button', { name: 'Odgovori' });
   expect(screen.getByRole('button', { name: 'Nova poruka' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Odgovori' })).toBeDisabled();

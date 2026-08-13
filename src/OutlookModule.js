@@ -43,6 +43,7 @@ import {
 } from '@chakra-ui/react';
 import {
   FaArchive,
+  FaArrowLeft,
   FaDownload,
   FaEnvelope,
   FaEnvelopeOpen,
@@ -407,12 +408,22 @@ function ReadingPane({ message, loading, writeEnabled, actionLoading, attachment
 
 const emptyCompose = { to: '', cc: '', bcc: '', subject: '', body: '' };
 
-function AutomaticSignaturePreview() {
+function AutomaticSignaturePreview({ embedded = false }) {
   return (
-    <Box data-testid="automatic-email-signature" border="1px solid" borderColor="gray.200" bg="gray.50" borderRadius="xl" p={{ base: 4, md: 5 }} fontSize="sm" color="gray.800">
+    <Box
+      data-testid="automatic-email-signature"
+      border={embedded ? '0' : '1px solid'}
+      borderColor="gray.200"
+      bg={embedded ? 'white' : 'gray.50'}
+      borderRadius={embedded ? '0' : 'xl'}
+      p={embedded ? 0 : { base: 4, md: 5 }}
+      fontSize={{ base: 'xs', sm: 'sm' }}
+      color="gray.800"
+      overflowWrap="anywhere"
+    >
       <Text mb={4}>Lijep pozdrav,</Text>
       <Link href="https://www.s-consulting.ba/" isExternal display="inline-block">
-        <Image src={signatureLogoUrl} alt="S-Consulting Group" w="320px" maxW="100%" h="auto" />
+        <Image src={signatureLogoUrl} alt="S-Consulting Group" w={{ base: '250px', sm: '320px' }} maxW="100%" h="auto" />
       </Link>
       <Divider maxW="420px" my={3} borderColor="#f97316" borderWidth="1px" />
       <Text mb={1} fontWeight="bold">Ermina Siručić</Text>
@@ -512,12 +523,12 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
   return (
     <Modal isOpen={isOpen} onClose={sending ? undefined : onClose} size="3xl" scrollBehavior="inside">
       <ModalOverlay />
-      <ModalContent as="form" onSubmit={submit} borderRadius="2xl" overflow="hidden">
+      <ModalContent as="form" onSubmit={submit} borderRadius={{ base: 0, md: '2xl' }} overflow="hidden" my={{ base: 0, md: 8 }} mx={{ base: 0, md: 4 }} w={{ base: '100vw', md: 'auto' }} maxW={{ base: '100vw', md: '3xl' }} minH={{ base: '100dvh', md: 'auto' }} maxH={{ base: '100dvh', md: 'calc(100vh - 4rem)' }}>
         <ModalHeader bg="#f8fafc" borderBottom="1px solid" borderColor="gray.200">
           <Flex align="center" gap={3}><Flex boxSize="38px" bg="blue.50" color={outlookBlue} align="center" justify="center" borderRadius="lg"><FaEnvelope /></Flex><Box><Text>{title}</Text><Text fontSize="xs" fontWeight="normal" color="gray.500">Šalje se sa {status.mailbox}</Text></Box></Flex>
         </ModalHeader>
         <ModalCloseButton />
-        <ModalBody py={5}>
+        <ModalBody py={{ base: 4, md: 5 }} px={{ base: 3, sm: 6 }}>
           <VStack spacing={4} align="stretch">
             <FormControl isRequired={mode === 'compose' || mode === 'forward'}>
               <Flex align="center"><FormLabel mb={1}>Za</FormLabel><Button ml="auto" size="xs" variant="ghost" color={outlookBlue} onClick={() => setShowCopies((value) => !value)}>Cc / Bcc</Button></Flex>
@@ -530,14 +541,17 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
               </Grid>
             )}
             <FormControl><FormLabel>Naslov</FormLabel><Input aria-label="Naslov" value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} isReadOnly={mode !== 'compose'} /></FormControl>
-            <FormControl isRequired><FormLabel>Poruka</FormLabel><Textarea aria-label="Tekst poruke" minH="240px" resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} /></FormControl>
-            <Box>
-              <Flex align="baseline" justify="space-between" mb={2} gap={3}>
-                <Text fontSize="sm" fontWeight="semibold">Automatski potpis</Text>
-                <Text fontSize="xs" color="gray.500">Dodaje se pri slanju</Text>
-              </Flex>
-              <AutomaticSignaturePreview />
-            </Box>
+            <FormControl isRequired>
+              <FormLabel>Poruka</FormLabel>
+              <Box border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" bg="white" _focusWithin={{ borderColor: outlookBlue, boxShadow: `0 0 0 1px ${outlookBlue}` }}>
+                <Textarea aria-label="Tekst poruke" minH={{ base: '180px', md: '240px' }} resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} border="0" borderRadius="0" _focusVisible={{ boxShadow: 'none' }} />
+                <Divider />
+                <Box px={{ base: 3, sm: 4 }} py={4} bg="white">
+                  <AutomaticSignaturePreview embedded />
+                </Box>
+              </Box>
+              <Text fontSize="xs" color="gray.500" mt={2}>Potpis je dio poruke i automatski se dodaje pri slanju.</Text>
+            </FormControl>
             <Box>
               <input ref={fileRef} hidden type="file" multiple onChange={addFiles} />
               <Button size="sm" variant="outline" leftIcon={<FaPaperclip />} onClick={() => fileRef.current?.click()}>Dodaj prilog</Button>
@@ -547,9 +561,9 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
             {error && <Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>{error}</AlertDescription></Alert>}
           </VStack>
         </ModalBody>
-        <ModalFooter borderTop="1px solid" borderColor="gray.100" gap={3}>
-          <Button variant="ghost" onClick={onClose} isDisabled={sending}>Odustani</Button>
-          <Button type="submit" bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPaperPlane />} isLoading={sending}>Pošalji</Button>
+        <ModalFooter borderTop="1px solid" borderColor="gray.100" gap={3} px={{ base: 3, sm: 6 }} pb={{ base: 'max(12px, env(safe-area-inset-bottom))', md: 4 }}>
+          <Button flex={{ base: 1, sm: 'none' }} variant="ghost" onClick={onClose} isDisabled={sending}>Odustani</Button>
+          <Button flex={{ base: 1, sm: 'none' }} type="submit" bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPaperPlane />} isLoading={sending}>Pošalji</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>
@@ -572,6 +586,7 @@ export default function OutlookModule({ user }) {
   const [actionLoading, setActionLoading] = useState(false);
   const [attachmentLoadingId, setAttachmentLoadingId] = useState('');
   const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const [mobileReadingOpen, setMobileReadingOpen] = useState(false);
   const [error, setError] = useState('');
   const [composeMode, setComposeMode] = useState('compose');
   const { isOpen: composeOpen, onOpen: openCompose, onClose: closeCompose } = useDisclosure();
@@ -715,6 +730,7 @@ export default function OutlookModule({ user }) {
       await action(selectedMessage);
       toast({ title: successMessage, status: 'success', duration: 2500, isClosable: true });
       await Promise.allSettled([loadFolders(), loadMessages()]);
+      setMobileReadingOpen(false);
     } catch (requestError) {
       setError(requestError.message || 'Akcija nije uspjela.');
     } finally {
@@ -772,10 +788,10 @@ export default function OutlookModule({ user }) {
             </Box>
           </HStack>
         </Box>
-        <HStack ml={{ md: 'auto' }} spacing={3} flexWrap="wrap">
-          <Box border="1px solid" borderColor="gray.200" borderRadius="xl" px={3.5} py={2} bg="gray.50">
+        <HStack ml={{ md: 'auto' }} spacing={3} flexWrap="wrap" w={{ base: 'full', md: 'auto' }}>
+          <Box border="1px solid" borderColor="gray.200" borderRadius="xl" px={3.5} py={2} bg="gray.50" w={{ base: 'full', sm: 'auto' }} minW={0}>
             <Text fontSize="xs" color="gray.500">{status.displayName || 'Nalog'}</Text>
-            <HStack spacing={2}><Box boxSize="7px" borderRadius="full" bg={configured ? green : orange} /><Text fontSize="sm" fontWeight="bold">{status.mailbox}</Text></HStack>
+            <HStack spacing={2}><Box boxSize="7px" flexShrink={0} borderRadius="full" bg={configured ? green : orange} /><Text fontSize="sm" fontWeight="bold" overflowWrap="anywhere">{status.mailbox}</Text></HStack>
           </Box>
           <Badge colorScheme={statusUnavailable ? 'blue' : configured ? 'green' : 'orange'} borderRadius="full" px={3} py={1}>{statusUnavailable ? 'Ponovno povezivanje' : configured ? 'Aktivan' : 'Podešavanje potrebno'}</Badge>
           <Tooltip label={!writeEnabled ? 'Slanje je trenutno onemogućeno na serveru.' : ''} isDisabled={writeEnabled}>
@@ -795,7 +811,7 @@ export default function OutlookModule({ user }) {
           {error && <Alert status={statusUnavailable ? 'info' : 'error'} borderRadius="none"><AlertIcon /><AlertDescription flex="1">{error}</AlertDescription><Button size="sm" variant="outline" colorScheme={statusUnavailable ? 'blue' : 'red'} onClick={statusUnavailable ? () => initialize({ showLoader: false }) : refresh}>Pokušaj ponovo</Button></Alert>}
 
           <Grid templateColumns={{ base: '1fr', xl: '220px minmax(0, 1fr)' }} borderBottom="1px solid" borderColor="gray.200">
-            <FolderNavigation folders={folders} activeFolder={activeFolder} onChange={(folder) => { setActiveFolder(normalizeFolderKey(folder)); setMessages([]); setNextCursor(''); setSelectedId(''); setSelectedMessage(null); }} />
+            <FolderNavigation folders={folders} activeFolder={activeFolder} onChange={(folder) => { setActiveFolder(normalizeFolderKey(folder)); setMessages([]); setNextCursor(''); setSelectedId(''); setSelectedMessage(null); setMobileReadingOpen(false); }} />
             <Box>
               <Flex p={3} gap={3} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }} borderBottom="1px solid" borderColor="gray.200" bg="white">
                 <InputGroup maxW={{ md: '560px' }}>
@@ -809,7 +825,7 @@ export default function OutlookModule({ user }) {
               </Flex>
 
               <Grid templateColumns={{ base: 'minmax(0, 1fr)', lg: '380px minmax(0, 1fr)' }} minH={{ lg: '690px' }}>
-                <Box borderRight={{ lg: '1px solid' }} borderBottom={{ base: '1px solid', lg: 'none' }} borderColor="gray.200" minW={0}>
+                <Box display={{ base: mobileReadingOpen ? 'none' : 'block', lg: 'block' }} borderRight={{ lg: '1px solid' }} borderBottom={{ base: '1px solid', lg: 'none' }} borderColor="gray.200" minW={0}>
                   <Flex px={4} py={3} align="center" bg="#f8fafc" borderBottom="1px solid" borderColor="gray.200">
                     <Box><Text fontWeight="bold">{activeFolderDefinition.label}</Text><Text fontSize="xs" color="gray.500">{messages.length} poruka u prikazu</Text></Box>
                     {loadingMessages && <Spinner ml="auto" size="sm" color={outlookBlue} />}
@@ -818,24 +834,27 @@ export default function OutlookModule({ user }) {
                     messages={messages}
                     selectedId={selectedId}
                     loading={loadingMessages}
-                    onSelect={(message) => { setSelectedMessage(message); setSelectedId(message.id); }}
+                    onSelect={(message) => { setSelectedMessage(message); setSelectedId(message.id); setMobileReadingOpen(true); }}
                     folderLabel={activeFolderDefinition.label}
                     nextCursor={nextCursor}
                     onLoadMore={() => loadMessages({ cursor: nextCursor, append: true })}
                   />
                 </Box>
-                <ReadingPane
-                  message={selectedMessage}
-                  loading={loadingDetail}
-                  writeEnabled={writeEnabled}
-                  actionLoading={actionLoading}
-                  attachmentLoadingId={attachmentLoadingId}
-                  onComposeAction={openComposeFor}
-                  onToggleRead={toggleRead}
-                  onArchive={() => runMessageAction((message) => outlookApi.moveMessage(message.id, 'archive'), 'Poruka je arhivirana.')}
-                  onDelete={() => runMessageAction((message) => outlookApi.deleteMessage(message.id), 'Poruka je premještena u Obrisano.')}
-                  onDownload={downloadAttachment}
-                />
+                <Box display={{ base: mobileReadingOpen ? 'block' : 'none', lg: 'block' }} minW={0}>
+                  <Button display={{ base: 'inline-flex', lg: 'none' }} m={3} size="sm" variant="ghost" leftIcon={<FaArrowLeft />} onClick={() => setMobileReadingOpen(false)}>Nazad na poruke</Button>
+                  <ReadingPane
+                    message={selectedMessage}
+                    loading={loadingDetail}
+                    writeEnabled={writeEnabled}
+                    actionLoading={actionLoading}
+                    attachmentLoadingId={attachmentLoadingId}
+                    onComposeAction={openComposeFor}
+                    onToggleRead={toggleRead}
+                    onArchive={() => runMessageAction((message) => outlookApi.moveMessage(message.id, 'archive'), 'Poruka je arhivirana.')}
+                    onDelete={() => runMessageAction((message) => outlookApi.deleteMessage(message.id), 'Poruka je premještena u Obrisano.')}
+                    onDownload={downloadAttachment}
+                  />
+                </Box>
               </Grid>
             </Box>
           </Grid>

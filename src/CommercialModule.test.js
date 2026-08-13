@@ -56,9 +56,9 @@ beforeEach(() => {
 
 test('prikazuje Visiocast Excel kolone i odvojene prazne SAN Pest / FS App cjeline', async () => {
   renderModule();
-  expect(await screen.findByText('Primjer d.o.o.')).toBeInTheDocument();
-  expect(screen.getByText('Nazvati u petak')).toBeInTheDocument();
-  expect(screen.getByText('88.562,00 KM')).toBeInTheDocument();
+  expect((await screen.findAllByText('Primjer d.o.o.')).length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Nazvati u petak').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('88.562,00 KM').length).toBeGreaterThan(0);
 
   fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
   expect(await screen.findByText('Tabela još nije dostavljena')).toBeInTheDocument();
@@ -68,7 +68,7 @@ test('prikazuje Visiocast Excel kolone i odvojene prazne SAN Pest / FS App cjeli
 
 test('kreira Visiocast komitenta kroz modal', async () => {
   renderModule();
-  await screen.findByText('Primjer d.o.o.');
+  await screen.findAllByText('Primjer d.o.o.');
   fireEvent.click(screen.getByRole('button', { name: 'Novi komitent' }));
   fireEvent.change(screen.getByLabelText(/Naziv komitenta/), { target: { value: 'Novi kupac' } });
   fireEvent.change(screen.getByLabelText('Sljedeći kontakt'), { target: { value: '2026-08-14T10:30' } });
@@ -84,7 +84,7 @@ test('kreira Visiocast komitenta kroz modal', async () => {
 test('prikazuje samo brendove koje je backend dodijelio korisniku', async () => {
   commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'VISIOCAST', name: 'Visiocast', record_count: 1 }] });
   renderModule();
-  expect(await screen.findByText('Primjer d.o.o.')).toBeInTheDocument();
+  expect((await screen.findAllByText('Primjer d.o.o.')).length).toBeGreaterThan(0);
   expect(screen.queryByRole('tab', { name: 'SAN Pest' })).not.toBeInTheDocument();
   expect(screen.queryByRole('tab', { name: /FS App/ })).not.toBeInTheDocument();
 });
@@ -97,9 +97,9 @@ test('automatski priprema Današnjih 30 kada je dnevna lista prazna', async () =
 
 test('uređuje Visiocast zapis', async () => {
   renderModule();
-  await screen.findByText('Primjer d.o.o.');
+  await screen.findAllByText('Primjer d.o.o.');
 
-  fireEvent.click(screen.getByRole('button', { name: 'Uredi komitenta' }));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Uredi komitenta' })[0]);
   fireEvent.change(screen.getByLabelText(/Naziv komitenta/), { target: { value: 'Izmijenjeni kupac' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
   await waitFor(() => expect(commercialApi.updateRecord).toHaveBeenCalledWith('record-1', expect.objectContaining({ company_name: 'Izmijenjeni kupac' })));
@@ -108,8 +108,8 @@ test('uređuje Visiocast zapis', async () => {
 test('soft-delete arhivira Visiocast zapis', async () => {
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   renderModule();
-  await screen.findByText('Primjer d.o.o.');
-  fireEvent.click(screen.getByRole('button', { name: 'Arhiviraj komitenta' }));
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Arhiviraj komitenta' })[0]);
   await waitFor(() => expect(commercialApi.deleteRecord).toHaveBeenCalledWith('record-1'));
   window.confirm.mockRestore();
 });

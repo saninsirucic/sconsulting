@@ -81,10 +81,10 @@ function formatBam(value) {
 
 function ErrorAlert({ message, onRetry }) {
   return (
-    <Alert status="error" borderRadius="xl">
+    <Alert status="error" borderRadius="xl" alignItems={{ base: 'flex-start', sm: 'center' }} flexWrap="wrap" gap={2}>
       <AlertIcon />
-      <AlertDescription flex="1">{message}</AlertDescription>
-      {onRetry && <Button size="sm" variant="outline" colorScheme="red" onClick={onRetry}>Pokušaj ponovo</Button>}
+      <AlertDescription flex="1" minW={{ base: 'calc(100% - 38px)', sm: 0 }}>{message}</AlertDescription>
+      {onRetry && <Button w={{ base: 'full', sm: 'auto' }} minH="40px" size="sm" variant="outline" colorScheme="red" onClick={onRetry}>Pokušaj ponovo</Button>}
     </Alert>
   );
 }
@@ -155,10 +155,15 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="5xl" scrollBehavior="inside">
       <ModalOverlay />
-      <ModalContent>
-        <ModalHeader>{record ? 'Uredi komitenta' : 'Novi komitent'}</ModalHeader>
+      <ModalContent
+        m={{ base: 0, md: 8 }}
+        minH={{ base: '100dvh', md: 'auto' }}
+        maxH={{ base: '100dvh', md: 'calc(100vh - 4rem)' }}
+        borderRadius={{ base: 0, md: 'md' }}
+      >
+        <ModalHeader px={{ base: 4, md: 6 }}>{record ? 'Uredi komitenta' : 'Novi komitent'}</ModalHeader>
         <ModalCloseButton />
-        <ModalBody>
+        <ModalBody px={{ base: 4, md: 6 }}>
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
             {EDIT_FIELDS.map((field) => (
               <FormControl key={field.key} isRequired={field.required} gridColumn={{ md: field.wide ? 'span 2' : 'auto' }}>
@@ -181,9 +186,9 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
           </SimpleGrid>
           {error && <Box mt={4}><ErrorAlert message={error} /></Box>}
         </ModalBody>
-        <ModalFooter gap={3}>
-          <Button variant="ghost" onClick={onClose}>Odustani</Button>
-          <Button bg={green} color="white" _hover={{ bg: 'green.600' }} isLoading={saving} onClick={save}>Sačuvaj</Button>
+        <ModalFooter gap={3} px={{ base: 4, md: 6 }} pb={{ base: 'max(16px, env(safe-area-inset-bottom))', md: 4 }}>
+          <Button flex={{ base: 1, md: 'initial' }} minH="44px" variant="ghost" onClick={onClose}>Odustani</Button>
+          <Button flex={{ base: 1, md: 'initial' }} minH="44px" bg={green} color="white" _hover={{ bg: 'green.600' }} isLoading={saving} onClick={save}>Sačuvaj</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>
@@ -224,6 +229,41 @@ function DailyAssignmentRow({ assignment, onUpdated }) {
         </HStack>
       </Td>
     </Tr>
+  );
+}
+
+function DailyAssignmentCard({ assignment, onUpdated }) {
+  const record = assignment.record || assignment.account || assignment.commercial_record || assignment;
+  const assignmentId = assignment.id || assignment.assignment_id;
+  const [notes, setNotes] = useState(assignment.notes || assignment.assignment_notes || '');
+  const [working, setWorking] = useState('');
+  const toast = useToast();
+  const status = assignment.assignment_status || assignment.status || 'PENDING';
+  const update = async (nextStatus) => {
+    setWorking(nextStatus);
+    try {
+      await commercialApi.updateDailyAssignment(assignmentId, { status: nextStatus, notes });
+      toast({ title: nextStatus === 'COMPLETED' ? 'Komitent je označen kao obrađen.' : 'Komitent je preskočen.', status: 'success', position: 'top-right' });
+      onUpdated();
+    } catch (error) {
+      toast({ title: error.message, status: 'error', position: 'top-right' });
+    } finally {
+      setWorking('');
+    }
+  };
+  return (
+    <Box border="1px solid" borderColor={status === 'COMPLETED' ? 'green.200' : 'orange.100'} bg={status === 'COMPLETED' ? 'green.50' : 'white'} borderRadius="xl" p={4}>
+      <Flex justify="space-between" gap={3} align="start">
+        <Box minW={0}><Text fontWeight="bold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text></Box>
+        <Badge flexShrink={0} colorScheme={status === 'COMPLETED' ? 'green' : status === 'SKIPPED' ? 'gray' : 'orange'}>{displayStatus(status)}</Badge>
+      </Flex>
+      <Text mt={2} fontSize="sm" overflowWrap="anywhere">{recordValue(record, 'email', 'raw_mail', 'mail') || 'Nema kontakta'}</Text>
+      <Input mt={3} size="sm" aria-label="Napomena za dnevni kontakt" placeholder="Napomena" value={notes} onChange={(event) => setNotes(event.target.value)} />
+      <SimpleGrid columns={2} spacing={2} mt={3}>
+        <Button minH="40px" size="sm" leftIcon={<FaCheck />} colorScheme="green" isDisabled={status === 'COMPLETED'} isLoading={working === 'COMPLETED'} onClick={() => update('COMPLETED')}>Obrađeno</Button>
+        <Button minH="40px" size="sm" variant="outline" isDisabled={status === 'SKIPPED'} isLoading={working === 'SKIPPED'} onClick={() => update('SKIPPED')}>Preskoči</Button>
+      </SimpleGrid>
+    </Box>
   );
 }
 
@@ -280,7 +320,7 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
             <HStack><Icon as={FaCalendarCheck} color={orange} /><Heading size="sm">Današnjih 30 komitenata</Heading></HStack>
             <Text fontSize="sm" color="gray.600" mt={1}>Lista se automatski priprema svaki dan, pamti odabir i sutra predlaže druge komitente.</Text>
           </Box>
-          <HStack>
+          <HStack flexWrap="wrap">
             {items.length > 0 && <Badge colorScheme="green" px={3} py={1}>{completed} / {items.length} obrađeno</Badge>}
             <Button size="sm" leftIcon={items.length ? <FaRedo /> : <FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} isLoading={creating} onClick={create}>{items.length ? 'Dopuni listu' : 'Pripremi današnju listu'}</Button>
           </HStack>
@@ -289,9 +329,14 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
         {loading ? <Loading label="Učitavanje dnevne liste..." /> : items.length === 0 ? (
           <EmptyState title="Nema dostupnih komitenata za danas" text="Sistem je automatski pokušao pripremiti listu. Dodajte nove komitente ili provjerite da li su svi već raspoređeni." />
         ) : (
-          <Box overflowX="auto" bg="white" borderRadius="lg" border="1px solid" borderColor="orange.100">
-            <Table size="sm"><Thead bg="orange.100"><Tr><Th>Komitent</Th><Th>Kontakt</Th><Th>Status</Th><Th>Napomena</Th><Th>Akcije</Th></Tr></Thead><Tbody>{items.map((assignment) => <DailyAssignmentRow key={assignment.id || assignment.assignment_id} assignment={assignment} onUpdated={() => { load(); onChanged(); }} />)}</Tbody></Table>
-          </Box>
+          <>
+            <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
+              {items.map((assignment) => <DailyAssignmentCard key={assignment.id || assignment.assignment_id} assignment={assignment} onUpdated={() => { load(); onChanged(); }} />)}
+            </VStack>
+            <Box display={{ base: 'none', md: 'block' }} overflowX="auto" bg="white" borderRadius="lg" border="1px solid" borderColor="orange.100">
+              <Table size="sm" minW="850px"><Thead bg="orange.100"><Tr><Th>Komitent</Th><Th>Kontakt</Th><Th>Status</Th><Th>Napomena</Th><Th>Akcije</Th></Tr></Thead><Tbody>{items.map((assignment) => <DailyAssignmentRow key={assignment.id || assignment.assignment_id} assignment={assignment} onUpdated={() => { load(); onChanged(); }} />)}</Tbody></Table>
+            </Box>
+          </>
         )}
       </Box>
     </Collapse>
@@ -309,13 +354,74 @@ function DashboardCards({ dashboard }) {
   ];
 
   return (
-    <SimpleGrid columns={{ base: 1, sm: 2, xl: 4 }} spacing={4}>
+    <SimpleGrid columns={{ base: 2, xl: 4 }} spacing={{ base: 2, md: 4 }}>
       {cards.map(([label, value, icon, scheme]) => (
-        <Stat key={label} border="1px solid" borderColor={`${scheme}.100`} bg="white" borderRadius="xl" p={4} boxShadow="sm">
-          <Flex justify="space-between"><Box><StatLabel color="gray.600">{label}</StatLabel><StatNumber>{value}</StatNumber></Box><Flex boxSize="38px" borderRadius="full" align="center" justify="center" bg={`${scheme}.50`} color={`${scheme}.500`}><Icon as={icon} /></Flex></Flex>
+        <Stat key={label} minW={0} border="1px solid" borderColor={`${scheme}.100`} bg="white" borderRadius="xl" p={{ base: 3, md: 4 }} boxShadow="sm">
+          <Flex justify="space-between" gap={2}><Box minW={0}><StatLabel color="gray.600" fontSize={{ base: 'xs', md: 'sm' }}>{label}</StatLabel><StatNumber fontSize={{ base: 'lg', md: '2xl' }} overflowWrap="anywhere">{value}</StatNumber></Box><Flex display={{ base: 'none', sm: 'flex' }} flexShrink={0} boxSize="38px" borderRadius="full" align="center" justify="center" bg={`${scheme}.50`} color={`${scheme}.500`}><Icon as={icon} /></Flex></Flex>
         </Stat>
       ))}
     </SimpleGrid>
+  );
+}
+
+function RecordCard({ record, onEdit, onRemove }) {
+  const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
+  const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
+  const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
+  const formatAmount = (value) => value === '' || value === null || value === undefined ? '—' : formatBam(value);
+  const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
+  const contactDetails = [
+    ['Mail', recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email')],
+    ['Kontakt', recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone')],
+    ['Komentar', recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar')],
+    ['CRM napomene', recordValue(record, 'notes')],
+  ].filter(([, value]) => value);
+
+  return (
+    <Box border="1px solid" borderColor="gray.200" borderRadius="xl" bg="white" p={4} boxShadow="sm">
+      <Flex justify="space-between" align="start" gap={3}>
+        <Box minW={0}>
+          <Text fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
+          <Text fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
+        </Box>
+        <VStack align="end" spacing={1} flexShrink={0}>
+          <Badge colorScheme={recordStatus === 'WON' ? 'green' : recordStatus === 'REJECTED' ? 'red' : 'orange'}>{displayStatus(recordStatus)}</Badge>
+          <Badge colorScheme={recordPriority === 'HIGH' ? 'red' : recordPriority === 'LOW' ? 'gray' : 'yellow'}>{displayStatus(recordPriority)}</Badge>
+        </VStack>
+      </Flex>
+
+      <SimpleGrid columns={2} spacingX={4} spacingY={3} mt={4}>
+        <Box><Text fontSize="xs" color="gray.500">Vrsta</Text><Text fontSize="sm">{recordValue(record, 'record_type') || '—'}</Text></Box>
+        <Box><Text fontSize="xs" color="gray.500">Lokacija</Text><Text fontSize="sm" overflowWrap="anywhere">{recordValue(record, 'location') || '—'}</Text></Box>
+        <Box><Text fontSize="xs" color="gray.500">Poslovnice</Text><Text fontSize="sm">{recordValue(record, 'branch_count') || '—'}</Text></Box>
+        <Box><Text fontSize="xs" color="gray.500">Iznos po poslovnici</Text><Text fontSize="sm">{formatAmount(recordValue(record, 'unit_amount'))}</Text></Box>
+        <Box><Text fontSize="xs" color="gray.500">Ukupno</Text><Text fontSize="sm" fontWeight="semibold">{formatAmount(recordValue(record, 'total_amount'))}</Text></Box>
+        <Box><Text fontSize="xs" color="gray.500">Profit</Text><Text fontSize="sm" fontWeight="semibold" color="green.600">{formatAmount(recordValue(record, 'profit_amount'))}</Text></Box>
+      </SimpleGrid>
+
+      {nextContact && (
+        <Box mt={3} p={3} borderRadius="lg" bg="orange.50">
+          <Text fontSize="xs" color="gray.500">Sljedeći kontakt</Text>
+          <Text fontSize="sm" fontWeight="semibold">{new Date(nextContact).toLocaleString('bs-BA')}</Text>
+        </Box>
+      )}
+
+      {contactDetails.length > 0 && (
+        <VStack align="stretch" spacing={3} mt={4} pt={4} borderTop="1px solid" borderColor="gray.100">
+          {contactDetails.map(([label, value]) => (
+            <Box key={label}>
+              <Text fontSize="xs" color="gray.500">{label}</Text>
+              <Text fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">{value}</Text>
+            </Box>
+          ))}
+        </VStack>
+      )}
+
+      <SimpleGrid columns={2} spacing={2} mt={4}>
+        <Button aria-label="Uredi komitenta" minH="44px" leftIcon={<FaEdit />} variant="outline" onClick={() => onEdit(record)}>Uredi</Button>
+        <Button aria-label="Arhiviraj komitenta" minH="44px" leftIcon={<FaTrash />} colorScheme="red" variant="ghost" onClick={() => onRemove(record)}>Arhiviraj</Button>
+      </SimpleGrid>
+    </Box>
   );
 }
 
@@ -397,15 +503,19 @@ function BrandPanel({ brand }) {
         </HStack>
         <Select maxW={{ xl: '210px' }} placeholder="Svi statusi" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>{availableStatuses.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
         <Select maxW={{ xl: '180px' }} placeholder="Svi prioriteti" value={priority} onChange={(event) => { setPriority(event.target.value); setPage(1); }}>{availablePriorities.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
-        <Button leftIcon={<FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} onClick={openNew}>Novi komitent</Button>
+        <Button w={{ base: 'full', xl: 'auto' }} minH="44px" leftIcon={<FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} onClick={openNew}>Novi komitent</Button>
       </Flex>
 
       {error && <ErrorAlert message={error} onRetry={load} />}
       {loading ? <Loading label={`Učitavanje ${brand.name} baze...`} /> : items.length === 0 ? (
         <EmptyState title="Nema pronađenih komitenata" text="Promijenite filtere ili dodajte prvi komercijalni zapis." />
       ) : (
-        <Box overflowX="auto" border="1px solid" borderColor="gray.200" borderRadius="xl">
-          <Table size="sm" minW="2200px">
+        <>
+          <VStack display={{ base: 'flex', xl: 'none' }} align="stretch" spacing={3}>
+            {items.map((record) => <RecordCard key={record.id} record={record} onEdit={openEdit} onRemove={remove} />)}
+          </VStack>
+          <Box display={{ base: 'none', xl: 'block' }} overflowX="auto" border="1px solid" borderColor="gray.200" borderRadius="xl">
+            <Table size="sm" minW="2200px">
             <Thead bg="orange.50"><Tr><Th>N/R</Th><Th>Komitent</Th><Th>Vrsta</Th><Th isNumeric>Broj poslovnica</Th><Th isNumeric>Iznos</Th><Th isNumeric>Ukupno</Th><Th isNumeric>Profit</Th><Th>Mail</Th><Th>Kontakt</Th><Th>Komentar</Th><Th>Lokacija</Th><Th>Status</Th><Th>Prioritet</Th><Th>Sljedeći kontakt</Th><Th>CRM napomene</Th><Th>Akcije</Th></Tr></Thead>
             <Tbody>{items.map((record) => {
               const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
@@ -432,13 +542,14 @@ function BrandPanel({ brand }) {
                 </Tr>
               );
             })}</Tbody>
-          </Table>
-        </Box>
+            </Table>
+          </Box>
+        </>
       )}
 
-      <Flex justify="space-between" align="center" gap={3}>
+      <Flex justify="space-between" align="center" direction={{ base: 'column', sm: 'row' }} gap={3}>
         <Text fontSize="sm" color="gray.600">Ukupno zapisa: {total}</Text>
-        <HStack><Button size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button><Text fontSize="sm">{page} / {Math.max(1, pages)}</Text><Button size="sm" variant="outline" isDisabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Sljedeća</Button></HStack>
+        <HStack w={{ base: 'full', sm: 'auto' }} justify="center"><Button flex={{ base: 1, sm: 'initial' }} minH="40px" size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button><Text flexShrink={0} fontSize="sm">{page} / {Math.max(1, pages)}</Text><Button flex={{ base: 1, sm: 'initial' }} minH="40px" size="sm" variant="outline" isDisabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Sljedeća</Button></HStack>
       </Flex>
 
       <RecordModal isOpen={modal.isOpen} onClose={modal.onClose} record={editing} brandCode={brandCode} onSaved={() => { toast({ title: 'Komitent je sačuvan.', status: 'success', position: 'top-right' }); changed(); }} />
