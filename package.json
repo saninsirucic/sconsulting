@@ -12,6 +12,7 @@
     "npm": "10.x"
   },
   "dependencies": {
+    "@azure/msal-node": "^5.5.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.0.1",
@@ -22,6 +23,7 @@
     "multer": "^2.2.0",
     "openai": "^6.48.0",
     "pg": "^8.16.3",
+    "sanitize-html": "^2.17.6",
     "uuid": "^11.1.1",
     "zod": "^4.4.3"
   },

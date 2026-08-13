@@ -13,6 +13,7 @@ const {
 } = require('./aiEmail/auth');
 const { createAiEmailRouter } = require('./aiEmail/router');
 const { createCommercialRouter } = require('./commercial/router');
+const { createOutlookRouter } = require('./outlookMail/router');
 const {
   createLoginAttemptLimiter,
   limiterOptionsFromEnv,
@@ -69,13 +70,13 @@ app.use(cors(corsOptions));
 // Podrži OPTIONS preflight zahtjeve
 app.options('*', cors(corsOptions));
 
-app.use(bodyParser.json({ limit: '1mb' }));
+const standardJsonParser = bodyParser.json({ limit: '1mb' });
 
 // Ograniči broj istovremenih konekcija na bazu ako treba
 // db.client.pool.max = 5; // opcionalno
 
 // LOGIN
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', standardJsonParser, async (req, res) => {
   const { username, password } = req.body || {};
   if (!String(username || '').trim() || !password) {
     return res.status(400).json({ success: false, error: 'Korisničko ime i lozinka su obavezni.' });
@@ -102,6 +103,7 @@ app.post(
   '/api/auth/change-password',
   authenticateRequest,
   refreshAuthenticatedUser(db),
+  standardJsonParser,
   async (req, res, next) => {
     try {
       const user = await changePassword(
@@ -119,6 +121,12 @@ app.post(
 
 // Sve API rute poslije login/change-password zahtijevaju aktivan JWT nalog.
 app.use('/api', authenticateRequest, refreshAuthenticatedUser(db), requirePasswordChangeCompleted);
+
+// Outlook ima vlastiti, veći JSON parser tek iza JWT zaštite zbog base64 priloga.
+app.use('/api/outlook', createOutlookRouter());
+
+// Sve ostale poslovne rute zadržavaju postojeći limit od 1 MB.
+app.use(standardJsonParser);
 
 app.use('/api/commercial', createCommercialRouter({ db }));
 
