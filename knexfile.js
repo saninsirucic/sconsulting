@@ -39,6 +39,6 @@ module.exports = {
       acquireTimeoutMillis: 30000,
       propagateCreateError: false
     },
-    debug: true
+    debug: false
   }
 };

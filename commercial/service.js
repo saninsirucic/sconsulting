@@ -1,0 +1,568 @@
+const { v4: uuidv4 } = require('uuid');
+
+const CRM_STATUSES = new Set([
+  'NEW', 'CALL_REQUIRED', 'CONTACTED', 'EMAIL_SENT', 'MEETING_SCHEDULED',
+  'INTERESTED', 'OFFER_SENT', 'FOLLOW_UP', 'WON', 'REJECTED'
+]);
+const CRM_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'LOW']);
+const ASSIGNMENT_STATUSES = new Set([
+  'PENDING', 'COMPLETED', 'SKIPPED', ...CRM_STATUSES
+]);
+
+function httpError(status, message, code) {
+  return Object.assign(new Error(message), { status, code });
+}
+
+function normalizeBrandCode(value) {
+  const normalized = String(value || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const aliases = {
+    VISIOCAST: 'VISIOCAST',
+    SANPEST: 'SAN_PEST',
+    SAN_PEST: 'SAN_PEST',
+    FSAPP: 'FS_APP',
+    FS_APP: 'FS_APP'
+  };
+  return aliases[normalized] || normalized;
+}
+
+function serializeBrand(brand) {
+  return brand ? {
+    id: brand.id,
+    code: brand.code,
+    slug: brand.slug,
+    name: brand.name,
+    daily_limit: Number(brand.daily_limit),
+    active: Boolean(brand.active),
+    record_count: Number(brand.record_count || 0)
+  } : null;
+}
+
+async function listAccessibleBrands(db, user) {
+  let query = db({ b: 'crm_brands' }).where('b.active', true)
+    .leftJoin({ c: 'crm_accounts' }, function joinActiveAccounts() {
+      this.on('c.brand_id', '=', 'b.id').andOnNull('c.archived_at');
+    })
+    .select('b.*').count({ record_count: 'c.id' }).groupBy('b.id').orderBy('b.name');
+  if (user.role !== 'direktor') {
+    query = query.join({ a: 'app_user_brand_access' }, 'a.brand_id', 'b.id')
+      .where({ 'a.user_id': user.id, 'a.can_read': true });
+  }
+  return (await query).map(serializeBrand);
+}
+
+async function resolveBrand(db, user, rawCode, { write = false } = {}) {
+  const code = normalizeBrandCode(rawCode);
+  const brand = await db('crm_brands').where({ code, active: true }).first();
+  if (!brand) throw httpError(404, 'Traženi komercijalni brend ne postoji.', 'BRAND_NOT_FOUND');
+  if (user.role === 'direktor') return brand;
+  const access = await db('app_user_brand_access').where({
+    user_id: user.id,
+    brand_id: brand.id,
+    [write ? 'can_write' : 'can_read']: true
+  }).first();
+  if (!access) throw httpError(403, 'Nemate pristup ovom komercijalnom brendu.', 'BRAND_ACCESS_DENIED');
+  return brand;
+}
+
+function optionalString(body, key, existing = {}, maxLength = 20000) {
+  if (!Object.prototype.hasOwnProperty.call(body, key)) return existing[key] ?? null;
+  const value = body[key];
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  return String(value).trim().slice(0, maxLength);
+}
+
+function optionalNumber(body, key, existing = {}) {
+  if (!Object.prototype.hasOwnProperty.call(body, key)) return existing[key] ?? null;
+  const value = body[key];
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw httpError(400, `${key} mora biti broj.`);
+  return parsed;
+}
+
+function optionalInteger(body, key, existing = {}) {
+  const value = optionalNumber(body, key, existing);
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < 0) throw httpError(400, `${key} mora biti cijeli nenegativan broj.`);
+  return value;
+}
+
+function optionalTimestamp(body, key, existing = {}) {
+  if (!Object.prototype.hasOwnProperty.call(body, key)) return existing[key] ?? null;
+  if (!body[key]) return null;
+  const value = new Date(body[key]);
+  if (Number.isNaN(value.getTime())) throw httpError(400, `${key} nije ispravan datum.`);
+  return value;
+}
+
+function normalizeAccountInput(body, existing = {}) {
+  const companyName = optionalString(body, 'company_name', existing, 300);
+  if (!companyName) throw httpError(400, 'Naziv komitenta je obavezan.');
+  const email = optionalString(body, 'email', existing, 320);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    throw httpError(400, 'E-mail adresa nije ispravna.');
+  }
+  const status = String(body.status ?? existing.status ?? 'NEW').trim().toUpperCase();
+  if (!CRM_STATUSES.has(status)) throw httpError(400, 'Status komitenta nije podržan.');
+  const priority = String(body.priority ?? existing.priority ?? 'MEDIUM').trim().toUpperCase();
+  if (!CRM_PRIORITIES.has(priority)) throw httpError(400, 'Prioritet mora biti HIGH, MEDIUM ili LOW.');
+  const sourceRowValue = Object.prototype.hasOwnProperty.call(body, 'source_row_number')
+    ? body.source_row_number
+    : (Object.prototype.hasOwnProperty.call(body, 'nr') ? body.nr : existing.source_row_number);
+  let sourceRowNumber = sourceRowValue ?? null;
+  if (sourceRowNumber !== null && sourceRowNumber !== '') {
+    sourceRowNumber = Number(sourceRowNumber);
+    if (!Number.isInteger(sourceRowNumber) || sourceRowNumber < 0) {
+      throw httpError(400, 'source_row_number mora biti cijeli nenegativan broj.');
+    }
+  } else sourceRowNumber = null;
+
+  return {
+    source_row_number: sourceRowNumber,
+    company_name: companyName,
+    record_type: optionalString(body, 'record_type', existing, 120),
+    branch_count: optionalInteger(body, 'branch_count', existing),
+    unit_amount: optionalNumber(body, 'unit_amount', existing),
+    total_amount: optionalNumber(body, 'total_amount', existing),
+    profit_amount: optionalNumber(body, 'profit_amount', existing),
+    currency: optionalString(body, 'currency', existing, 10) || 'BAM',
+    contact_person: optionalString(body, 'contact_person', existing, 250),
+    email: email ? email.toLowerCase() : null,
+    phone: optionalString(body, 'phone', existing, 100),
+    website: optionalString(body, 'website', existing, 500),
+    location: optionalString(body, 'location', existing, 250),
+    status,
+    priority,
+    comment: optionalString(body, 'comment', existing),
+    notes: optionalString(body, 'notes', existing),
+    raw_mail: optionalString(body, 'raw_mail', existing),
+    raw_contact: optionalString(body, 'raw_contact', existing),
+    last_contact_at: optionalTimestamp(body, 'last_contact_at', existing),
+    next_contact_at: optionalTimestamp(body, 'next_contact_at', existing)
+  };
+}
+
+function parseJson(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function serializeAccount(row) {
+  return row ? {
+    ...row,
+    nr: row.source_row_number,
+    branch_count: numberOrNull(row.branch_count),
+    unit_amount: numberOrNull(row.unit_amount),
+    total_amount: numberOrNull(row.total_amount),
+    profit_amount: numberOrNull(row.profit_amount),
+    source_data: parseJson(row.source_data_json, {}),
+    source_data_json: undefined
+  } : null;
+}
+
+async function logActivity(db, { account, user, type, fromStatus, toStatus, notes, metadata }) {
+  const id = uuidv4();
+  const now = new Date();
+  await db('crm_activities').insert({
+    id,
+    account_id: account.id,
+    brand_id: account.brand_id,
+    user_id: user.id,
+    activity_type: type,
+    from_status: fromStatus || null,
+    to_status: toStatus || null,
+    notes: notes ? String(notes).slice(0, 20000) : null,
+    metadata_json: metadata ? JSON.stringify(metadata) : null,
+    occurred_at: now,
+    created_at: now
+  });
+  return id;
+}
+
+function parsePositiveInt(value, fallback, maximum) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, maximum);
+}
+
+function applyAccountFilters(query, params) {
+  if (String(params.archived || '').toLowerCase() === 'true') query.whereNotNull('archived_at');
+  else query.whereNull('archived_at');
+  if (params.status) {
+    const status = String(params.status).toUpperCase();
+    if (!CRM_STATUSES.has(status)) throw httpError(400, 'Filter statusa nije podržan.');
+    query.where('status', status);
+  }
+  if (params.priority) {
+    const priority = String(params.priority).toUpperCase();
+    if (!CRM_PRIORITIES.has(priority)) throw httpError(400, 'Filter prioriteta nije podržan.');
+    query.where('priority', priority);
+  }
+  if (params.record_type) query.where('record_type', String(params.record_type));
+  if (params.location) query.where('location', String(params.location));
+  if (params.search) {
+    const search = `%${String(params.search).trim().toLowerCase()}%`;
+    query.where((builder) => builder
+      .whereRaw("LOWER(COALESCE(company_name, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(email, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(phone, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(location, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(comment, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(raw_mail, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(raw_contact, '')) LIKE ?", [search])
+      .orWhereRaw("LOWER(COALESCE(notes, '')) LIKE ?", [search]));
+  }
+  return query;
+}
+
+async function listAccounts(db, brand, params = {}) {
+  const page = parsePositiveInt(params.page, 1, 100000);
+  const perPage = parsePositiveInt(params.perPage || params.per_page, 25, 100);
+  const base = applyAccountFilters(db('crm_accounts').where({ brand_id: brand.id }), params);
+  const countRow = await base.clone().count({ count: '*' }).first();
+  const sortFields = new Set([
+    'source_row_number', 'company_name', 'record_type', 'branch_count', 'total_amount',
+    'profit_amount', 'location', 'status', 'priority', 'next_contact_at', 'updated_at'
+  ]);
+  const sortBy = sortFields.has(params.sortBy || params.sort_by)
+    ? (params.sortBy || params.sort_by) : 'source_row_number';
+  const sortDirection = String(params.sortDirection || params.sort_direction).toLowerCase() === 'desc' ? 'desc' : 'asc';
+  const items = await base.clone().select('*')
+    .orderByRaw(`CASE WHEN ?? IS NULL THEN 1 ELSE 0 END`, [sortBy])
+    .orderBy(sortBy, sortDirection)
+    .orderBy('company_name', 'asc')
+    .limit(perPage).offset((page - 1) * perPage);
+  const facets = await db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at')
+    .select('status', 'priority', 'location', 'record_type');
+  const unique = (key) => [...new Set(facets.map((row) => row[key]).filter(Boolean))].sort();
+  const total = Number(countRow ? countRow.count : 0);
+  return {
+    items: items.map(serializeAccount),
+    pagination: { page, perPage, total, pages: Math.ceil(total / perPage) },
+    filters: {
+      statuses: unique('status'),
+      priorities: unique('priority'),
+      locations: unique('location'),
+      recordTypes: unique('record_type')
+    }
+  };
+}
+
+async function createAccount(db, brand, user, body) {
+  const id = uuidv4();
+  const now = new Date();
+  const normalized = normalizeAccountInput(body || {});
+  const row = {
+    id,
+    brand_id: brand.id,
+    source_key: `MANUAL:${id}`,
+    ...normalized,
+    source_data_json: JSON.stringify({ source: 'MANUAL' }),
+    owner_user_id: user.authSource === 'db' ? user.id : null,
+    created_by: user.id,
+    updated_by: user.id,
+    created_at: now,
+    updated_at: now
+  };
+  await db.transaction(async (trx) => {
+    await trx('crm_accounts').insert(row);
+    await logActivity(trx, { account: row, user, type: 'ACCOUNT_CREATED', toStatus: row.status });
+  });
+  return serializeAccount(await db('crm_accounts').where({ id }).first());
+}
+
+async function accountWithBrand(db, id) {
+  return db({ a: 'crm_accounts' }).join({ b: 'crm_brands' }, 'b.id', 'a.brand_id')
+    .where('a.id', id).select('a.*', 'b.code as brand_code', 'b.slug as brand_slug').first();
+}
+
+async function updateAccount(db, account, user, body) {
+  if (account.archived_at) throw httpError(409, 'Arhivirani komitent se ne može mijenjati.');
+  const update = normalizeAccountInput(body || {}, account);
+  const changedFields = Object.keys(update).filter((key) => {
+    const oldValue = account[key] instanceof Date ? account[key].toISOString() : account[key];
+    const newValue = update[key] instanceof Date ? update[key].toISOString() : update[key];
+    return String(oldValue ?? '') !== String(newValue ?? '');
+  });
+  const now = new Date();
+  await db.transaction(async (trx) => {
+    await trx('crm_accounts').where({ id: account.id }).update({
+      ...update,
+      updated_by: user.id,
+      updated_at: now
+    });
+    await logActivity(trx, {
+      account,
+      user,
+      type: account.status !== update.status ? 'STATUS_CHANGED' : 'ACCOUNT_UPDATED',
+      fromStatus: account.status,
+      toStatus: update.status,
+      notes: body && body.activity_note,
+      metadata: { changedFields }
+    });
+  });
+  return serializeAccount(await db('crm_accounts').where({ id: account.id }).first());
+}
+
+async function archiveAccount(db, account, user) {
+  if (account.archived_at) return { success: true, alreadyArchived: true };
+  const now = new Date();
+  await db.transaction(async (trx) => {
+    await trx('crm_accounts').where({ id: account.id }).update({
+      archived_at: now,
+      updated_by: user.id,
+      updated_at: now
+    });
+    await logActivity(trx, { account, user, type: 'ACCOUNT_ARCHIVED', fromStatus: account.status });
+  });
+  return { success: true };
+}
+
+async function listActivities(db, accountId) {
+  const rows = await db('crm_activities').where({ account_id: accountId })
+    .orderBy('occurred_at', 'desc').limit(200);
+  return rows.map((row) => ({
+    ...row,
+    metadata: parseJson(row.metadata_json, {}),
+    metadata_json: undefined
+  }));
+}
+
+async function addManualActivity(db, account, user, body) {
+  const type = String(body.activity_type || 'NOTE').trim().toUpperCase().slice(0, 80);
+  const notes = optionalString(body, 'notes', {}, 20000);
+  if (!notes && type === 'NOTE') throw httpError(400, 'Tekst aktivnosti je obavezan.');
+  const requestedStatus = body.status ? String(body.status).toUpperCase() : null;
+  if (requestedStatus && !CRM_STATUSES.has(requestedStatus)) throw httpError(400, 'Status nije podržan.');
+  const now = new Date();
+  let activityId;
+  await db.transaction(async (trx) => {
+    if (requestedStatus && requestedStatus !== account.status) {
+      await trx('crm_accounts').where({ id: account.id }).update({
+        status: requestedStatus,
+        last_contact_at: now,
+        updated_by: user.id,
+        updated_at: now
+      });
+    }
+    activityId = await logActivity(trx, {
+      account,
+      user,
+      type,
+      fromStatus: account.status,
+      toStatus: requestedStatus || account.status,
+      notes
+    });
+  });
+  return db('crm_activities').where({ id: activityId }).first();
+}
+
+function businessDate(timezone = 'Europe/Sarajevo', now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+async function dailyListItems(db, userId, brandId, date) {
+  const rows = await db({ d: 'crm_daily_assignments' })
+    .join({ a: 'crm_accounts' }, 'a.id', 'd.account_id')
+    .where({ 'd.user_id': userId, 'd.brand_id': brandId, 'd.assignment_date': date })
+    .select(
+      'd.id as assignment_id', 'd.assignment_date', 'd.sequence_number',
+      'd.status as assignment_status', 'd.notes as assignment_notes', 'd.completed_at',
+      'a.*'
+    ).orderBy('d.sequence_number');
+  return rows.map((row) => ({
+    id: row.assignment_id,
+    assignment_id: row.assignment_id,
+    assignment_date: row.assignment_date,
+    sequence_number: Number(row.sequence_number),
+    assignment_status: row.assignment_status,
+    assignment_notes: row.assignment_notes,
+    completed_at: row.completed_at,
+    account: serializeAccount(Object.fromEntries(
+      Object.entries(row).filter(([key]) => ![
+        'assignment_id', 'assignment_date', 'sequence_number', 'assignment_status',
+        'assignment_notes', 'completed_at'
+      ].includes(key))
+    ))
+  }));
+}
+
+async function readDailyAssignments(db, user, brand, date = businessDate()) {
+  return {
+    brand: serializeBrand(brand),
+    date,
+    limit: Number(brand.daily_limit) || 30,
+    items: await dailyListItems(db, user.id, brand.id, date)
+  };
+}
+
+async function ensureDailyAssignments(db, user, brand, { date = businessDate(), limit } = {}) {
+  const dailyLimit = Math.min(Number(brand.daily_limit) || 30, parsePositiveInt(limit, Number(brand.daily_limit) || 30, 100));
+  await db.transaction(async (trx) => {
+    // Serializes list preparation for this brand in PostgreSQL; SQLite serializes writes itself.
+    await trx('crm_brands').where({ id: brand.id }).forUpdate().first();
+    const existing = await trx('crm_daily_assignments').where({
+      user_id: user.id,
+      brand_id: brand.id,
+      assignment_date: date
+    }).orderBy('sequence_number');
+    if (existing.length >= dailyLimit) return;
+
+    const accounts = await trx('crm_accounts').where({ brand_id: brand.id })
+      .whereNull('archived_at')
+      .whereNotIn('status', ['REJECTED', 'WON'])
+      .select('id', 'source_row_number', 'company_name');
+    if (!accounts.length) return;
+    const history = await trx('crm_daily_assignments').where({
+      user_id: user.id,
+      brand_id: brand.id
+    }).select('account_id').max({ last_assigned: 'assignment_date' }).groupBy('account_id');
+    const lastAssigned = new Map(history.map((row) => [row.account_id, row.last_assigned]));
+    const alreadyToday = new Set(existing.map((row) => row.account_id));
+    const candidates = accounts.filter((account) => !alreadyToday.has(account.id)).sort((left, right) => {
+      const leftDate = lastAssigned.get(left.id) || null;
+      const rightDate = lastAssigned.get(right.id) || null;
+      if (leftDate === null && rightDate !== null) return -1;
+      if (leftDate !== null && rightDate === null) return 1;
+      if (leftDate !== rightDate) return String(leftDate || '').localeCompare(String(rightDate || ''));
+      const leftRow = left.source_row_number === null ? Number.MAX_SAFE_INTEGER : Number(left.source_row_number);
+      const rightRow = right.source_row_number === null ? Number.MAX_SAFE_INTEGER : Number(right.source_row_number);
+      if (leftRow !== rightRow) return leftRow - rightRow;
+      return String(left.company_name).localeCompare(String(right.company_name), 'bs');
+    });
+    const selected = candidates.slice(0, Math.max(0, dailyLimit - existing.length));
+    const now = new Date();
+    if (selected.length) {
+      await trx('crm_daily_assignments').insert(selected.map((account, index) => ({
+        id: uuidv4(),
+        user_id: user.id,
+        brand_id: brand.id,
+        account_id: account.id,
+        assignment_date: date,
+        sequence_number: existing.length + index + 1,
+        status: 'PENDING',
+        created_at: now,
+        updated_at: now
+      })));
+    }
+  });
+  return {
+    brand: serializeBrand(brand),
+    date,
+    limit: dailyLimit,
+    items: await dailyListItems(db, user.id, brand.id, date)
+  };
+}
+
+async function updateDailyAssignment(db, assignment, account, user, body) {
+  const status = String(body.status || body.assignment_status || '').trim().toUpperCase();
+  if (!ASSIGNMENT_STATUSES.has(status)) throw httpError(400, 'Status dnevnog zadatka nije podržan.');
+  const notes = optionalString(body, 'notes', { notes: assignment.notes }, 20000);
+  const accountStatus = body.account_status
+    ? String(body.account_status).trim().toUpperCase()
+    : (CRM_STATUSES.has(status) ? status : null);
+  if (accountStatus && !CRM_STATUSES.has(accountStatus)) throw httpError(400, 'Status komitenta nije podržan.');
+  const now = new Date();
+  await db.transaction(async (trx) => {
+    await trx('crm_daily_assignments').where({ id: assignment.id }).update({
+      status,
+      notes,
+      completed_at: status === 'PENDING' ? null : now,
+      updated_at: now
+    });
+    if (accountStatus && accountStatus !== account.status) {
+      await trx('crm_accounts').where({ id: account.id }).update({
+        status: accountStatus,
+        last_contact_at: now,
+        updated_by: user.id,
+        updated_at: now
+      });
+    }
+    await logActivity(trx, {
+      account,
+      user,
+      type: 'DAILY_ASSIGNMENT_UPDATED',
+      fromStatus: account.status,
+      toStatus: accountStatus || account.status,
+      notes,
+      metadata: { assignmentId: assignment.id, assignmentStatus: status }
+    });
+  });
+  return db('crm_daily_assignments').where({ id: assignment.id }).first();
+}
+
+async function dashboard(db, brand, user, date = businessDate()) {
+  const base = db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at');
+  const [totalsRow, statusRows, todayRows] = await Promise.all([
+    base.clone().count({ count: '*' }).sum({
+      total_amount: 'total_amount',
+      profit_amount: 'profit_amount',
+      branch_count: 'branch_count'
+    }).first(),
+    base.clone().select('status').count({ count: '*' }).groupBy('status'),
+    db('crm_daily_assignments').where({
+      user_id: user.id,
+      brand_id: brand.id,
+      assignment_date: date
+    }).select('status')
+  ]);
+  const statusCounts = Object.fromEntries([...CRM_STATUSES].map((status) => [status, 0]));
+  statusRows.forEach((row) => { statusCounts[row.status] = Number(row.count); });
+  const completed = todayRows.filter((row) => row.status !== 'PENDING').length;
+  return {
+    brand: serializeBrand(brand),
+    totals: {
+      count: Number(totalsRow ? totalsRow.count : 0),
+      total_amount: numberOrNull(totalsRow && totalsRow.total_amount) || 0,
+      profit_amount: numberOrNull(totalsRow && totalsRow.profit_amount) || 0,
+      branch_count: numberOrNull(totalsRow && totalsRow.branch_count) || 0
+    },
+    statusCounts,
+    today: {
+      date,
+      assignments: todayRows.length,
+      assigned: todayRows.length,
+      completed,
+      pending: todayRows.length - completed,
+      daily_limit: Number(brand.daily_limit)
+    }
+  };
+}
+
+module.exports = {
+  ASSIGNMENT_STATUSES,
+  CRM_PRIORITIES,
+  CRM_STATUSES,
+  accountWithBrand,
+  addManualActivity,
+  archiveAccount,
+  businessDate,
+  createAccount,
+  dashboard,
+  ensureDailyAssignments,
+  httpError,
+  listAccessibleBrands,
+  listAccounts,
+  listActivities,
+  normalizeAccountInput,
+  normalizeBrandCode,
+  resolveBrand,
+  readDailyAssignments,
+  serializeAccount,
+  serializeBrand,
+  updateAccount,
+  updateDailyAssignment
+};

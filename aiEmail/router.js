@@ -97,7 +97,8 @@ function createAiEmailRouter({ db, draftGenerator = generateEmailDraft }) {
     }
   });
 
-  router.use(authenticateRequest, allowRoles('direktor', 'komercijala'));
+  // Mail integration is intentionally director-only until the later Outlook phase.
+  router.use(authenticateRequest, allowRoles('direktor'));
 
   router.get('/metadata', (req, res) => {
     res.json({
