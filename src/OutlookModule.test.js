@@ -100,6 +100,10 @@ test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => 
   renderModule();
   await screen.findByText('Ponuda za HACCP');
   fireEvent.click(screen.getByRole('button', { name: 'Nova poruka' }));
+  const signature = screen.getByTestId('automatic-email-signature');
+  expect(signature).toHaveTextContent('Ermina Siručić');
+  expect(signature).toHaveTextContent('info@s-consulting.ba');
+  expect(screen.getByRole('img', { name: 'S-Consulting Group' })).toHaveAttribute('src', 'https://www.s-consulting.ba/logo-wordmark.png');
   fireEvent.change(screen.getByLabelText('Primaoci'), { target: { value: 'info@firma.ba; uprava@firma.ba' } });
   fireEvent.change(screen.getByLabelText('Naslov'), { target: { value: 'S Consulting ponuda' } });
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Poštovani, u prilogu je naša ponuda.' } });

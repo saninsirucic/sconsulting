@@ -18,9 +18,11 @@ import {
   HStack,
   Icon,
   IconButton,
+  Image,
   Input,
   InputGroup,
   InputLeftElement,
+  Link,
   Modal,
   ModalBody,
   ModalCloseButton,
@@ -78,6 +80,7 @@ const green = '#1dba5b';
 const defaultAttachmentLimit = 5;
 const defaultAttachmentBytes = 2500000;
 const defaultTotalAttachmentBytes = 5000000;
+const signatureLogoUrl = 'https://www.s-consulting.ba/logo-wordmark.png';
 
 const folderIcons = {
   inbox: FaInbox,
@@ -367,6 +370,29 @@ function ReadingPane({ message, loading, writeEnabled, actionLoading, attachment
 
 const emptyCompose = { to: '', cc: '', bcc: '', subject: '', body: '' };
 
+function AutomaticSignaturePreview() {
+  return (
+    <Box data-testid="automatic-email-signature" border="1px solid" borderColor="gray.200" bg="gray.50" borderRadius="xl" p={{ base: 4, md: 5 }} fontSize="sm" color="gray.800">
+      <Text mb={4}>Lijep pozdrav,</Text>
+      <Link href="https://www.s-consulting.ba/" isExternal display="inline-block">
+        <Image src={signatureLogoUrl} alt="S-Consulting Group" w="320px" maxW="100%" h="auto" />
+      </Link>
+      <Divider maxW="420px" my={3} borderColor="#f97316" borderWidth="1px" />
+      <Text mb={1} fontWeight="bold">Ermina Siručić</Text>
+      <Text mb={2}>Direktor&nbsp; | &nbsp;S-Consulting Group</Text>
+      <Text><Text as="span" fontWeight="bold">M:</Text> +387 62 528 870 | +387 62 366 515</Text>
+      <Text><Text as="span" fontWeight="bold">T:</Text> +387 33 848 871</Text>
+      <Text>
+        <Text as="span" fontWeight="bold">E:</Text>{' '}
+        <Link href="mailto:info@s-consulting.ba" color="#0f3d63" textDecoration="underline">info@s-consulting.ba</Link>
+        {' | '}<Text as="span" fontWeight="bold">W:</Text>{' '}
+        <Link href="https://www.s-consulting.ba/" isExternal color="#0f3d63" textDecoration="underline">www.s-consulting.ba</Link>
+      </Text>
+      <Text><Text as="span" fontWeight="bold">A:</Text> Tvornička 3, Sarajevo</Text>
+    </Box>
+  );
+}
+
 function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
   const [form, setForm] = useState(emptyCompose);
   const [showCopies, setShowCopies] = useState(false);
@@ -468,6 +494,13 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
             )}
             <FormControl><FormLabel>Naslov</FormLabel><Input aria-label="Naslov" value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} isReadOnly={mode !== 'compose'} /></FormControl>
             <FormControl isRequired><FormLabel>Poruka</FormLabel><Textarea aria-label="Tekst poruke" minH="240px" resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} /></FormControl>
+            <Box>
+              <Flex align="baseline" justify="space-between" mb={2} gap={3}>
+                <Text fontSize="sm" fontWeight="semibold">Automatski potpis</Text>
+                <Text fontSize="xs" color="gray.500">Dodaje se pri slanju</Text>
+              </Flex>
+              <AutomaticSignaturePreview />
+            </Box>
             <Box>
               <input ref={fileRef} hidden type="file" multiple onChange={addFiles} />
               <Button size="sm" variant="outline" leftIcon={<FaPaperclip />} onClick={() => fileRef.current?.click()}>Dodaj prilog</Button>
