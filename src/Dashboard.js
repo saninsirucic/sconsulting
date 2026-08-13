@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -11,13 +11,13 @@ function Dashboard() {
   const [executors, setExecutors] = useState([]);
 
   useEffect(() => {
-    fetch("/api/plans")
+    apiFetch("/api/plans")
       .then(res => res.json())
       .then(data => setPlans(data));
-    fetch("/api/clients")
+    apiFetch("/api/clients")
       .then(res => res.json())
       .then(data => setClients(data));
-    fetch("/api/executors")
+    apiFetch("/api/executors")
       .then(res => res.json())
       .then(data => setExecutors(data));
   }, []);

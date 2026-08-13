@@ -12,7 +12,7 @@ import {
   Thead,
   Tr,
 } from "@chakra-ui/react";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 
 
@@ -32,7 +32,7 @@ function Clients() {
   const [editId, setEditId] = useState(null);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/clients`)
+    apiFetch("/api/clients")
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         return res.json();
@@ -82,7 +82,7 @@ function Clients() {
     };
 
     if (editId) {
-      fetch(`${BACKEND_URL}/api/clients/${editId}`, {
+      apiFetch(`/api/clients/${editId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clientData),
@@ -94,7 +94,7 @@ function Clients() {
         clearForm();
       });
     } else {
-      fetch(`${BACKEND_URL}/api/clients`, {
+      apiFetch("/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clientData),
@@ -108,7 +108,7 @@ function Clients() {
   };
 
   const deleteClient = (id) => {
-    fetch(`${BACKEND_URL}/api/clients/${id}`, { method: "DELETE" }).then(() =>
+    apiFetch(`/api/clients/${id}`, { method: "DELETE" }).then(() =>
       setClients(clients.filter((c) => c.id !== id))
     );
   };

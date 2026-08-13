@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text, Checkbox, Flex, Button, Spacer } from "@chakra-ui/react";
 import dayjs from "dayjs";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(dayjs());
@@ -11,7 +11,7 @@ function Calendar() {
 
   // Učitavanje planova sa provjerom i logiranjem
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/plans`)
+    apiFetch("/api/plans")
       .then((res) => {
         if (!res.ok) throw new Error(`Plans API error! status: ${res.status}`);
         return res.json();
@@ -35,7 +35,7 @@ function Calendar() {
 
   // Učitavanje klijenata sa provjerom i logiranjem
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/clients`)
+    apiFetch("/api/clients")
       .then((res) => {
         if (!res.ok) throw new Error(`Clients API error! status: ${res.status}`);
         return res.json();

@@ -12,7 +12,7 @@ import {
   Thead,
   Tr,
 } from "@chakra-ui/react";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 function Executors() {
   const [executors, setExecutors] = useState([]);
@@ -24,7 +24,7 @@ function Executors() {
   const [editId, setEditId] = useState(null);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/executors`)
+    apiFetch("/api/executors")
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -53,7 +53,7 @@ function Executors() {
     const executorData = { name, email, phone, address };
 
     if (editId) {
-      fetch(`${BACKEND_URL}/api/executors/${editId}`, {
+      apiFetch(`/api/executors/${editId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(executorData),
@@ -65,7 +65,7 @@ function Executors() {
         clearForm();
       });
     } else {
-      fetch(`${BACKEND_URL}/api/executors`, {
+      apiFetch("/api/executors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(executorData),
@@ -79,7 +79,7 @@ function Executors() {
   };
 
   const deleteExecutor = (id) => {
-    fetch(`${BACKEND_URL}/api/executors/${id}`, { method: "DELETE" }).then(() =>
+    apiFetch(`/api/executors/${id}`, { method: "DELETE" }).then(() =>
       setExecutors(executors.filter((e) => e.id !== id))
     );
   };

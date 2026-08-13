@@ -15,7 +15,7 @@ import {
 } from "@chakra-ui/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 // Funkcija za formatiranje datuma u dd/mm/yyyy
 function formatDate(isoString) {
@@ -55,7 +55,7 @@ function PlanForm() {
   }, []);
 
   const loadData = () => {
-    fetch(`${BACKEND_URL}/api/plans`)
+    apiFetch("/api/plans")
       .then((res) => {
         if (!res.ok) throw new Error(`Plans API error! status: ${res.status}`);
         return res.json();
@@ -72,7 +72,7 @@ function PlanForm() {
         setPlans([]);
       });
 
-    fetch(`${BACKEND_URL}/api/clients`)
+    apiFetch("/api/clients")
       .then((res) => {
         if (!res.ok) throw new Error(`Clients API error! status: ${res.status}`);
         return res.json();
@@ -89,7 +89,7 @@ function PlanForm() {
         setClients([]);
       });
 
-    fetch(`${BACKEND_URL}/api/executors`)
+    apiFetch("/api/executors")
       .then((res) => {
         if (!res.ok) throw new Error(`Executors API error! status: ${res.status}`);
         return res.json();
@@ -147,7 +147,7 @@ function PlanForm() {
     });
 
     if (recurrenceNumber === 1) {
-      fetch(`${BACKEND_URL}/api/plans`, {
+      apiFetch("/api/plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(createPlanPayload(date)),
@@ -179,7 +179,7 @@ function PlanForm() {
 
     Promise.all(
       plansToAdd.map((plan) =>
-        fetch(`${BACKEND_URL}/api/plans`, {
+        apiFetch("/api/plans", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(plan),
@@ -202,7 +202,7 @@ function PlanForm() {
 
   // Ispravka: nakon brisanja ponovo učitaj planove
   const deletePlan = (id) => {
-    fetch(`${BACKEND_URL}/api/plans/${id}`, { method: "DELETE" })
+    apiFetch(`/api/plans/${id}`, { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri brisanju plana");
         return res.json();
@@ -290,7 +290,7 @@ function PlanForm() {
     if (!window.confirm("Da li ste sigurni da želite obrisati planove za izabrani period?")) return;
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/plans/delete-by-client-and-period`, {
+      const res = await apiFetch("/api/plans/delete-by-client-and-period", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -17,7 +17,7 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { EditIcon, DeleteIcon, CheckIcon, CloseIcon } from "@chakra-ui/icons";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 function KUF() {
   const [kufs, setKufs] = useState([]);
@@ -47,7 +47,7 @@ function KUF() {
   const [editData, setEditData] = useState({});
 
   useEffect(() => {
-    fetch(BACKEND_URL + "/api/kufs")
+    apiFetch("/api/kufs")
       .then((res) => {
         if (!res.ok) throw new Error(`Kufs API error! status: ${res.status}`);
         return res.json();
@@ -101,7 +101,7 @@ function KUF() {
     }
 
     try {
-      const res = await fetch(BACKEND_URL + "/api/kufs", {
+      const res = await apiFetch("/api/kufs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -126,7 +126,7 @@ function KUF() {
 
   async function updateKuf(id, updatedFields) {
     try {
-      const res = await fetch(BACKEND_URL + `/api/kufs/${id}`, {
+      const res = await apiFetch(`/api/kufs/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedFields),
@@ -143,7 +143,7 @@ function KUF() {
 
   async function deleteKuf(id) {
     try {
-      const res = await fetch(BACKEND_URL + `/api/kufs/${id}`, {
+      const res = await apiFetch(`/api/kufs/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Greška pri brisanju KUF-a");

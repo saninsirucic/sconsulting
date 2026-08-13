@@ -17,7 +17,7 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import RobotoRegular from "./fonts/roboto-regular.base64";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 // Funkcija za formatiranje datuma u dd/mm/yyyy sa dodatnom provjerom
 function formatDate(dateStr) {
@@ -95,7 +95,7 @@ function Invoice() {
   const selectedYearSuffix = useMemo(() => getYearSuffixFromDate(date), [date]);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/invoices`)
+    apiFetch("/api/invoices")
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri dohvatu faktura");
         return res.json();
@@ -105,7 +105,7 @@ function Invoice() {
       })
       .catch((err) => console.error(err.message));
 
-    fetch(`${BACKEND_URL}/api/clients`)
+    apiFetch("/api/clients")
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri dohvatu klijenata");
         return res.json();
@@ -170,7 +170,7 @@ function Invoice() {
       paymentOrderNumber: null, // šalje NULL umjesto ""
     };
 
-    fetch(`${BACKEND_URL}/api/invoices`, {
+    apiFetch("/api/invoices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(faktura),
@@ -333,7 +333,7 @@ function Invoice() {
 
   const deleteInvoice = (id) => {
     if (!window.confirm("Da li ste sigurni da želite obrisati ovu fakturu?")) return;
-    fetch(`${BACKEND_URL}/api/invoices/${id}`, { method: "DELETE" })
+    apiFetch(`/api/invoices/${id}`, { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri brisanju");
         setInvoices(invoices.filter((inv) => inv.id !== id));
@@ -349,7 +349,7 @@ function Invoice() {
       updatedValue = null;
     }
 
-    fetch(`${BACKEND_URL}/api/invoices/${id}`, {
+    apiFetch(`/api/invoices/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: updatedValue }),
@@ -357,7 +357,7 @@ function Invoice() {
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri ažuriranju fakture");
         // Nakon uspješnog updatea ponovo dohvat faktura
-        return fetch(`${BACKEND_URL}/api/invoices`);
+        return apiFetch("/api/invoices");
       })
       .then((res) => res.json())
       .then((data) => setInvoices(data)) // Update state sa novim podacima

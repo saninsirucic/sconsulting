@@ -1,5 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
+  AlertDescription,
+  AlertIcon,
+  Badge,
   Box,
   Flex,
   Image,
@@ -12,6 +16,9 @@ import {
   Icon,
   Input,
   Checkbox,
+  FormControl,
+  FormLabel,
+  HStack,
 } from "@chakra-ui/react";
 import {
   FaUsers,
@@ -23,6 +30,7 @@ import {
   FaHome,
   FaCalendarAlt,
   FaEnvelopeOpenText,
+  FaBriefcase,
 } from "react-icons/fa";
 import dayjs from "dayjs";
 
@@ -33,23 +41,39 @@ import Invoice from "./Invoice";
 import KUF from "./KUF";
 import Sanitarne from "./Sanitarne";
 import AiMailModule from "./AiMailModule";
+import CommercialModule from "./CommercialModule";
 import logo from "./logo.png";
-import { BACKEND_URL } from "./config";
+import {
+  apiFetch,
+  apiRequest,
+  AUTH_UNAUTHORIZED_EVENT,
+  readStoredSession,
+  writeStoredSession,
+} from "./api";
 
 const menuItems = [
-  { key: "home", label: "Početna", icon: FaHome },
-  { key: "clients", label: "Klijenti", icon: FaUsers },
-  { key: "executors", label: "Izvođači", icon: FaTools },
-  { key: "plans", label: "Planovi", icon: FaClipboardList },
-  { key: "invoices", label: "Fakture", icon: FaFileInvoiceDollar },
-  { key: "kuf", label: "KUF", icon: FaFileAlt },
-  { key: "sanitarne", label: "Sanitarne knjižice", icon: FaBookOpen },
-  { key: "calendar", label: "Kalendar", icon: FaCalendarAlt },
-  { key: "ai-mailovi", label: "AI mailovi", icon: FaEnvelopeOpenText },
+  { key: "home", label: "Početna", icon: FaHome, roles: ["direktor"] },
+  { key: "clients", label: "Klijenti", icon: FaUsers, roles: ["direktor"] },
+  { key: "executors", label: "Izvođači", icon: FaTools, roles: ["direktor"] },
+  { key: "plans", label: "Planovi", icon: FaClipboardList, roles: ["direktor"] },
+  { key: "invoices", label: "Fakture", icon: FaFileInvoiceDollar, roles: ["direktor"] },
+  { key: "kuf", label: "KUF", icon: FaFileAlt, roles: ["direktor"] },
+  { key: "sanitarne", label: "Sanitarne knjižice", icon: FaBookOpen, roles: ["direktor"] },
+  { key: "calendar", label: "Kalendar", icon: FaCalendarAlt, roles: ["direktor"] },
+  { key: "ai-mailovi", label: "AI mailovi", icon: FaEnvelopeOpenText, roles: ["direktor"] },
+  { key: "commercial", label: "Komercijala", icon: FaBriefcase, roles: ["direktor", "komercijala"] },
 ];
 
 const mainColor = "#f68b1f";
 const greenColor = "#1dba5b";
+
+function defaultPageForUser(user) {
+  return user?.role === "komercijala" ? "commercial" : "home";
+}
+
+function allowedMenuForUser(user) {
+  return menuItems.filter((item) => item.roles.includes(user?.role));
+}
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -61,13 +85,12 @@ function Login({ onLogin }) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+      const result = await apiRequest("/api/auth/login", {
+        public: true,
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: { username, password },
       });
-      const result = await response.json();
-      if (!response.ok || !result.success || !result.token) {
+      if (!result?.token) {
         throw new Error(result.error || "Pogrešno korisničko ime ili lozinka.");
       }
       onLogin({ user: result.user, token: result.token });
@@ -103,13 +126,79 @@ function Login({ onLogin }) {
   );
 }
 
+function ChangePassword({ session, onChanged, onLogout }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    if (newPassword.length < 10 || !/[A-Za-zČĆŽŠĐčćžšđ]/.test(newPassword) || !/\d/.test(newPassword)) {
+      return setError("Nova lozinka mora imati najmanje 10 znakova te sadržavati slovo i broj.");
+    }
+    if (newPassword !== confirmation) return setError("Potvrda nove lozinke se ne podudara.");
+
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/auth/change-password", {
+        method: "POST",
+        body: { currentPassword, newPassword },
+      });
+      onChanged({
+        token: result?.token || session.token,
+        user: {
+          ...session.user,
+          ...(result?.user || {}),
+          mustChangePassword: false,
+        },
+      });
+    } catch (requestError) {
+      setError(requestError.message || "Lozinka nije promijenjena.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box minH="100vh" bg="#f5f7fa" py={{ base: 8, md: 20 }} px={4}>
+      <Box as="form" onSubmit={submit} maxW="md" mx="auto" p={{ base: 6, md: 8 }} bg="white" borderRadius="2xl" boxShadow="lg">
+        <Image src={logo} alt="S Consulting" h="64px" mx="auto" mb={5} />
+        <Text fontSize="2xl" fontWeight="bold" textAlign="center">Postavite novu lozinku</Text>
+        <Text color="gray.600" textAlign="center" mt={2} mb={6}>
+          {session.user?.displayName || session.user?.display_name || session.user?.username}, zbog sigurnosti prvo promijenite privremenu lozinku.
+        </Text>
+        <VStack spacing={4} align="stretch">
+          <FormControl isRequired>
+            <FormLabel>Trenutna lozinka</FormLabel>
+            <Input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+          </FormControl>
+          <FormControl isRequired>
+            <FormLabel>Nova lozinka</FormLabel>
+            <Input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+          </FormControl>
+          <FormControl isRequired>
+            <FormLabel>Potvrdite novu lozinku</FormLabel>
+            <Input type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+          </FormControl>
+          {error && <Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>{error}</AlertDescription></Alert>}
+          <Button type="submit" bg={greenColor} color="white" _hover={{ bg: "green.600" }} isLoading={loading}>Sačuvaj novu lozinku</Button>
+          <Button variant="ghost" color={mainColor} onClick={onLogout}>Odjavi se</Button>
+        </VStack>
+      </Box>
+    </Box>
+  );
+}
+
 function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   const [plans, setPlans] = useState([]);
   const [checkedItems, setCheckedItems] = useState({});
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/plans`)
+    apiFetch("/api/plans")
       .then(res => res.json())
       .then(data => setPlans(data))
       .catch(err => {
@@ -187,43 +276,60 @@ function Calendar() {
 }
 
 function App() {
-  const [session, setSession] = useState(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem("sconsulting-session")) || null;
-    } catch (error) {
-      return null;
-    }
-  });
+  const [session, setSession] = useState(() => readStoredSession());
   const user = session?.user;
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(() => defaultPageForUser(readStoredSession()?.user));
   const [clients, setClients] = useState([]);
+  const allowedMenuItems = useMemo(() => allowedMenuForUser(user), [user]);
 
   useEffect(() => {
-    if (user) {
-      fetch(`${BACKEND_URL}/api/clients`)
+    if (user?.role === "direktor" && !user.mustChangePassword) {
+      apiFetch("/api/clients")
         .then((res) => res.json())
         .then((data) => setClients(data))
         .catch((err) => console.error("Greška prilikom učitavanja klijenata:", err));
+    } else {
+      setClients([]);
     }
   }, [user]);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem("sconsulting-session");
+  const handleLogout = useCallback(() => {
+    writeStoredSession(null);
     setSession(null);
     setPage("home");
-  };
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleLogout);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleLogout);
+  }, [handleLogout]);
+
+  useEffect(() => {
+    if (!user) return;
+    const allowedKeys = new Set(allowedMenuItems.map((item) => item.key));
+    if (!allowedKeys.has(page)) setPage(defaultPageForUser(user));
+  }, [allowedMenuItems, page, user]);
 
   if (!user) {
     return <Login onLogin={(nextSession) => {
-      sessionStorage.setItem("sconsulting-session", JSON.stringify(nextSession));
+      writeStoredSession(nextSession);
       setSession(nextSession);
+      setPage(defaultPageForUser(nextSession.user));
+    }} />;
+  }
+
+  if (user.mustChangePassword) {
+    return <ChangePassword session={session} onLogout={handleLogout} onChanged={(nextSession) => {
+      writeStoredSession(nextSession);
+      setSession(nextSession);
+      setPage(defaultPageForUser(nextSession.user));
     }} />;
   }
 
   const HomePage = () => (
     <Box textAlign="center" py={6} maxW="900px" mx="auto">
       <SimpleGrid columns={[1, 2, 3]} spacing={6} px={4}>
-        {menuItems
+        {allowedMenuItems
           .filter((item) => item.key !== "home")
           .map(({ key, label, icon }) => (
             <Box
@@ -287,7 +393,7 @@ function App() {
             p="5px"
             cursor="pointer"
             flexShrink={0}
-            onClick={() => setPage("home")}
+            onClick={() => setPage(defaultPageForUser(user))}
           />
           <Text
             fontWeight="700"
@@ -296,7 +402,7 @@ function App() {
             color="#fff"
             textShadow="0 1px 8px #f68b1f77"
             cursor="pointer"
-            onClick={() => setPage("home")}
+            onClick={() => setPage(defaultPageForUser(user))}
             whiteSpace={{ base: "normal", sm: "nowrap" }}
           >
             Dobrodošli u S Consulting • Interni sistem
@@ -317,7 +423,7 @@ function App() {
           }}
         >
           {page !== "home" &&
-            menuItems
+            allowedMenuItems
               .filter((item) => item.key !== "home")
               .map((item) => (
                 <Button
@@ -338,6 +444,16 @@ function App() {
                   {item.label}
                 </Button>
               ))}
+          <HStack flexShrink={0} spacing={2} px={{ base: 1, md: 2 }}>
+            <Box textAlign="right" display={{ base: "none", md: "block" }}>
+              <Text fontWeight="bold" fontSize="sm" lineHeight="short">
+                {user.displayName || user.display_name || user.username}
+              </Text>
+              <Badge colorScheme={user.role === "direktor" ? "purple" : "green"} fontSize="10px">
+                {user.role}
+              </Badge>
+            </Box>
+          </HStack>
           <Button
             bg="#fff"
             color={mainColor}
@@ -359,7 +475,7 @@ function App() {
 
       {/* SADRŽAJ */}
       <Box
-        maxW={page === "ai-mailovi" ? "1500px" : "1100px"}
+        maxW={["ai-mailovi", "commercial"].includes(page) ? "1600px" : "1100px"}
         mx="auto"
         mt={{ base: "18px", md: "40px" }}
         bg="#fff"
@@ -377,6 +493,7 @@ function App() {
         {page === "sanitarne" && <Sanitarne />}
         {page === "calendar" && <Calendar />}
         {page === "ai-mailovi" && <AiMailModule token={session.token} user={session.user} />}
+        {page === "commercial" && <CommercialModule user={session.user} />}
       </Box>
     </Box>
   );

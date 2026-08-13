@@ -15,7 +15,7 @@ import {
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 function Sanitarne() {
   const [sanitarne, setSanitarne] = useState([]);
@@ -34,7 +34,7 @@ function Sanitarne() {
 
   // Ucitaj klijente samo jednom sa provjerom da je niz
   useEffect(() => {
-    fetch(BACKEND_URL + "/api/clients")
+    apiFetch("/api/clients")
       .then((res) => {
         if (!res.ok) throw new Error(`Clients API error! status: ${res.status}`);
         return res.json();
@@ -57,7 +57,7 @@ function Sanitarne() {
     if (startExpiryDate) queryParams.append("startExpiryDate", startExpiryDate);
     if (endExpiryDate) queryParams.append("endExpiryDate", endExpiryDate);
 
-    fetch(`${BACKEND_URL}/api/sanitarne?${queryParams.toString()}`)
+    apiFetch(`/api/sanitarne?${queryParams.toString()}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Sanitarne API error! status: ${res.status}`);
         return res.json();
@@ -84,7 +84,7 @@ function Sanitarne() {
     };
 
     if (editId) {
-      fetch(`${BACKEND_URL}/api/sanitarne/${editId}`, {
+      apiFetch(`/api/sanitarne/${editId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sanitarnaData),
@@ -97,7 +97,7 @@ function Sanitarne() {
         })
         .catch((err) => alert(err.message));
     } else {
-      fetch(`${BACKEND_URL}/api/sanitarne`, {
+      apiFetch("/api/sanitarne", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sanitarnaData),
@@ -115,7 +115,7 @@ function Sanitarne() {
   };
 
   const deleteSanitarna = (id) => {
-    fetch(`${BACKEND_URL}/api/sanitarne/${id}`, { method: "DELETE" })
+    apiFetch(`/api/sanitarne/${id}`, { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("Greška pri brisanju sanitarne");
         refetchSanitarne();
@@ -136,7 +136,7 @@ function Sanitarne() {
     if (startExpiryDate) queryParams.append("startExpiryDate", startExpiryDate);
     if (endExpiryDate) queryParams.append("endExpiryDate", endExpiryDate);
 
-    fetch(`${BACKEND_URL}/api/sanitarne?${queryParams.toString()}`)
+    apiFetch(`/api/sanitarne?${queryParams.toString()}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Sanitarne API error! status: ${res.status}`);
         return res.json();

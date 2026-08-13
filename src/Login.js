@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BACKEND_URL } from "./config";
+import { apiFetch } from "./api";
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -9,7 +9,8 @@ function Login({ onLogin }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    fetch(`${BACKEND_URL}/api/auth/login`, {   // koristi Heroku URL
+    apiFetch("/api/auth/login", {
+      public: true,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
