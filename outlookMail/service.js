@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const sanitizeHtml = require('sanitize-html');
 const { OutlookError, createGraphClient, createOutlookConfig } = require('./graphClient');
+const { appendAutomaticSignature, escapePlainText } = require('./signature');
 
 const FOLDERS = Object.freeze({
   inbox: 'Inbox',
@@ -410,7 +411,7 @@ function createOutlookService(options = {}) {
     const attachments = normalizeAttachments(payload.attachments, config);
     const message = {
       subject,
-      body: normalizeBody(payload),
+      body: appendAutomaticSignature(normalizeBody(payload)),
       toRecipients: normalizeRecipients(payload.to, { required: true }),
       ccRecipients: normalizeRecipients(payload.cc),
       bccRecipients: normalizeRecipients(payload.bcc)
@@ -425,7 +426,7 @@ function createOutlookService(options = {}) {
     const messageId = validateId(id, 'ID poruke');
     const action = kind === 'reply-all' ? 'createReplyAll' : (kind === 'forward' ? 'createForward' : 'createReply');
     const attachments = normalizeAttachments(payload.attachments, config);
-    const requestedBody = normalizeBody(payload);
+    const requestedBody = appendAutomaticSignature(normalizeBody(payload));
     let requestedTo;
     if (kind === 'forward') requestedTo = normalizeRecipients(payload.to, { required: true });
     else if (payload.to !== undefined) badRequest('Polje to nije dozvoljeno za reply akciju.');
@@ -439,11 +440,8 @@ function createOutlookService(options = {}) {
     if (existingBody && existingBody.content) {
       const existingType = String(existingBody.contentType || '').toLowerCase();
       if (requestedBody.contentType === 'HTML' || existingType === 'html') {
-        const escapeText = (value) => String(value)
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\r?\n/g, '<br>');
-        const requestedHtml = requestedBody.contentType === 'HTML' ? requestedBody.content : escapeText(requestedBody.content);
-        const existingHtml = existingType === 'html' ? sanitizeMessageHtml(existingBody.content) : escapeText(existingBody.content);
+        const requestedHtml = requestedBody.contentType === 'HTML' ? requestedBody.content : escapePlainText(requestedBody.content);
+        const existingHtml = existingType === 'html' ? sanitizeMessageHtml(existingBody.content) : escapePlainText(existingBody.content);
         combinedBody = { contentType: 'HTML', content: `${requestedHtml}<br><br>${existingHtml}` };
       } else {
         combinedBody = { contentType: 'Text', content: `${requestedBody.content}\n\n${String(existingBody.content)}` };

@@ -15,6 +15,7 @@ const {
   normalizeAttachments,
   sanitizeMessageHtml
 } = require('../outlookMail/service');
+const { SIGNATURE_LOGO_URL, SIGNATURE_MARKER } = require('../outlookMail/signature');
 const { createOutlookRouter } = require('../outlookMail/router');
 
 function configuredEnv(overrides = {}) {
@@ -460,6 +461,11 @@ test('service send sanitizira HTML, kreira draft i odbija klijentski sender/mail
   ]);
   assert.doesNotMatch(graphCalls[0].options.body.body.content, /script|onclick|alert\(1\)/i);
   assert.match(graphCalls[0].options.body.body.content, /rel="noopener noreferrer"/);
+  assert.equal(graphCalls[0].options.body.body.contentType, 'HTML');
+  assert.equal((graphCalls[0].options.body.body.content.match(new RegExp(SIGNATURE_MARKER, 'g')) || []).length, 1);
+  assert.match(graphCalls[0].options.body.body.content, new RegExp(SIGNATURE_LOGO_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(graphCalls[0].options.body.body.content, /Ermina Siručić/);
+  assert.match(graphCalls[0].options.body.body.content, /info@s-consulting\.ba/);
   assert.equal(graphCalls[1].url, mailboxUrl('/messages/DraftCaseSensitive/send'));
   assert.equal(graphCalls[1].options.idempotent, false);
 
@@ -531,7 +537,9 @@ test('reply i forward workflow koriste server-side draft, a read-only service bl
   assert.deepEqual(graphCalls[4].options.body.toRecipients, [
     { emailAddress: { address: 'forward@s-consulting.ba' } }
   ]);
-  assert.equal(graphCalls[4].options.body.body.contentType, 'Text');
+  assert.equal(graphCalls[4].options.body.body.contentType, 'HTML');
+  assert.match(graphCalls[4].options.body.body.content, /Proslijedjeno/);
+  assert.equal((graphCalls[4].options.body.body.content.match(new RegExp(SIGNATURE_MARKER, 'g')) || []).length, 1);
 
   const callsBeforeInvalidReply = graphCalls.length;
   await assert.rejects(
