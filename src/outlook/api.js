@@ -41,6 +41,7 @@ export async function composePayload(form, files = []) {
     subject: String(form.subject || '').trim(),
     body: String(form.body || ''),
     bodyType: 'text',
+    signature: form.signature ? { ...form.signature } : undefined,
     attachments,
   };
 }

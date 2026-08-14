@@ -88,13 +88,16 @@ test('odgovara na poruku kroz shared mailbox', async () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'Odgovori' }));
   expect(screen.getByLabelText('Primaoci')).toHaveValue('nabavka@primjer.ba');
-  expect(screen.getByTestId('automatic-email-signature')).toHaveTextContent('Ermina Siručić');
-  expect(screen.getByText('Pregled automatskog potpisa — sistem ga dodaje jednom pri slanju.')).toBeInTheDocument();
+  expect(screen.getByTestId('editable-email-signature')).toBeInTheDocument();
+  expect(screen.getByLabelText('Potpis - name')).toHaveValue('Ermina Siručić');
+  expect(screen.getByText(/Prikazani podaci se šalju kao potpis ove poruke/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Hvala, ponudu šaljemo danas.' } });
+  fireEvent.change(screen.getByLabelText('Potpis - name'), { target: { value: 'Prodajni tim' } });
   fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
 
   await waitFor(() => expect(outlookApi.reply).toHaveBeenCalledWith('message-1', expect.objectContaining({
     body: 'Hvala, ponudu šaljemo danas.',
+    signature: expect.objectContaining({ name: 'Prodajni tim' }),
     attachments: [],
   })));
   expect(outlookApi.reply.mock.calls[0][1].body).not.toMatch(/Ermina|S-Consulting Group|logo-wordmark/);
@@ -104,19 +107,21 @@ test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => 
   renderModule();
   await screen.findByText('Ponuda za HACCP');
   fireEvent.click(screen.getByRole('button', { name: 'Nova poruka' }));
-  const signature = screen.getByTestId('automatic-email-signature');
-  expect(signature).toHaveTextContent('Ermina Siručić');
-  expect(signature).toHaveTextContent('info@s-consulting.ba');
+  expect(screen.getByTestId('editable-email-signature')).toBeInTheDocument();
+  expect(screen.getByLabelText('Potpis - name')).toHaveValue('Ermina Siručić');
+  expect(screen.getByLabelText('Potpis - email')).toHaveValue('info@s-consulting.ba');
   expect(screen.getByRole('img', { name: 'S-Consulting Group' })).toHaveAttribute('src', 'https://www.s-consulting.ba/logo-wordmark.png');
   fireEvent.change(screen.getByLabelText('Primaoci'), { target: { value: 'info@firma.ba; uprava@firma.ba' } });
   fireEvent.change(screen.getByLabelText('Naslov'), { target: { value: 'S Consulting ponuda' } });
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Poštovani, u prilogu je naša ponuda.' } });
+  fireEvent.change(screen.getByLabelText('Potpis - title'), { target: { value: 'Komercijala | S-Consulting Group' } });
   fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
 
   await waitFor(() => expect(outlookApi.send).toHaveBeenCalledWith(expect.objectContaining({
     to: ['info@firma.ba', 'uprava@firma.ba'],
     subject: 'S Consulting ponuda',
     body: 'Poštovani, u prilogu je naša ponuda.',
+    signature: expect.objectContaining({ title: 'Komercijala | S-Consulting Group' }),
   })));
   expect(outlookApi.send.mock.calls[0][0].body).not.toMatch(/Ermina|S-Consulting Group|logo-wordmark/);
 });
@@ -126,19 +131,23 @@ test('prosljeđivanje ne šalje read-only originalni subject izvan backend allow
   fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
   await screen.findByRole('button', { name: 'Proslijedi' });
   fireEvent.click(screen.getByRole('button', { name: 'Proslijedi' }));
-  expect(screen.getByTestId('automatic-email-signature')).toHaveTextContent('Ermina Siručić');
+  expect(screen.getByLabelText('Potpis - name')).toHaveValue('Ermina Siručić');
   fireEvent.change(screen.getByLabelText('Primaoci'), { target: { value: 'kolega@firma.ba' } });
   fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Prosljeđujem zaprimljeni upit.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
 
-  await waitFor(() => expect(outlookApi.forward).toHaveBeenCalledWith('message-1', {
+  await waitFor(() => expect(outlookApi.forward).toHaveBeenCalled());
+  const forwardPayload = outlookApi.forward.mock.calls[0][1];
+  expect(forwardPayload).toEqual(expect.objectContaining({
     to: ['kolega@firma.ba'],
     cc: [],
     bcc: [],
     body: 'Prosljeđujem zaprimljeni upit.',
     bodyType: 'text',
+    signature: expect.objectContaining({ name: 'Ermina Siručić' }),
     attachments: [],
   }));
+  expect(forwardPayload).not.toHaveProperty('subject');
 });
 
 test('prikazuje jasan administratorski setup kada mailbox nije konfigurisan', async () => {

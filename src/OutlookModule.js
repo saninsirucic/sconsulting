@@ -82,6 +82,16 @@ const defaultAttachmentLimit = 5;
 const defaultAttachmentBytes = 2500000;
 const defaultTotalAttachmentBytes = 5000000;
 const signatureLogoUrl = 'https://www.s-consulting.ba/logo-wordmark.png';
+const defaultEmailSignature = Object.freeze({
+  greeting: 'Lijep pozdrav,',
+  name: 'Ermina Siručić',
+  title: 'Direktor | S-Consulting Group',
+  mobile: '+387 62 528 870 | +387 62 366 515',
+  phone: '+387 33 848 871',
+  email: 'info@s-consulting.ba',
+  website: 'www.s-consulting.ba',
+  address: 'Tvornička 3, Sarajevo',
+});
 const statusRetryDelays = process.env.NODE_ENV === 'test' ? [0, 0, 0] : [0, 1000, 3000];
 
 const folderIcons = {
@@ -406,43 +416,71 @@ function ReadingPane({ message, loading, writeEnabled, actionLoading, attachment
   );
 }
 
-const emptyCompose = { to: '', cc: '', bcc: '', subject: '', body: '' };
+const createEmptyCompose = () => ({
+  to: '',
+  cc: '',
+  bcc: '',
+  subject: '',
+  body: '',
+  signature: { ...defaultEmailSignature },
+});
 
-function AutomaticSignaturePreview({ embedded = false }) {
+function SignatureLine({ label, field, value, onChange, fontWeight, type = 'text', placeholder }) {
   return (
-    <Box
-      data-testid="automatic-email-signature"
-      border={embedded ? '0' : '1px solid'}
-      borderColor="gray.200"
-      bg={embedded ? 'white' : 'gray.50'}
-      borderRadius={embedded ? '0' : 'xl'}
-      p={embedded ? 0 : { base: 4, md: 5 }}
-      fontSize={{ base: 'xs', sm: 'sm' }}
-      color="gray.800"
-      overflowWrap="anywhere"
-    >
-      <Text mb={4}>Lijep pozdrav,</Text>
-      <Link href="https://www.s-consulting.ba/" isExternal display="inline-block">
-        <Image src={signatureLogoUrl} alt="S-Consulting Group" w={{ base: '250px', sm: '320px' }} maxW="100%" h="auto" />
-      </Link>
-      <Divider maxW="420px" my={3} borderColor="#f97316" borderWidth="1px" />
-      <Text mb={1} fontWeight="bold">Ermina Siručić</Text>
-      <Text mb={2}>Direktor&nbsp; | &nbsp;S-Consulting Group</Text>
-      <Text><Text as="span" fontWeight="bold">M:</Text> +387 62 528 870 | +387 62 366 515</Text>
-      <Text><Text as="span" fontWeight="bold">T:</Text> +387 33 848 871</Text>
-      <Text>
-        <Text as="span" fontWeight="bold">E:</Text>{' '}
-        <Link href="mailto:info@s-consulting.ba" color="#0f3d63" textDecoration="underline">info@s-consulting.ba</Link>
-        {' | '}<Text as="span" fontWeight="bold">W:</Text>{' '}
-        <Link href="https://www.s-consulting.ba/" isExternal color="#0f3d63" textDecoration="underline">www.s-consulting.ba</Link>
-      </Text>
-      <Text><Text as="span" fontWeight="bold">A:</Text> Tvornička 3, Sarajevo</Text>
+    <Flex align="center" gap={2} minW={0}>
+      {label && <Text flexShrink={0} fontSize="sm" fontWeight="bold">{label}:</Text>}
+      <Input
+        aria-label={`Potpis - ${field}`}
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(field, event.target.value)}
+        variant="unstyled"
+        minH="36px"
+        px={2}
+        fontSize="sm"
+        fontWeight={fontWeight}
+        borderRadius="md"
+        _hover={{ bg: 'white' }}
+        _focusVisible={{ bg: 'white', boxShadow: `0 0 0 1px ${outlookBlue}` }}
+      />
+    </Flex>
+  );
+}
+
+function EditableSignature({ signature, onChange, onReset }) {
+  return (
+    <Box data-testid="editable-email-signature" bg="blue.50" borderTop="1px solid" borderColor="blue.100" px={{ base: 3, sm: 5 }} py={4}>
+      <Flex align={{ base: 'start', sm: 'center' }} justify="space-between" gap={3} mb={3} direction={{ base: 'column', sm: 'row' }}>
+        <Box>
+          <Text fontWeight="bold" color="blue.900">Potpis — možeš urediti svaki red</Text>
+          <Text fontSize="xs" color="blue.700">Klikni na podatak u potpisu i upiši izmjenu samo za ovu poruku.</Text>
+        </Box>
+        <Button minH="40px" size="sm" variant="outline" colorScheme="blue" bg="white" onClick={onReset}>Vrati početni potpis</Button>
+      </Flex>
+
+      <Box bg="white" border="1px solid" borderColor="blue.100" borderRadius="lg" p={{ base: 3, sm: 4 }} maxW="720px" boxShadow="sm">
+        <SignatureLine field="greeting" value={signature.greeting} onChange={onChange} placeholder="Pozdrav" />
+        <Link href="https://www.s-consulting.ba/" isExternal display="inline-block" mt={3}>
+          <Image src={signatureLogoUrl} alt="S-Consulting Group" w={{ base: '250px', sm: '320px' }} maxW="100%" h="auto" />
+        </Link>
+        <Divider maxW="520px" my={3} borderColor="#f97316" borderWidth="1px" />
+        <SignatureLine field="name" value={signature.name} onChange={onChange} fontWeight="bold" placeholder="Ime i prezime" />
+        <SignatureLine field="title" value={signature.title} onChange={onChange} placeholder="Funkcija | kompanija" />
+        <SignatureLine label="M" field="mobile" value={signature.mobile} onChange={onChange} placeholder="Mobilni telefon" />
+        <SignatureLine label="T" field="phone" value={signature.phone} onChange={onChange} placeholder="Telefon" />
+        <Grid templateColumns={{ base: '1fr', lg: '1fr 1fr' }} gap={{ base: 0, lg: 4 }}>
+          <SignatureLine label="E" field="email" type="email" value={signature.email} onChange={onChange} placeholder="E-mail" />
+          <SignatureLine label="W" field="website" value={signature.website} onChange={onChange} placeholder="Web stranica" />
+        </Grid>
+        <SignatureLine label="A" field="address" value={signature.address} onChange={onChange} placeholder="Adresa" />
+      </Box>
     </Box>
   );
 }
 
 function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
-  const [form, setForm] = useState(emptyCompose);
+  const [form, setForm] = useState(createEmptyCompose);
   const [showCopies, setShowCopies] = useState(false);
   const [files, setFiles] = useState([]);
   const [error, setError] = useState('');
@@ -459,6 +497,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
       bcc: '',
       subject: message ? replySubject(message.subject, forward) : '',
       body: '',
+      signature: { ...defaultEmailSignature },
     });
     setShowCopies(replyAll);
     setFiles([]);
@@ -499,14 +538,15 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
     setSending(true);
     try {
       const payload = await composePayload(form, files);
-      if (mode === 'reply') await outlookApi.reply(message.id, { body: payload.body, bodyType: payload.bodyType, attachments: payload.attachments });
-      else if (mode === 'reply-all') await outlookApi.replyAll(message.id, { body: payload.body, bodyType: payload.bodyType, attachments: payload.attachments });
+      if (mode === 'reply') await outlookApi.reply(message.id, { body: payload.body, bodyType: payload.bodyType, signature: payload.signature, attachments: payload.attachments });
+      else if (mode === 'reply-all') await outlookApi.replyAll(message.id, { body: payload.body, bodyType: payload.bodyType, signature: payload.signature, attachments: payload.attachments });
       else if (mode === 'forward') await outlookApi.forward(message.id, {
         to: payload.to,
         cc: payload.cc,
         bcc: payload.bcc,
         body: payload.body,
         bodyType: payload.bodyType,
+        signature: payload.signature,
         attachments: payload.attachments,
       });
       else await outlookApi.send(payload);
@@ -520,10 +560,14 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
   };
 
   const title = mode === 'reply' ? 'Odgovor' : mode === 'reply-all' ? 'Odgovor svima' : mode === 'forward' ? 'Proslijedi poruku' : 'Nova poruka';
+  const updateSignature = (field, value) => setForm((current) => ({
+    ...current,
+    signature: { ...current.signature, [field]: value },
+  }));
   return (
-    <Modal isOpen={isOpen} onClose={sending ? undefined : onClose} size="3xl" scrollBehavior="inside">
+    <Modal isOpen={isOpen} onClose={sending ? undefined : onClose} size="6xl" scrollBehavior="inside">
       <ModalOverlay />
-      <ModalContent as="form" onSubmit={submit} borderRadius={{ base: 0, md: '2xl' }} overflow="hidden" my={{ base: 0, md: 8 }} mx={{ base: 0, md: 4 }} w={{ base: '100vw', md: 'auto' }} maxW={{ base: '100vw', md: '3xl' }} minH={{ base: '100dvh', md: 'auto' }} maxH={{ base: '100dvh', md: 'calc(100vh - 4rem)' }}>
+      <ModalContent as="form" onSubmit={submit} borderRadius={{ base: 0, md: '2xl' }} overflow="hidden" my={{ base: 0, md: 6 }} mx={{ base: 0, md: 4 }} w={{ base: '100vw', md: 'calc(100vw - 64px)' }} maxW={{ base: '100vw', md: '1100px' }} minH={{ base: '100dvh', md: 'auto' }} maxH={{ base: '100dvh', md: 'calc(100vh - 3rem)' }}>
         <ModalHeader bg="#f8fafc" borderBottom="1px solid" borderColor="gray.200">
           <Flex align="center" gap={3}><Flex boxSize="38px" bg="blue.50" color={outlookBlue} align="center" justify="center" borderRadius="lg"><FaEnvelope /></Flex><Box><Text>{title}</Text><Text fontSize="xs" fontWeight="normal" color="gray.500">Šalje se sa {status.mailbox}</Text></Box></Flex>
         </ModalHeader>
@@ -544,13 +588,14 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
             <FormControl isRequired>
               <FormLabel>Poruka</FormLabel>
               <Box border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" bg="white" _focusWithin={{ borderColor: outlookBlue, boxShadow: `0 0 0 1px ${outlookBlue}` }}>
-                <Textarea aria-label="Tekst poruke" minH={{ base: '180px', md: '240px' }} resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} border="0" borderRadius="0" _focusVisible={{ boxShadow: 'none' }} />
-                <Divider />
-                <Box px={{ base: 3, sm: 4 }} py={4} bg="white">
-                  <AutomaticSignaturePreview embedded />
-                </Box>
+                <Textarea aria-label="Tekst poruke" minH={{ base: '200px', md: '260px' }} resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} border="0" borderRadius="0" p={{ base: 3, sm: 5 }} _focusVisible={{ boxShadow: 'none' }} />
+                <EditableSignature
+                  signature={form.signature}
+                  onChange={updateSignature}
+                  onReset={() => setForm((current) => ({ ...current, signature: { ...defaultEmailSignature } }))}
+                />
               </Box>
-              <Text fontSize="xs" color="gray.500" mt={2}>Pregled automatskog potpisa — sistem ga dodaje jednom pri slanju.</Text>
+              <Text fontSize="xs" color="gray.500" mt={2}>Prikazani podaci se šalju kao potpis ove poruke. Logo se dodaje automatski i potpis se neće duplirati.</Text>
             </FormControl>
             <Box>
               <input ref={fileRef} hidden type="file" multiple onChange={addFiles} />
