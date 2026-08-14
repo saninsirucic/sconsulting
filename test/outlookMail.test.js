@@ -483,6 +483,64 @@ test('service send sanitizira HTML, kreira draft i odbija klijentski sender/mail
   assert.equal(graphCalls.length, 2);
 });
 
+test('uređeni potpis se šalje tačno jednom i opasni sadržaj ostaje escaped', async () => {
+  const graphCalls = [];
+  const graph = {
+    mailboxPath: mailboxUrl,
+    validateGraphUrl: (value) => validateGraphUrl(value, FIXED_MAILBOX),
+    async request(url, options = {}) {
+      graphCalls.push({ url: String(url), options });
+      if (String(url) === mailboxUrl('/messages')) {
+        return { data: { id: 'CustomSignatureDraft', conversationId: 'custom-signature-conversation' } };
+      }
+      return { data: null };
+    }
+  };
+  const service = createOutlookService({
+    config: configuredConfig({ writeEnabled: true }),
+    graphClient: graph
+  });
+
+  await service.send({
+    to: ['test@s-consulting.ba'],
+    subject: 'Uređeni potpis',
+    bodyType: 'text',
+    body: 'Poruka iz CRM-a',
+    signature: {
+      greeting: 'Srdačan pozdrav,',
+      name: 'Komercijalista <script>alert(1)</script>',
+      title: 'Prodaja | S-Consulting Group',
+      mobile: '+387 61 111 222',
+      phone: '',
+      email: 'sales@s-consulting.ba',
+      website: 'www.s-consulting.ba/prodaja',
+      address: 'Tvornička 3, Sarajevo'
+    }
+  });
+
+  const content = graphCalls[0].options.body.body.content;
+  assert.equal((content.match(new RegExp(SIGNATURE_MARKER, 'g')) || []).length, 1);
+  assert.match(content, /Srdačan pozdrav/);
+  assert.match(content, /Komercijalista &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(content, /<script>/i);
+  assert.doesNotMatch(content, /Ermina Siručić/);
+  assert.match(content, /mailto:sales@s-consulting\.ba/);
+  assert.match(content, /https:\/\/www\.s-consulting\.ba\/prodaja/);
+  assert.match(content, new RegExp(SIGNATURE_LOGO_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(graphCalls.length, 2);
+
+  await assert.rejects(
+    service.send({
+      to: ['test@s-consulting.ba'],
+      subject: 'Neispravan potpis',
+      body: 'Tekst',
+      signature: { email: 'nije-email' }
+    }),
+    (error) => error.code === 'OUTLOOK_INVALID_SIGNATURE' && error.status === 400
+  );
+  assert.equal(graphCalls.length, 2, 'neispravan potpis ne smije kreirati Graph draft');
+});
+
 test('reply i forward workflow koriste server-side draft, a read-only service blokira sve write akcije', async () => {
   const graphCalls = [];
   let draftNumber = 0;

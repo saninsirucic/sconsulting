@@ -237,6 +237,43 @@ function assertPayloadKeys(payload, allowed) {
   }
 }
 
+const SIGNATURE_FIELD_LIMITS = Object.freeze({
+  greeting: 200,
+  name: 200,
+  title: 250,
+  mobile: 200,
+  phone: 100,
+  email: 320,
+  website: 500,
+  address: 300
+});
+
+function normalizeEditableSignature(value) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    badRequest('Potpis mora biti JSON objekat.', 'OUTLOOK_INVALID_SIGNATURE');
+  }
+  assertPayloadKeys(value, Object.keys(SIGNATURE_FIELD_LIMITS));
+  const signature = {};
+  for (const [field, limit] of Object.entries(SIGNATURE_FIELD_LIMITS)) {
+    const text = value[field] === undefined || value[field] === null ? '' : String(value[field]).trim();
+    if (text.length > limit) badRequest(`Polje potpisa ${field} je predugo.`, 'OUTLOOK_INVALID_SIGNATURE');
+    signature[field] = text;
+  }
+  if (signature.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(signature.email)) {
+    badRequest('E-mail u potpisu nije ispravan.', 'OUTLOOK_INVALID_SIGNATURE');
+  }
+  if (signature.website) {
+    try {
+      const parsed = new URL(/^https?:\/\//i.test(signature.website) ? signature.website : `https://${signature.website}`);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+    } catch (error) {
+      badRequest('Web adresa u potpisu nije ispravna.', 'OUTLOOK_INVALID_SIGNATURE');
+    }
+  }
+  return signature;
+}
+
 function requireWrites(config) {
   if (!config.writeEnabled) {
     throw new OutlookError('Outlook izmjene su trenutno isključene na serveru.', {
@@ -405,13 +442,13 @@ function createOutlookService(options = {}) {
 
   async function send(payload = {}) {
     requireWrites(config);
-    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'subject', 'body', 'bodyType', 'contentType', 'attachments']);
+    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'subject', 'body', 'bodyType', 'contentType', 'attachments', 'signature']);
     const subject = String(payload.subject || '').trim();
     if (!subject || subject.length > 255 || /[\r\n]/.test(subject)) badRequest('Naslov poruke je obavezan i može imati najviše 255 znakova.');
     const attachments = normalizeAttachments(payload.attachments, config);
     const message = {
       subject,
-      body: appendAutomaticSignature(normalizeBody(payload)),
+      body: appendAutomaticSignature(normalizeBody(payload), normalizeEditableSignature(payload.signature)),
       toRecipients: normalizeRecipients(payload.to, { required: true }),
       ccRecipients: normalizeRecipients(payload.cc),
       bccRecipients: normalizeRecipients(payload.bcc)
@@ -422,11 +459,11 @@ function createOutlookService(options = {}) {
 
   async function respond(kind, id, payload = {}) {
     requireWrites(config);
-    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'body', 'bodyType', 'contentType', 'attachments']);
+    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'body', 'bodyType', 'contentType', 'attachments', 'signature']);
     const messageId = validateId(id, 'ID poruke');
     const action = kind === 'reply-all' ? 'createReplyAll' : (kind === 'forward' ? 'createForward' : 'createReply');
     const attachments = normalizeAttachments(payload.attachments, config);
-    const requestedBody = appendAutomaticSignature(normalizeBody(payload));
+    const requestedBody = appendAutomaticSignature(normalizeBody(payload), normalizeEditableSignature(payload.signature));
     let requestedTo;
     if (kind === 'forward') requestedTo = normalizeRecipients(payload.to, { required: true });
     else if (payload.to !== undefined) badRequest('Polje to nije dozvoljeno za reply akciju.');
