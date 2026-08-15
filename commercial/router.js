@@ -1,6 +1,13 @@
 const express = require('express');
 const { allowRoles } = require('../aiEmail/auth');
 const {
+  getAutomationState,
+  pauseAutomation,
+  prepareAutomationQueue,
+  sendNextAutomatedMail,
+  updateAutomationSettings
+} = require('./automation');
+const {
   accountWithBrand,
   addManualActivity,
   archiveAccount,
@@ -37,6 +44,12 @@ function createCommercialRouter({ db }) {
     if (!account) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
     await resolveBrand(db, req.user, account.brand_code, { write });
     return account;
+  };
+
+  const requireDirector = (req) => {
+    if (req.user.role !== 'direktor') {
+      throw httpError(403, 'Samo direktor može mijenjati automatsko slanje.', 'DIRECTOR_REQUIRED');
+    }
   };
 
   const listRecords = async (req, res) => {
@@ -111,6 +124,37 @@ function createCommercialRouter({ db }) {
   router.post('/brands/:code/daily-list', asyncRoute(prepareDailyList));
   router.put('/daily-assignments/:id', asyncRoute(editAssignment));
   router.patch('/daily-assignments/:id', asyncRoute(editAssignment));
+
+  router.get('/brands/:code/mail-automation', asyncRoute(async (req, res) => {
+    const brand = await getBrand(req);
+    res.json(await getAutomationState(db, brand));
+  }));
+  router.put('/brands/:code/mail-automation', asyncRoute(async (req, res) => {
+    requireDirector(req);
+    const brand = await getBrand(req, true);
+    res.json(await updateAutomationSettings(db, brand, req.user, req.body || {}));
+  }));
+  router.post('/brands/:code/mail-automation/prepare', asyncRoute(async (req, res) => {
+    requireDirector(req);
+    const brand = await getBrand(req, true);
+    res.json(await prepareAutomationQueue(db, brand, req.user));
+  }));
+  router.post('/brands/:code/mail-automation/pause', asyncRoute(async (req, res) => {
+    requireDirector(req);
+    const brand = await getBrand(req, true);
+    res.json(await pauseAutomation(db, brand, req.user));
+  }));
+  router.post('/brands/:code/mail-automation/send-next', asyncRoute(async (req, res) => {
+    requireDirector(req);
+    if (req.body && req.body.confirm !== true) {
+      throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
+    }
+    const brand = await getBrand(req, true);
+    res.json(await sendNextAutomatedMail(db, brand, {
+      actor: req.user,
+      ignoreInterval: true
+    }));
+  }));
 
   // Compatibility aliases for clients built against the initial CRM API draft.
   router.get('/accounts', asyncRoute(listRecords));

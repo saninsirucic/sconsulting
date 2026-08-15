@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --test",
-    "manage-user": "node scripts/manageUser.js"
+    "manage-user": "node scripts/manageUser.js",
+    "commercial-mail:tick": "node scripts/commercialMailTick.js"
   },
   "engines": {
     "node": "20.x",
