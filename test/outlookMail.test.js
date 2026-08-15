@@ -634,10 +634,12 @@ test('reply i forward workflow koriste server-side draft, a read-only service bl
 });
 
 test('message detail sanitizira HTML i attachment metadata ne iznosi contentBytes', async () => {
+  const requestedUrls = [];
   const graph = {
     mailboxPath: mailboxUrl,
     validateGraphUrl: (value) => validateGraphUrl(value, FIXED_MAILBOX),
     async request(url) {
+      requestedUrls.push(String(url));
       if (String(url).includes('/attachments?')) {
         return {
           data: {
@@ -658,6 +660,7 @@ test('message detail sanitizira HTML i attachment metadata ne iznosi contentByte
         data: {
           id: 'MessageId',
           subject: 'Detalj',
+          hasAttachments: true,
           body: {
             contentType: 'HTML',
             content: '<p onmouseover="steal()">Sadrzaj</p><img src="https://tracker.example/pixel"><script>bad()</script>'
@@ -689,10 +692,40 @@ test('message detail sanitizira HTML i attachment metadata ne iznosi contentByte
   }]);
   assert.equal('contentBytes' in detail.attachments[0], false);
   assert.doesNotMatch(JSON.stringify(detail), /SECRET-BASE64-MUST-NOT-LEAK/);
+  assert.equal(requestedUrls.length, 2);
+  assert.equal(requestedUrls.some((url) => /[?&,]contentId(?:[&,]|$)/i.test(decodeURIComponent(url))), false);
+});
+
+test('message detail bez priloga radi jednim Graph zahtjevom', async () => {
+  const requestedUrls = [];
+  const graph = {
+    mailboxPath: mailboxUrl,
+    validateGraphUrl: (value) => validateGraphUrl(value, FIXED_MAILBOX),
+    async request(url) {
+      requestedUrls.push(String(url));
+      return {
+        data: {
+          id: 'MessageWithoutAttachments',
+          subject: 'Brza poruka',
+          hasAttachments: false,
+          body: { contentType: 'Text', content: 'Sadrzaj' }
+        }
+      };
+    }
+  };
+  const service = createOutlookService({ config: configuredConfig(), graphClient: graph });
+
+  const detail = await service.getMessage('MessageWithoutAttachments');
+
+  assert.equal(detail.id, 'MessageWithoutAttachments');
+  assert.deepEqual(detail.attachments, []);
+  assert.equal(requestedUrls.length, 1);
+  assert.equal(requestedUrls[0].includes('/attachments?'), false);
 });
 
 test('download service provjerava tip i limite prije raw fetcha', async () => {
   let rawFetches = 0;
+  const requestedUrls = [];
   const metadata = {
     '@odata.type': '#microsoft.graph.fileAttachment',
     id: 'AttachmentId',
@@ -705,6 +738,7 @@ test('download service provjerava tip i limite prije raw fetcha', async () => {
     mailboxPath: mailboxUrl,
     validateGraphUrl: (value) => validateGraphUrl(value, FIXED_MAILBOX),
     async request(url) {
+      requestedUrls.push(String(url));
       if (String(url).endsWith('/$value')) {
         rawFetches += 1;
         return { data: Buffer.from('123456') };
@@ -737,6 +771,7 @@ test('download service provjerava tip i limite prije raw fetcha', async () => {
     (error) => error.code === 'OUTLOOK_ATTACHMENT_TYPE_UNSUPPORTED' && error.status === 415
   );
   assert.equal(rawFetches, 1);
+  assert.equal(requestedUrls.some((url) => /[?&,]contentId(?:[&,]|$)/i.test(decodeURIComponent(url))), false);
 });
 
 test('router dozvoljava direktor i komercijala role, a odbija ostale', async (t) => {

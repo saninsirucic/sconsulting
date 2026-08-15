@@ -17,6 +17,10 @@ const MESSAGE_SELECT = [
   'hasAttachments', 'importance', 'isRead', 'isDraft', 'bodyPreview'
 ].join(',');
 const DETAIL_SELECT = `${MESSAGE_SELECT},bccRecipients,body`;
+// `contentId` exists only on the derived fileAttachment type. Selecting it on
+// the generic attachment collection makes Microsoft Graph reject the whole
+// request with BadRequest, even for messages without attachments.
+const ATTACHMENT_SELECT = 'id,name,contentType,size,isInline';
 
 function badRequest(message, code = 'OUTLOOK_INVALID_INPUT') {
   throw new OutlookError(message, { status: 400, code });
@@ -380,19 +384,25 @@ function createOutlookService(options = {}) {
   async function getMessage(id) {
     const messageId = validateId(id, 'ID poruke');
     const messageParams = new URLSearchParams({ '$select': DETAIL_SELECT });
-    const attachmentParams = new URLSearchParams({ '$select': 'id,name,contentType,size,isInline,contentId' });
-    const [{ data: message }, { data: attachmentData }] = await Promise.all([
-      graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}?${messageParams}`)),
-      graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}/attachments?${attachmentParams}`))
-    ]);
-    return { ...mapMessage(message, true), attachments: (attachmentData.value || []).map(mapAttachment) };
+    const { data: message } = await graph.request(
+      graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}?${messageParams}`)
+    );
+    let attachments = [];
+    if (message && message.hasAttachments) {
+      const attachmentParams = new URLSearchParams({ '$select': ATTACHMENT_SELECT });
+      const { data: attachmentData } = await graph.request(
+        graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}/attachments?${attachmentParams}`)
+      );
+      attachments = (attachmentData.value || []).map(mapAttachment);
+    }
+    return { ...mapMessage(message, true), attachments };
   }
 
   async function downloadAttachment(messageId, attachmentId) {
     const safeMessageId = validateId(messageId, 'ID poruke');
     const safeAttachmentId = validateId(attachmentId, 'ID priloga');
     const base = `/messages/${encodeURIComponent(safeMessageId)}/attachments/${encodeURIComponent(safeAttachmentId)}`;
-    const { data: metadata } = await graph.request(graph.mailboxPath(`${base}?$select=id,name,contentType,size,isInline,contentId`));
+    const { data: metadata } = await graph.request(graph.mailboxPath(`${base}?$select=${ATTACHMENT_SELECT}`));
     const mapped = mapAttachment(metadata);
     if (mapped.type !== 'file') throw new OutlookError('Ovaj tip priloga nije podržan za preuzimanje.', { status: 415, code: 'OUTLOOK_ATTACHMENT_TYPE_UNSUPPORTED' });
     if (mapped.size > config.maxAttachmentBytes) throw new OutlookError('Prilog je prevelik za sigurno preuzimanje.', { status: 413, code: 'OUTLOOK_ATTACHMENT_TOO_LARGE' });
