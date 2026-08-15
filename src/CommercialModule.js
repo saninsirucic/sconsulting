@@ -58,6 +58,7 @@ import {
   FaUsers,
 } from 'react-icons/fa';
 import { commercialApi } from './commercial/api';
+import CommercialMailAutomation from './commercial/CommercialMailAutomation';
 import {
   BRAND_DEFINITIONS,
   CRM_STATUSES,
@@ -419,7 +420,7 @@ function RecordCard({ record, onEdit, onRemove }) {
   );
 }
 
-function BrandPanel({ brand }) {
+function BrandPanel({ brand, user }) {
   const toast = useToast();
   const modal = useDisclosure();
   const [editing, setEditing] = useState(null);
@@ -482,6 +483,13 @@ function BrandPanel({ brand }) {
   return (
     <VStack align="stretch" spacing={5}>
       <DashboardCards dashboard={dashboard} />
+
+      <CommercialMailAutomation
+        brandCode={brandCode}
+        brandName={brand.name}
+        user={user}
+        onChanged={changed}
+      />
 
       <Flex border="1px solid" borderColor={dailyOpen ? 'orange.300' : 'gray.200'} bg={dailyOpen ? 'orange.50' : 'gray.50'} borderRadius="xl" px={4} py={3} align="center" justify="space-between" gap={4}>
         <Box><Text fontWeight="bold">Današnjih 30</Text><Text fontSize="sm" color="gray.600">Dnevni fokus komercijaliste, odvojen za {brand.name}.</Text></Box>
@@ -612,7 +620,7 @@ export default function CommercialModule({ user }) {
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
           </TabList>
           <TabPanels>
-            {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} /> : <WaitingBrand brand={brand} />}</TabPanel>)}
+            {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} user={user} /> : <WaitingBrand brand={brand} />}</TabPanel>)}
           </TabPanels>
         </Tabs>
       )}

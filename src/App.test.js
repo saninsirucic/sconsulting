@@ -43,6 +43,19 @@ test('komercijalista može otvoriti shared Outlook bez poziva direktorovih API-j
   expect(fetch).not.toHaveBeenCalled();
 });
 
+test('direktor Sanin vidi Komercijalu kao prvu poslovnu cjelinu', () => {
+  sessionStorage.setItem('sconsulting-session', JSON.stringify({
+    token: 'director-token',
+    user: { id: 'env-sanin', username: 'sanin', role: 'direktor', mustChangePassword: false },
+  }));
+  render(<App />);
+  const buttons = screen.getAllByRole('button');
+  const homeIndex = buttons.findIndex((button) => button.textContent.includes('Početna'));
+  const commercialIndex = buttons.findIndex((button) => button.textContent.includes('Komercijala'));
+  expect(commercialIndex).toBeGreaterThan(homeIndex);
+  expect(screen.getByRole('button', { name: 'Komercijala' })).toBeInTheDocument();
+});
+
 test('obavezna promjena lozinke blokira ostatak aplikacije', () => {
   sessionStorage.setItem('sconsulting-session', JSON.stringify({
     token: 'temporary-token',

@@ -59,6 +59,8 @@ import {
 
 const menuItems = [
   { key: "home", label: "Početna", icon: FaHome, roles: ["direktor"] },
+  { key: "commercial", label: "Komercijala", icon: FaBriefcase, roles: ["direktor", "komercijala"] },
+  { key: "outlook", label: "Outlook", icon: FaEnvelopeOpenText, roles: ["direktor", "komercijala"] },
   { key: "clients", label: "Klijenti", icon: FaUsers, roles: ["direktor"] },
   { key: "executors", label: "Izvođači", icon: FaTools, roles: ["direktor"] },
   { key: "plans", label: "Planovi", icon: FaClipboardList, roles: ["direktor"] },
@@ -67,8 +69,6 @@ const menuItems = [
   { key: "sanitarne", label: "Sanitarne knjižice", icon: FaBookOpen, roles: ["direktor"] },
   { key: "calendar", label: "Kalendar", icon: FaCalendarAlt, roles: ["direktor"] },
   { key: "ai-mailovi", label: "AI mailovi", icon: FaEnvelopeOpenText, roles: ["direktor"] },
-  { key: "commercial", label: "Komercijala", icon: FaBriefcase, roles: ["direktor", "komercijala"] },
-  { key: "outlook", label: "Outlook", icon: FaEnvelopeOpenText, roles: ["direktor", "komercijala"] },
 ];
 
 const mainColor = "#f68b1f";

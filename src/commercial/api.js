@@ -19,4 +19,9 @@ export const commercialApi = {
   getDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`),
   createDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`, { method: 'POST' }),
   updateDailyAssignment: (id, body) => apiRequest(`${base}/daily-assignments/${encodeURIComponent(id)}`, { method: 'PUT', body }),
+  getMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation`),
+  updateMailAutomation: (code, body) => apiRequest(`${brandPath(code)}/mail-automation`, { method: 'PUT', body }),
+  prepareMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/prepare`, { method: 'POST' }),
+  pauseMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/pause`, { method: 'POST' }),
+  sendNextMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/send-next`, { method: 'POST', body: { confirm: true } }),
 };

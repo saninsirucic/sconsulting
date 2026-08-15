@@ -14,6 +14,11 @@ jest.mock('./commercial/api', () => ({
     getDailyList: jest.fn(),
     createDailyList: jest.fn(),
     updateDailyAssignment: jest.fn(),
+    getMailAutomation: jest.fn(),
+    updateMailAutomation: jest.fn(),
+    prepareMailAutomation: jest.fn(),
+    pauseMailAutomation: jest.fn(),
+    sendNextMailAutomation: jest.fn(),
   },
 }));
 
@@ -52,6 +57,15 @@ beforeEach(() => {
   commercialApi.deleteRecord.mockResolvedValue({ success: true });
   commercialApi.getDailyList.mockResolvedValue({ items: [] });
   commercialApi.createDailyList.mockResolvedValue({ items: [] });
+  commercialApi.getMailAutomation.mockResolvedValue({
+    settings: { enabled: false, paused: true, daily_limit: 30, subject: '', body_text: '' },
+    counts: { PENDING: 0, APPROVED: 0, SENT: 0, FAILED: 0 },
+    queue: [],
+  });
+  commercialApi.updateMailAutomation.mockResolvedValue({ enabled: false, paused: true });
+  commercialApi.prepareMailAutomation.mockResolvedValue({ settings: { enabled: false, paused: true }, counts: {}, queue: [] });
+  commercialApi.pauseMailAutomation.mockResolvedValue({ settings: { enabled: true, paused: true }, counts: {}, queue: [] });
+  commercialApi.sendNextMailAutomation.mockResolvedValue({ sent: true });
 });
 
 test('prikazuje operativne Visiocast kolone bez iznosa i odvojene SAN Pest / FS App cjeline', async () => {
