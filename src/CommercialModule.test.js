@@ -10,6 +10,7 @@ jest.mock('./commercial/api', () => ({
     getRecords: jest.fn(),
     createRecord: jest.fn(),
     updateRecord: jest.fn(),
+    transferRecord: jest.fn(),
     deleteRecord: jest.fn(),
     getDailyList: jest.fn(),
     createDailyList: jest.fn(),
@@ -54,6 +55,11 @@ beforeEach(() => {
   commercialApi.getRecords.mockResolvedValue({ items: [record], pagination: { total: 1, pages: 1 }, filters: {} });
   commercialApi.createRecord.mockResolvedValue({ id: 'record-2' });
   commercialApi.updateRecord.mockResolvedValue({ ...record, company_name: 'Izmijenjeni kupac' });
+  commercialApi.transferRecord.mockResolvedValue({
+    account: record,
+    from_brand: { code: 'SAN_PEST', name: 'SAN Pest' },
+    to_brand: { code: 'VISIOCAST', name: 'Visiocast' },
+  });
   commercialApi.deleteRecord.mockResolvedValue({ success: true });
   commercialApi.getDailyList.mockResolvedValue({ items: [] });
   commercialApi.createDailyList.mockResolvedValue({ items: [] });
@@ -155,6 +161,25 @@ test('uređuje Visiocast zapis', async () => {
   fireEvent.change(screen.getByLabelText(/Naziv komitenta/), { target: { value: 'Izmijenjeni kupac' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
   await waitFor(() => expect(commercialApi.updateRecord).toHaveBeenCalledWith('record-1', expect.objectContaining({ company_name: 'Izmijenjeni kupac' })));
+});
+
+test('prebacuje komitenta iz SAN Pesta u Visiocast uz potvrdu ciljne baze', async () => {
+  commercialApi.getBrands.mockResolvedValue({ items: [
+    { code: 'VISIOCAST', name: 'Visiocast', record_count: 1 },
+    { code: 'SAN_PEST', name: 'SAN Pest', record_count: 1 },
+    { code: 'FS_APP', name: 'FS App', record_count: 0 },
+  ] });
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
+  await screen.findAllByText('Primjer d.o.o.');
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Prebaci komitenta' })[0]);
+  expect(screen.getByRole('dialog', { name: 'Prebaci komitenta' })).toBeInTheDocument();
+  expect(screen.getByLabelText('Ciljna baza')).toHaveValue('VISIOCAST');
+  fireEvent.click(screen.getByRole('button', { name: 'Prebaci u Visiocast' }));
+
+  await waitFor(() => expect(commercialApi.transferRecord).toHaveBeenCalledWith('record-1', 'VISIOCAST'));
 });
 
 test('soft-delete arhivira Visiocast zapis', async () => {

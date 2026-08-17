@@ -15,6 +15,10 @@ export const commercialApi = {
   },
   createRecord: (code, body) => apiRequest(`${brandPath(code)}/records`, { method: 'POST', body }),
   updateRecord: (id, body) => apiRequest(`${base}/records/${encodeURIComponent(id)}`, { method: 'PUT', body }),
+  transferRecord: (id, targetBrandCode) => apiRequest(`${base}/records/${encodeURIComponent(id)}/transfer`, {
+    method: 'POST',
+    body: { target_brand_code: targetBrandCode },
+  }),
   deleteRecord: (id) => apiRequest(`${base}/records/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`),
   createDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`, { method: 'POST' }),

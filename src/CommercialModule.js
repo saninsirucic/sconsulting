@@ -54,6 +54,7 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaEdit,
+  FaExchangeAlt,
   FaPlus,
   FaRedo,
   FaSearch,
@@ -185,6 +186,68 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
         <ModalFooter gap={3} px={{ base: 4, md: 6 }} pb={{ base: 'max(16px, env(safe-area-inset-bottom))', md: 4 }}>
           <Button flex={{ base: 1, md: 'initial' }} minH="44px" variant="ghost" onClick={onClose}>Odustani</Button>
           <Button flex={{ base: 1, md: 'initial' }} minH="44px" bg={green} color="white" _hover={{ bg: 'green.600' }} isLoading={saving} onClick={save}>Sačuvaj</Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+function TransferRecordModal({ isOpen, onClose, record, currentBrand, brands, onTransferred }) {
+  const targets = useMemo(
+    () => brands.filter((brand) => normalizeBrandCode(brand.code || brand.slug) !== normalizeBrandCode(currentBrand.code || currentBrand.slug)),
+    [brands, currentBrand]
+  );
+  const [targetCode, setTargetCode] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Komitent';
+  const selectedTarget = targets.find((brand) => normalizeBrandCode(brand.code || brand.slug) === normalizeBrandCode(targetCode));
+
+  useEffect(() => {
+    setTargetCode(targets[0]?.code || targets[0]?.slug || '');
+    setError('');
+  }, [isOpen, record, targets]);
+
+  const transfer = async () => {
+    if (!record?.id || !targetCode) return setError('Odaberite ciljnu bazu.');
+    setSaving(true);
+    setError('');
+    try {
+      const result = await commercialApi.transferRecord(record.id, targetCode);
+      onTransferred(result, selectedTarget);
+      onClose();
+    } catch (requestError) {
+      setError(requestError.message || 'Komitent nije prebačen.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="md" isCentered>
+      <ModalOverlay />
+      <ModalContent m={{ base: 4, md: 8 }}>
+        <ModalHeader>Prebaci komitenta</ModalHeader>
+        <ModalCloseButton minW="44px" minH="44px" />
+        <ModalBody>
+          <Text fontWeight="semibold" overflowWrap="anywhere">{company}</Text>
+          <Text mt={1} fontSize="sm" color="gray.600">Iz baze <strong>{currentBrand.name}</strong> u:</Text>
+          <FormControl mt={5} isRequired>
+            <FormLabel>Ciljna baza</FormLabel>
+            <Select aria-label="Ciljna baza" minH="44px" value={targetCode} onChange={(event) => setTargetCode(event.target.value)}>
+              {targets.map((brand) => <option key={brand.code || brand.slug} value={brand.code || brand.slug}>{brand.name}</option>)}
+            </Select>
+          </FormControl>
+          <Box mt={4} p={3} borderRadius="lg" bg="orange.50" color="orange.800" fontSize="sm">
+            Svi kontakti, status, prioritet i napomene ostaju sačuvani. Nedovršeni zadatak iz „Današnjih 30“ u staroj bazi bit će uklonjen.
+          </Box>
+          {error && <Box mt={4}><ErrorAlert message={error} /></Box>}
+        </ModalBody>
+        <ModalFooter gap={3}>
+          <Button minH="44px" variant="ghost" onClick={onClose}>Odustani</Button>
+          <Button minH="44px" colorScheme="orange" leftIcon={<FaExchangeAlt />} isLoading={saving} isDisabled={!targetCode} onClick={transfer}>
+            Prebaci u {selectedTarget?.name || 'odabranu bazu'}
+          </Button>
         </ModalFooter>
       </ModalContent>
     </Modal>
@@ -396,7 +459,7 @@ function RecordDetailsGrid({ record }) {
   );
 }
 
-function RecordCard({ record, onEdit, onRemove }) {
+function RecordCard({ record, onEdit, onTransfer, onRemove }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -440,15 +503,16 @@ function RecordCard({ record, onEdit, onRemove }) {
         <Box mt={2} pt={4} borderTop="1px solid" borderColor="gray.100"><RecordDetailsGrid record={record} /></Box>
       </Collapse>
 
-      <SimpleGrid columns={2} spacing={2} mt={4}>
+      <SimpleGrid columns={3} spacing={2} mt={4}>
         <Button aria-label="Uredi komitenta" minH="40px" size="sm" leftIcon={<FaEdit />} variant="outline" onClick={() => onEdit(record)}>Uredi</Button>
+        <Button aria-label="Prebaci komitenta" minH="40px" size="sm" leftIcon={<FaExchangeAlt />} colorScheme="orange" variant="ghost" onClick={() => onTransfer(record)}>Prebaci</Button>
         <Button aria-label="Arhiviraj komitenta" minH="40px" size="sm" leftIcon={<FaTrash />} colorScheme="red" variant="ghost" onClick={() => onRemove(record)}>Arhiviraj</Button>
       </SimpleGrid>
     </Box>
   );
 }
 
-function CompactRecordRow({ record, onEdit, onRemove }) {
+function CompactRecordRow({ record, onEdit, onTransfer, onRemove }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -486,6 +550,7 @@ function CompactRecordRow({ record, onEdit, onRemove }) {
           <HStack spacing={1} justify="flex-end">
             <IconButton aria-label={details.isOpen ? 'Sakrij detalje komitenta' : 'Prikaži detalje komitenta'} title={details.isOpen ? 'Sakrij detalje' : 'Detalji'} size="sm" variant="ghost" colorScheme="orange" icon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle} />
             <IconButton aria-label="Uredi komitenta" title="Uredi" size="sm" variant="ghost" icon={<FaEdit />} onClick={() => onEdit(record)} />
+            <IconButton aria-label="Prebaci komitenta" title="Prebaci u drugu bazu" size="sm" variant="ghost" colorScheme="orange" icon={<FaExchangeAlt />} onClick={() => onTransfer(record)} />
             <IconButton aria-label="Arhiviraj komitenta" title="Arhiviraj" size="sm" variant="ghost" colorScheme="red" icon={<FaTrash />} onClick={() => onRemove(record)} />
           </HStack>
         </Td>
@@ -507,10 +572,12 @@ function pageNumbers(currentPage, totalPages) {
   return Array.from({ length: visibleCount }, (_, index) => start + index);
 }
 
-function BrandPanel({ brand, user }) {
+function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) {
   const toast = useToast();
   const modal = useDisclosure();
+  const transferModal = useDisclosure();
   const [editing, setEditing] = useState(null);
+  const [transferring, setTransferring] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [data, setData] = useState({ items: [], pagination: {}, filters: {} });
   const [search, setSearch] = useState('');
@@ -547,11 +614,12 @@ function BrandPanel({ brand, user }) {
   useEffect(() => {
     const timer = setTimeout(load, search ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [load, refreshKey, search]);
+  }, [globalRefreshKey, load, refreshKey, search]);
 
   const changed = useCallback(() => setRefreshKey((value) => value + 1), []);
   const openNew = () => { setEditing(null); modal.onOpen(); };
   const openEdit = (record) => { setEditing(record); modal.onOpen(); };
+  const openTransfer = (record) => { setTransferring(record); transferModal.onOpen(); };
   const remove = async (record) => {
     const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'ovaj zapis';
     if (!window.confirm(`Arhivirati ${company}? Zapis neće biti trajno izbrisan.`)) return;
@@ -629,12 +697,12 @@ function BrandPanel({ brand, user }) {
       ) : (
         <>
           <VStack display={{ base: 'flex', xl: 'none' }} align="stretch" spacing={3}>
-            {items.map((record) => <RecordCard key={record.id} record={record} onEdit={openEdit} onRemove={remove} />)}
+            {items.map((record) => <RecordCard key={record.id} record={record} onEdit={openEdit} onTransfer={openTransfer} onRemove={remove} />)}
           </VStack>
           <Box display={{ base: 'none', xl: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" boxShadow="sm">
             <Table size="sm" sx={{ tableLayout: 'fixed' }}>
             <Thead bg="orange.50"><Tr><Th w="22%">Komitent</Th><Th w="16%">Profil</Th><Th w="25%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">Sljedeći kontakt</Th><Th w="10%" textAlign="right">Akcije</Th></Tr></Thead>
-            <Tbody>{items.map((record) => <CompactRecordRow key={record.id} record={record} onEdit={openEdit} onRemove={remove} />)}</Tbody>
+            <Tbody>{items.map((record) => <CompactRecordRow key={record.id} record={record} onEdit={openEdit} onTransfer={openTransfer} onRemove={remove} />)}</Tbody>
             </Table>
           </Box>
         </>
@@ -657,6 +725,18 @@ function BrandPanel({ brand, user }) {
       </Flex>
 
       <RecordModal isOpen={modal.isOpen} onClose={modal.onClose} record={editing} brandCode={brandCode} onSaved={() => { toast({ title: 'Komitent je sačuvan.', status: 'success', position: 'top-right' }); changed(); }} />
+      <TransferRecordModal
+        isOpen={transferModal.isOpen}
+        onClose={transferModal.onClose}
+        record={transferring}
+        currentBrand={brand}
+        brands={brands}
+        onTransferred={(result, targetBrand) => {
+          toast({ title: `Komitent je prebačen u ${result?.to_brand?.name || targetBrand?.name || 'odabranu bazu'}.`, status: 'success', position: 'top-right' });
+          setTransferring(null);
+          onGlobalChanged();
+        }}
+      />
     </VStack>
   );
 }
@@ -691,6 +771,7 @@ export default function CommercialModule({ user }) {
   const [brandError, setBrandError] = useState('');
   const [brandsLoading, setBrandsLoading] = useState(true);
   const [useStaticFallback, setUseStaticFallback] = useState(false);
+  const [globalRefreshKey, setGlobalRefreshKey] = useState(0);
   const brands = useMemo(() => mergeBrands(remoteBrands, useStaticFallback), [remoteBrands, useStaticFallback]);
 
   useEffect(() => {
@@ -726,7 +807,7 @@ export default function CommercialModule({ user }) {
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
           </TabList>
           <TabPanels>
-            {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} user={user} /> : <WaitingBrand brand={brand} />}</TabPanel>)}
+            {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} brands={brands} user={user} globalRefreshKey={globalRefreshKey} onGlobalChanged={() => setGlobalRefreshKey((value) => value + 1)} /> : <WaitingBrand brand={brand} />}</TabPanel>)}
           </TabPanels>
         </Tabs>
       )}
