@@ -127,3 +127,23 @@ test('odustajanje u potvrdi ne šalje nijedan mail', async () => {
   expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
   confirmSpy.mockRestore();
 });
+
+test('više kandidata šalje pojedinačno, nastavlja poslije greške i prikazuje zbirni rezultat', async () => {
+  const onChanged = jest.fn();
+  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  commercialApi.sendSelectedMailAutomation
+    .mockRejectedValueOnce(new Error('Privremena greška'))
+    .mockResolvedValueOnce({ sent_count: 1, failed_count: 0 });
+  renderCampaign({ onChanged });
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Označi sve kandidate' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Pošalji označene (2)' }));
+
+  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledTimes(2));
+  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(1, 'VISIOCAST', ['account-1']);
+  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(2, 'VISIOCAST', ['account-2']);
+  expect(confirmSpy).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText(/Slanje završeno: poslano 1, neuspjelo 1/)).toBeInTheDocument();
+  expect(onChanged).toHaveBeenCalledTimes(1);
+  confirmSpy.mockRestore();
+});

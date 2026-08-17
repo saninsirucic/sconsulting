@@ -142,6 +142,8 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [sendProgress, setSendProgress] = useState(null);
+  const [sendSummary, setSendSummary] = useState(null);
 
   const applyState = useCallback((result, { syncForm = false } = {}) => {
     const normalized = normalizeMailAutomationState(result);
@@ -297,30 +299,48 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
   };
 
   const sendSelected = async () => {
-    const accountIds = selectableCandidates
+    const selectedCandidates = selectableCandidates
       .filter((candidate) => selectedIds.has(candidate.id))
-      .map((candidate) => candidate.account_id)
       .slice(0, DAILY_LIMIT);
-    if (!accountIds.length) return;
+    if (!selectedCandidates.length) return;
 
     const confirmed = window.confirm(
-      `Poslati ${accountIds.length} ${accountIds.length === 1 ? 'stvarni mail' : 'stvarna maila'} za ${brandName} sa ${SENDER_EMAIL}? Nakon uspješnog slanja u komentar komitenta bit će upisan datum, a komitent se više neće nuditi za ovu kampanju.`
+      `Poslati ${selectedCandidates.length} ${selectedCandidates.length === 1 ? 'stvarni mail' : 'stvarna maila'} za ${brandName} sa ${SENDER_EMAIL}? Nakon uspješnog slanja u komentar komitenta bit će upisan datum, a komitent se više neće nuditi za ovu kampanju.`
     );
     if (!confirmed) return;
 
     setBusy('send');
     setError('');
+    setSendSummary(null);
+    setSendProgress({ current: 0, total: selectedCandidates.length });
     try {
-      const result = await commercialApi.sendSelectedMailAutomation(brandCode, accountIds);
-      const resultItems = Array.isArray(result?.results) ? result.results : [];
-      const failedCount = toNumber(result?.failed_count ?? result?.summary?.failed,
-        resultItems.filter((item) => String(item.status).toUpperCase() === 'FAILED').length);
-      const sentCount = toNumber(result?.sent_count ?? result?.summary?.sent ?? result?.sent,
-        resultItems.length ? resultItems.filter((item) => String(item.status).toUpperCase() === 'SENT').length : accountIds.length);
+      let sentCount = 0;
+      let failedCount = 0;
+
+      for (let index = 0; index < selectedCandidates.length; index += 1) {
+        const candidate = selectedCandidates[index];
+        setSendProgress({ current: index + 1, total: selectedCandidates.length });
+        try {
+          const result = await commercialApi.sendSelectedMailAutomation(brandCode, [candidate.account_id]);
+          const resultItems = Array.isArray(result?.results) ? result.results : [];
+          const reportedFailure = toNumber(
+            result?.failed_count ?? result?.summary?.failed,
+            resultItems.filter((item) => String(item.status).toUpperCase() === 'FAILED').length
+          );
+          const explicitlyFailed = result?.success === false
+            || String(result?.status || '').toUpperCase() === 'FAILED'
+            || reportedFailure > 0;
+          if (explicitlyFailed) failedCount += 1;
+          else sentCount += 1;
+        } catch (requestError) {
+          failedCount += 1;
+        }
+      }
 
       setSelectedIds(new Set());
       await load({ syncForm: false, showSpinner: false });
       onChanged?.();
+      setSendSummary({ sent: sentCount, failed: failedCount });
       toast({
         title: failedCount ? `Poslano ${sentCount}, neuspjelo ${failedCount}.` : `Uspješno poslano: ${sentCount}.`,
         description: failedCount
@@ -335,6 +355,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
       await load({ syncForm: false, showSpinner: false });
       onChanged?.();
     } finally {
+      setSendProgress(null);
       setBusy('');
     }
   };
@@ -362,6 +383,15 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
           ) : (
             <VStack align="stretch" spacing={5}>
               {error && <Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>{error}</AlertDescription></Alert>}
+              {sendSummary && (
+                <Alert status={sendSummary.failed ? 'warning' : 'success'} borderRadius="lg">
+                  <AlertIcon />
+                  <AlertDescription>
+                    Slanje završeno: poslano {sendSummary.sent}, neuspjelo {sendSummary.failed}.
+                    {sendSummary.failed ? ' Neuspjeli komitenti ostaju dostupni za ponovni pokušaj.' : ' CRM komentari su ažurirani.'}
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <SimpleGrid columns={{ base: 2, lg: 4 }} spacing={3}>
                 {[
@@ -444,7 +474,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                 <>
                   <Flex p={3} bg="gray.50" border="1px solid" borderColor="gray.200" borderRadius="lg" align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }} gap={3}>
                     <Checkbox aria-label="Označi sve kandidate" isChecked={allSelected} isIndeterminate={partlySelected} onChange={toggleAll}>Označi sve dostupne ({selectableCandidates.length})</Checkbox>
-                    <Button minH="44px" leftIcon={<FaPaperPlane />} colorScheme="orange" isDisabled={!canManage || selectedCount === 0 || !hasSavedTemplate} isLoading={busy === 'send'} loadingText="Slanje u toku" onClick={sendSelected}>Pošalji označene ({selectedCount})</Button>
+                    <Button minH="44px" leftIcon={<FaPaperPlane />} colorScheme="orange" isDisabled={!canManage || selectedCount === 0 || !hasSavedTemplate} isLoading={busy === 'send'} loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}...` : 'Slanje u toku'} onClick={sendSelected}>Pošalji označene ({selectedCount})</Button>
                   </Flex>
 
                   {!hasSavedTemplate && <Alert status="warning" borderRadius="lg"><AlertIcon /><AlertDescription>Prvo sačuvaj naslov i sadržaj maila za {brandName}.</AlertDescription></Alert>}
