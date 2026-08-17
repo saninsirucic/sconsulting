@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const knex = require('knex');
 const migration = require('../migrations/20260813120000_create_commercial_crm');
 const tokenVersionMigration = require('../migrations/20260813130000_add_app_user_token_version');
+const fsAppMigration = require('../migrations/20260817100000_import_fs_app_accounts');
 const {
   allowRoles,
   authenticateCredentials,
@@ -33,6 +34,7 @@ async function testDb(t) {
   t.after(() => db.destroy());
   await migration.up(db);
   await tokenVersionMigration.up(db);
+  await fsAppMigration.up(db);
   return db;
 }
 
@@ -70,7 +72,7 @@ async function grantBrand(db, userId, brandCode) {
   return brand;
 }
 
-test('CRM migracija idempotentno definiše 3 brenda i svih 49 Visiocast redova sa tačnim iznosima', async (t) => {
+test('CRM migracije definišu 3 brenda, 49 Visiocast redova i 683 FS App komitenta samo iz prvog sheeta', async (t) => {
   const db = await testDb(t);
   const brands = await db('crm_brands').orderBy('code');
   const count = await db('crm_accounts').where({ brand_id: 'brand-visiocast' }).count({ count: '*' }).first();
@@ -78,6 +80,9 @@ test('CRM migracija idempotentno definiše 3 brenda i svih 49 Visiocast redova s
     .sum({ total: 'total_amount', profit: 'profit_amount' }).first();
   const first = await db('crm_accounts').where({ source_key: 'VISIOCAST:1' }).first();
   const unicode = await db('crm_accounts').where({ source_key: 'VISIOCAST:22' }).first();
+  const fsCount = await db('crm_accounts').where({ brand_id: 'brand-fs-app' }).count({ count: '*' }).first();
+  const fsFirst = await db('crm_accounts').where({ source_key: 'FS_APP:1' }).first();
+  const fsLast = await db('crm_accounts').where({ source_key: 'FS_APP:1000' }).first();
 
   assert.deepEqual(brands.map((brand) => [brand.code, Number(brand.daily_limit)]), [
     ['FS_APP', 30], ['SAN_PEST', 30], ['VISIOCAST', 30]
@@ -91,11 +96,21 @@ test('CRM migracija idempotentno definiše 3 brenda i svih 49 Visiocast redova s
   assert.equal(unicode.email, 'info@cavkunovic.ba');
   assert.match(unicode.phone, /387/);
   assert.equal(JSON.parse(unicode.source_data_json)['N/R'], 22);
+  assert.equal(Number(fsCount.count), 683);
+  assert.equal(fsFirst.company_name, 'AMKO Komerc');
+  assert.equal(fsFirst.priority, 'HIGH');
+  assert.equal(fsFirst.status, 'NEW');
+  assert.equal(JSON.parse(fsFirst.source_data_json).__SOURCE_SHEET, 'Komitenti');
+  assert.equal(fsLast.company_name, 'Pizzeria Smiley Tuzla');
+
+  await fsAppMigration.up(db);
+  const fsCountAfterRepeat = await db('crm_accounts').where({ brand_id: 'brand-fs-app' }).count({ count: '*' }).first();
+  assert.equal(Number(fsCountAfterRepeat.count), 683);
 
   const before = Number(count.count);
   const duplicateRows = [{ ...first, id: 'should-not-insert' }];
   await db('crm_accounts').insert(duplicateRows).onConflict(['brand_id', 'source_key']).ignore();
-  const after = await db('crm_accounts').count({ count: '*' }).first();
+  const after = await db('crm_accounts').where({ brand_id: 'brand-visiocast' }).count({ count: '*' }).first();
   assert.equal(Number(after.count), before);
 });
 
@@ -243,13 +258,13 @@ test('CRM CRUD čuva audit aktivnosti, podržava filtere i radi soft delete', as
   assert.equal(updated.status, 'INTERESTED');
   assert.equal((await listActivities(db, created.id)).length, 2);
 
-  const filtered = await listAccounts(db, brand, { search: 'HACCP', priority: 'HIGH' });
+  const filtered = await listAccounts(db, brand, { search: 'kontakt@example.ba', priority: 'HIGH' });
   assert.equal(filtered.pagination.total, 1);
   assert.equal(filtered.items[0].id, created.id);
   assert.equal((await dashboard(db, brand, user)).totals.total_amount, 400);
 
   await archiveAccount(db, await accountWithBrand(db, created.id), user);
-  assert.equal((await listAccounts(db, brand, {})).pagination.total, 0);
+  assert.equal((await listAccounts(db, brand, {})).pagination.total, 683);
   const archived = await listAccounts(db, brand, { archived: 'true' });
   assert.equal(archived.pagination.total, 1);
   assert.ok(archived.items[0].archived_at);
