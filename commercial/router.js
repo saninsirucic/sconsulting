@@ -5,6 +5,7 @@ const {
   pauseAutomation,
   prepareAutomationQueue,
   sendNextAutomatedMail,
+  sendSelectedMails,
   updateAutomationSettings
 } = require('./automation');
 const {
@@ -29,7 +30,7 @@ function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-function createCommercialRouter({ db }) {
+function createCommercialRouter({ db, outlookService }) {
   const router = express.Router();
   router.use(allowRoles('direktor', 'komercijala'));
 
@@ -141,14 +142,28 @@ function createCommercialRouter({ db }) {
     res.json(await getAutomationState(db, brand));
   }));
   router.put('/brands/:code/mail-automation', asyncRoute(async (req, res) => {
-    requireDirector(req);
     const brand = await getBrand(req, true);
     res.json(await updateAutomationSettings(db, brand, req.user, req.body || {}));
   }));
   router.post('/brands/:code/mail-automation/prepare', asyncRoute(async (req, res) => {
-    requireDirector(req);
     const brand = await getBrand(req, true);
     res.json(await prepareAutomationQueue(db, brand, req.user));
+  }));
+  router.post('/brands/:code/mail-automation/send-selected', asyncRoute(async (req, res) => {
+    if (!req.body || req.body.confirm !== true) {
+      throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
+    }
+    const brand = await getBrand(req, true);
+    res.json(await sendSelectedMails(
+      db,
+      brand,
+      req.body && (req.body.account_ids || req.body.accountIds || req.body.ids),
+      {
+        actor: req.user,
+        confirmed: req.body.confirm === true,
+        outlookService
+      }
+    ));
   }));
   router.post('/brands/:code/mail-automation/pause', asyncRoute(async (req, res) => {
     requireDirector(req);
@@ -157,7 +172,7 @@ function createCommercialRouter({ db }) {
   }));
   router.post('/brands/:code/mail-automation/send-next', asyncRoute(async (req, res) => {
     requireDirector(req);
-    if (req.body && req.body.confirm !== true) {
+    if (!req.body || req.body.confirm !== true) {
       throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
     }
     const brand = await getBrand(req, true);

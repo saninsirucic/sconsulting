@@ -334,6 +334,11 @@ async function transferAccount(db, account, targetBrand, user) {
     await trx('crm_daily_assignments')
       .where({ account_id: account.id, status: 'PENDING' })
       .delete();
+    if (await trx.schema.hasTable('crm_mail_queue')) {
+      await trx('crm_mail_queue').where({ account_id: account.id })
+        .whereIn('status', ['PENDING', 'APPROVED', 'FAILED'])
+        .delete();
+    }
     await trx('crm_accounts').where({ id: account.id }).update({
       brand_id: targetBrand.id,
       updated_by: user.id,
@@ -369,6 +374,11 @@ async function archiveAccount(db, account, user) {
   if (account.archived_at) return { success: true, alreadyArchived: true };
   const now = new Date();
   await db.transaction(async (trx) => {
+    if (await trx.schema.hasTable('crm_mail_queue')) {
+      await trx('crm_mail_queue').where({ account_id: account.id })
+        .whereIn('status', ['PENDING', 'APPROVED', 'FAILED'])
+        .delete();
+    }
     await trx('crm_accounts').where({ id: account.id }).update({
       archived_at: now,
       updated_by: user.id,

@@ -3,11 +3,13 @@ const assert = require('node:assert/strict');
 const knex = require('knex');
 const crmMigration = require('../migrations/20260813120000_create_commercial_crm');
 const automationMigration = require('../migrations/20260815120000_add_commercial_mail_automation');
+const manualCampaignMigration = require('../migrations/20260817130000_add_manual_commercial_mail_campaigns');
 const {
   getAutomationState,
   prepareAutomationQueue,
   runAutomationTick,
   sendNextAutomatedMail,
+  sendSelectedMails,
   updateAutomationSettings
 } = require('../commercial/automation');
 const { businessDate } = require('../commercial/service');
@@ -17,6 +19,7 @@ async function testDb(t) {
   t.after(() => db.destroy());
   await crmMigration.up(db);
   await automationMigration.up(db);
+  await manualCampaignMigration.up(db);
   return db;
 }
 
@@ -136,13 +139,102 @@ test('uspješno slanje odmah ažurira komentar, status, follow-up, aktivnost i d
   assert.equal(queue.provider_message_id, 'graph-draft-id');
   assert.equal(saved.status, 'EMAIL_SENT');
   assert.match(saved.comment, /Stara napomena/);
-  assert.match(saved.comment, /Automatski mail poslan/);
-  assert.match(saved.comment, /sales@s-consulting\.ba/);
+  assert.match(saved.comment, /Mail poslan/);
+  assert.match(activity.notes, /sales@s-consulting\.ba/);
   assert.ok(saved.last_contact_at);
   assert.ok(saved.next_contact_at);
   assert.equal(activity.to_status, 'EMAIL_SENT');
   assert.equal(assignment.status, 'EMAIL_SENT');
-  assert.match(assignment.notes, /Automatski mail poslan/);
+  assert.match(assignment.notes, /Mail poslan/);
+});
+
+test('ručna kampanja trajno čuva prilog, šalje samo označenog i više ga ne predlaže', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala', displayName: 'Prodaja' };
+  const account = await addAccount(db, brand, '30', {
+    email: 'kontakt30@firma.ba',
+    status: 'CONTACTED',
+    comment: 'Raniji razgovor'
+  });
+  const attachmentBytes = Buffer.from('%PDF-test-prilog%');
+  const settings = await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App za {{KOMITENT}}',
+    body: 'Poštovani {KOMITENT}, šaljemo Vam prezentaciju.',
+    daily_limit: 30,
+    attachment: {
+      name: 'FS-App-prezentacija.pdf',
+      type: 'application/pdf',
+      size: attachmentBytes.length,
+      data_base64: attachmentBytes.toString('base64')
+    }
+  });
+  assert.equal(settings.attachment_name, 'FS-App-prezentacija.pdf');
+  assert.equal(settings.attachment_size, attachmentBytes.length);
+
+  const date = businessDate();
+  const prepared = await prepareAutomationQueue(db, brand, commercial, { date });
+  assert.equal(prepared.today.candidates.length, 1);
+  assert.equal(prepared.today.candidates[0].account_id, account.id);
+  assert.match(prepared.queue[0].subject, /Komitent 30/);
+
+  const payloads = [];
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send(payload) {
+      payloads.push(payload);
+      return { success: true, accepted: true, id: 'manual-draft', conversationId: 'manual-conversation' };
+    }
+  };
+  const result = await sendSelectedMails(db, brand, [account.id], {
+    confirmed: true,
+    actor: commercial,
+    outlookService
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.sent_count, 1);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(payloads[0].to, ['kontakt30@firma.ba']);
+  assert.equal(payloads[0].attachments[0].name, 'FS-App-prezentacija.pdf');
+  assert.equal(Buffer.from(payloads[0].attachments[0].contentBytes, 'base64').toString(), attachmentBytes.toString());
+
+  const saved = await db('crm_accounts').where({ id: account.id }).first();
+  const activity = await db('crm_activities').where({
+    account_id: account.id,
+    activity_type: 'COMMERCIAL_EMAIL_SENT'
+  }).first();
+  assert.equal(saved.status, 'EMAIL_SENT');
+  assert.match(saved.comment, /Raniji razgovor/);
+  assert.match(saved.comment, /Mail poslan \d{2}\.\d{2}\.\d{4}\. – FS App\./);
+  assert.ok(activity);
+
+  const state = await getAutomationState(db, brand, { date });
+  assert.equal(state.today.sent_count, 1);
+  assert.equal(state.today.candidates.length, 0);
+  const tomorrow = await prepareAutomationQueue(db, brand, commercial, { date: '2026-08-18' });
+  assert.equal(tomorrow.queue.some((item) => item.account_id === account.id), false);
+});
+
+test('isti mail se može odvojeno kandidovati po brendu, a komercijalista ne može uključiti auto-send', async (t) => {
+  const db = await testDb(t);
+  const fsBrand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const sanBrand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  await addAccount(db, fsBrand, '40', { email: 'zajednicki@firma.ba' });
+  await addAccount(db, sanBrand, '41', { email: 'zajednicki@firma.ba' });
+  await updateAutomationSettings(db, fsBrand, commercial, { subject: 'FS naslov', body: 'FS sadržaj' });
+  await updateAutomationSettings(db, sanBrand, commercial, { subject: 'SAN naslov', body: 'SAN sadržaj' });
+
+  const fs = await prepareAutomationQueue(db, fsBrand, commercial, { date: '2026-08-17' });
+  const san = await prepareAutomationQueue(db, sanBrand, commercial, { date: '2026-08-17' });
+  assert.equal(fs.today.candidates.length, 1);
+  assert.equal(san.today.candidates.length, 1);
+  await assert.rejects(
+    updateAutomationSettings(db, fsBrand, commercial, {
+      subject: 'FS naslov', body: 'FS sadržaj', enabled: true, auto_send: true
+    }),
+    (error) => error.status === 403 && error.code === 'AUTOMATION_ADMIN_REQUIRED'
+  );
 });
 
 test('scheduler pripremi red i u jednom ticku šalje najviše jedan mail po brendu', async (t) => {

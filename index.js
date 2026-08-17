@@ -71,6 +71,7 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 const standardJsonParser = bodyParser.json({ limit: '1mb' });
+const commercialJsonParser = bodyParser.json({ limit: '5mb' });
 
 // Ograniči broj istovremenih konekcija na bazu ako treba
 // db.client.pool.max = 5; // opcionalno
@@ -125,10 +126,11 @@ app.use('/api', authenticateRequest, refreshAuthenticatedUser(db), requirePasswo
 // Outlook ima vlastiti, veći JSON parser tek iza JWT zaštite zbog base64 priloga.
 app.use('/api/outlook', createOutlookRouter());
 
+// Komercijala prima jedan trajni base64 prilog do 2,5 MB, tek iza JWT zaštite.
+app.use('/api/commercial', commercialJsonParser, createCommercialRouter({ db }));
+
 // Sve ostale poslovne rute zadržavaju postojeći limit od 1 MB.
 app.use(standardJsonParser);
-
-app.use('/api/commercial', createCommercialRouter({ db }));
 
 // Mail ostaje direktor-only do zasebno odobrene Outlook integracije.
 app.use('/api/ai-email', allowRoles('direktor'), createAiEmailRouter({ db }));
