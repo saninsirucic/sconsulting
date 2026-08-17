@@ -14,6 +14,7 @@ import {
   Heading,
   HStack,
   Icon,
+  IconButton,
   Input,
   Modal,
   ModalBody,
@@ -50,6 +51,8 @@ import {
   FaBuilding,
   FaCalendarCheck,
   FaCheck,
+  FaChevronDown,
+  FaChevronUp,
   FaEdit,
   FaPlus,
   FaRedo,
@@ -355,69 +358,153 @@ function DashboardCards({ dashboard }) {
   );
 }
 
+function statusColorScheme(status) {
+  if (status === 'WON') return 'green';
+  if (status === 'REJECTED') return 'red';
+  return 'orange';
+}
+
+function priorityColorScheme(priority) {
+  if (priority === 'HIGH') return 'red';
+  if (priority === 'LOW') return 'gray';
+  return 'yellow';
+}
+
+function formattedContactDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('bs-BA');
+}
+
+function RecordDetailsGrid({ record }) {
+  const details = [
+    ['Mail', recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email')],
+    ['Kontakt', recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone')],
+    ['Komentar', recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar')],
+    ['CRM napomene', recordValue(record, 'notes')],
+  ];
+
+  return (
+    <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+      {details.map(([label, value]) => (
+        <Box key={label} minW={0}>
+          <Text fontSize="xs" color="gray.500" textTransform="uppercase" letterSpacing="wide">{label}</Text>
+          <Text mt={1} fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">{value || '—'}</Text>
+        </Box>
+      ))}
+    </SimpleGrid>
+  );
+}
+
 function RecordCard({ record, onEdit, onRemove }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
-  const contactDetails = [
-    ['Mail', recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email')],
-    ['Kontakt', recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone')],
-    ['Komentar', recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar')],
-    ['CRM napomene', recordValue(record, 'notes')],
-  ].filter(([, value]) => value);
+  const email = recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email');
+  const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
 
   return (
-    <Box border="1px solid" borderColor="gray.200" borderRadius="xl" bg="white" p={4} boxShadow="sm">
+    <Box border="1px solid" borderColor="gray.200" borderRadius="xl" bg="white" p={3} boxShadow="sm">
       <Flex justify="space-between" align="start" gap={3}>
         <Box minW={0}>
           <Text fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
           <Text fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
         </Box>
         <VStack align="end" spacing={1} flexShrink={0}>
-          <Badge colorScheme={recordStatus === 'WON' ? 'green' : recordStatus === 'REJECTED' ? 'red' : 'orange'}>{displayStatus(recordStatus)}</Badge>
-          <Badge colorScheme={recordPriority === 'HIGH' ? 'red' : recordPriority === 'LOW' ? 'gray' : 'yellow'}>{displayStatus(recordPriority)}</Badge>
+          <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
+          <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
         </VStack>
       </Flex>
 
-      <SimpleGrid columns={2} spacingX={4} spacingY={3} mt={4}>
-        <Box><Text fontSize="xs" color="gray.500">Vrsta</Text><Text fontSize="sm">{recordValue(record, 'record_type') || '—'}</Text></Box>
-        <Box><Text fontSize="xs" color="gray.500">Lokacija</Text><Text fontSize="sm" overflowWrap="anywhere">{recordValue(record, 'location') || '—'}</Text></Box>
-        <Box><Text fontSize="xs" color="gray.500">Poslovnice</Text><Text fontSize="sm">{recordValue(record, 'branch_count') || '—'}</Text></Box>
-      </SimpleGrid>
+      <HStack mt={3} spacing={2} color="gray.600" fontSize="xs" flexWrap="wrap">
+        <Text>{recordValue(record, 'record_type') || 'Bez vrste'}</Text>
+        <Text>•</Text>
+        <Text>{recordValue(record, 'location') || 'Bez lokacije'}</Text>
+        <Text>•</Text>
+        <Text>{recordValue(record, 'branch_count') || '—'} poslovnica</Text>
+      </HStack>
+
+      {email && <Text mt={3} fontSize="sm" color="gray.700" noOfLines={1}>{email}</Text>}
+      {comment && <Text mt={1} fontSize="sm" color="gray.500" noOfLines={1}>{comment}</Text>}
 
       {nextContact && (
-        <Box mt={3} p={3} borderRadius="lg" bg="orange.50">
-          <Text fontSize="xs" color="gray.500">Sljedeći kontakt</Text>
-          <Text fontSize="sm" fontWeight="semibold">{new Date(nextContact).toLocaleString('bs-BA')}</Text>
-        </Box>
+        <Text mt={2} fontSize="xs" fontWeight="semibold" color="orange.700">Sljedeći kontakt: {formattedContactDate(nextContact)}</Text>
       )}
 
-      {contactDetails.length > 0 && (
-        <>
-          <Button w="full" minH="44px" mt={4} size="sm" variant="ghost" colorScheme="orange" onClick={details.onToggle}>
-            {details.isOpen ? 'Sakrij kontakt i napomene' : 'Prikaži kontakt i napomene'}
-          </Button>
-          <Collapse in={details.isOpen} animateOpacity>
-            <VStack align="stretch" spacing={3} mt={2} pt={4} borderTop="1px solid" borderColor="gray.100">
-              {contactDetails.map(([label, value]) => (
-                <Box key={label}>
-                  <Text fontSize="xs" color="gray.500">{label}</Text>
-                  <Text fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">{value}</Text>
-                </Box>
-              ))}
-            </VStack>
-          </Collapse>
-        </>
-      )}
+      <Button w="full" minH="40px" mt={3} size="sm" variant="ghost" colorScheme="orange" rightIcon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle}>
+        {details.isOpen ? 'Sakrij detalje' : 'Detalji komitenta'}
+      </Button>
+      <Collapse in={details.isOpen} animateOpacity>
+        <Box mt={2} pt={4} borderTop="1px solid" borderColor="gray.100"><RecordDetailsGrid record={record} /></Box>
+      </Collapse>
 
       <SimpleGrid columns={2} spacing={2} mt={4}>
-        <Button aria-label="Uredi komitenta" minH="44px" leftIcon={<FaEdit />} variant="outline" onClick={() => onEdit(record)}>Uredi</Button>
-        <Button aria-label="Arhiviraj komitenta" minH="44px" leftIcon={<FaTrash />} colorScheme="red" variant="ghost" onClick={() => onRemove(record)}>Arhiviraj</Button>
+        <Button aria-label="Uredi komitenta" minH="40px" size="sm" leftIcon={<FaEdit />} variant="outline" onClick={() => onEdit(record)}>Uredi</Button>
+        <Button aria-label="Arhiviraj komitenta" minH="40px" size="sm" leftIcon={<FaTrash />} colorScheme="red" variant="ghost" onClick={() => onRemove(record)}>Arhiviraj</Button>
       </SimpleGrid>
     </Box>
   );
+}
+
+function CompactRecordRow({ record, onEdit, onRemove }) {
+  const details = useDisclosure();
+  const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
+  const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
+  const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
+  const email = recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email');
+  const contact = recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone');
+  const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
+  const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
+
+  return (
+    <React.Fragment>
+      <Tr _hover={{ bg: 'gray.50' }} bg={details.isOpen ? 'orange.50' : 'white'}>
+        <Td py={3}>
+          <Text fontWeight="semibold" noOfLines={2}>{company}</Text>
+          <Text mt={1} fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
+        </Td>
+        <Td py={3}>
+          <Text fontSize="sm" noOfLines={1}>{recordValue(record, 'record_type') || '—'}</Text>
+          <Text mt={1} fontSize="xs" color="gray.500" noOfLines={1}>{recordValue(record, 'location') || 'Bez lokacije'} · {recordValue(record, 'branch_count') || '—'} posl.</Text>
+        </Td>
+        <Td py={3} minW={0}>
+          <Text fontSize="sm" noOfLines={1}>{email || '—'}</Text>
+          <Text mt={1} fontSize="xs" color="gray.500" noOfLines={1}>{contact || comment || 'Bez dodatnog kontakta'}</Text>
+        </Td>
+        <Td py={3}>
+          <VStack align="start" spacing={1}>
+            <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
+            <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
+          </VStack>
+        </Td>
+        <Td py={3}>
+          <Text fontSize="sm" noOfLines={2}>{formattedContactDate(nextContact)}</Text>
+        </Td>
+        <Td py={3}>
+          <HStack spacing={1} justify="flex-end">
+            <IconButton aria-label={details.isOpen ? 'Sakrij detalje komitenta' : 'Prikaži detalje komitenta'} title={details.isOpen ? 'Sakrij detalje' : 'Detalji'} size="sm" variant="ghost" colorScheme="orange" icon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle} />
+            <IconButton aria-label="Uredi komitenta" title="Uredi" size="sm" variant="ghost" icon={<FaEdit />} onClick={() => onEdit(record)} />
+            <IconButton aria-label="Arhiviraj komitenta" title="Arhiviraj" size="sm" variant="ghost" colorScheme="red" icon={<FaTrash />} onClick={() => onRemove(record)} />
+          </HStack>
+        </Td>
+      </Tr>
+      {details.isOpen && (
+        <Tr bg="orange.50">
+          <Td colSpan={6} pt={0} pb={5} px={5}>
+            <Box borderTop="1px solid" borderColor="orange.200" pt={4}><RecordDetailsGrid record={record} /></Box>
+          </Td>
+        </Tr>
+      )}
+    </React.Fragment>
+  );
+}
+
+function pageNumbers(currentPage, totalPages) {
+  const visibleCount = Math.min(5, totalPages);
+  const start = Math.max(1, Math.min(currentPage - 2, totalPages - visibleCount + 1));
+  return Array.from({ length: visibleCount }, (_, index) => start + index);
 }
 
 function BrandPanel({ brand, user }) {
@@ -430,6 +517,8 @@ function BrandPanel({ brand, user }) {
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+  const [sortOption, setSortOption] = useState('company_name:asc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dailyOpen, setDailyOpen] = useState(false);
@@ -440,7 +529,8 @@ function BrandPanel({ brand, user }) {
     setLoading(true);
     setError('');
     try {
-      const params = { page, perPage: 25, search, status, priority, sortBy: 'company_name' };
+      const [sortBy, sortDirection] = sortOption.split(':');
+      const params = { page, perPage, search, status, priority, sortBy, sortDirection };
       const [dashboardResult, recordResult] = await Promise.all([
         commercialApi.getDashboard(brandCode),
         commercialApi.getRecords(brandCode, params),
@@ -452,7 +542,7 @@ function BrandPanel({ brand, user }) {
     } finally {
       setLoading(false);
     }
-  }, [brandCode, page, priority, search, status]);
+  }, [brandCode, page, perPage, priority, search, sortOption, status]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 300 : 0);
@@ -479,6 +569,9 @@ function BrandPanel({ brand, user }) {
   const total = data.pagination?.total ?? items.length;
   const availableStatuses = data.filters?.statuses || CRM_STATUSES;
   const availablePriorities = data.filters?.priorities || PRIORITIES;
+  const rangeStart = total > 0 ? ((page - 1) * perPage) + 1 : 0;
+  const rangeEnd = Math.min(page * perPage, total);
+  const visiblePages = pageNumbers(page, Math.max(1, pages));
 
   return (
     <VStack align="stretch" spacing={5}>
@@ -508,6 +601,28 @@ function BrandPanel({ brand, user }) {
         <Button w={{ base: 'full', xl: 'auto' }} minH="44px" leftIcon={<FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} onClick={openNew}>Novi komitent</Button>
       </Flex>
 
+      <Flex px={{ base: 0, md: 1 }} gap={3} align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }}>
+        <Text fontSize="sm" color="gray.600">Prikazano <strong>{rangeStart}–{rangeEnd}</strong> od <strong>{total}</strong> zapisa</Text>
+        <HStack spacing={3}>
+          <Select aria-label="Sortiranje komitenata" size="sm" minH="40px" maxW="230px" value={sortOption} onChange={(event) => { setSortOption(event.target.value); setPage(1); }}>
+            <option value="company_name:asc">Naziv A–Ž</option>
+            <option value="company_name:desc">Naziv Ž–A</option>
+            <option value="source_row_number:asc">Redni broj</option>
+            <option value="location:asc">Lokacija A–Ž</option>
+            <option value="next_contact_at:asc">Sljedeći kontakt</option>
+            <option value="updated_at:desc">Zadnje izmjene</option>
+          </Select>
+          <HStack spacing={2} flexShrink={0}>
+            <Text display={{ base: 'none', sm: 'block' }} fontSize="sm" color="gray.600">Po stranici</Text>
+            <Select aria-label="Broj zapisa po stranici" size="sm" minH="40px" w="78px" value={perPage} onChange={(event) => { setPerPage(Number(event.target.value)); setPage(1); }}>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </Select>
+          </HStack>
+        </HStack>
+      </Flex>
+
       {error && <ErrorAlert message={error} onRetry={load} />}
       {loading ? <Loading label={`Učitavanje ${brand.name} baze...`} /> : items.length === 0 ? (
         <EmptyState title="Nema pronađenih komitenata" text="Promijenite filtere ili dodajte prvi komercijalni zapis." />
@@ -516,38 +631,29 @@ function BrandPanel({ brand, user }) {
           <VStack display={{ base: 'flex', xl: 'none' }} align="stretch" spacing={3}>
             {items.map((record) => <RecordCard key={record.id} record={record} onEdit={openEdit} onRemove={remove} />)}
           </VStack>
-          <Box display={{ base: 'none', xl: 'block' }} overflowX="auto" border="1px solid" borderColor="gray.200" borderRadius="xl">
-            <Table size="sm" minW="1600px">
-            <Thead bg="orange.50"><Tr><Th>N/R</Th><Th>Komitent</Th><Th>Vrsta</Th><Th isNumeric>Broj poslovnica</Th><Th>Mail</Th><Th>Kontakt</Th><Th>Komentar</Th><Th>Lokacija</Th><Th>Status</Th><Th>Prioritet</Th><Th>Sljedeći kontakt</Th><Th>CRM napomene</Th><Th>Akcije</Th></Tr></Thead>
-            <Tbody>{items.map((record) => {
-              const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
-              const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
-              return (
-                <Tr key={record.id} _hover={{ bg: 'gray.50' }}>
-                  <Td>{recordValue(record, 'source_row_number', 'nr') || '—'}</Td>
-                  <Td maxW="230px" whiteSpace="normal"><Text fontWeight="semibold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text></Td>
-                  <Td>{recordValue(record, 'record_type') || '—'}</Td>
-                  <Td isNumeric>{recordValue(record, 'branch_count') || '—'}</Td>
-                  <Td maxW="320px" whiteSpace="pre-wrap" wordBreak="break-word">{recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email') || '—'}</Td>
-                  <Td maxW="300px" whiteSpace="pre-wrap" wordBreak="break-word">{recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone') || '—'}</Td>
-                  <Td maxW="360px" whiteSpace="pre-wrap" wordBreak="break-word">{recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar') || '—'}</Td>
-                  <Td maxW="220px" whiteSpace="normal">{recordValue(record, 'location') || '—'}</Td>
-                  <Td><Badge colorScheme={recordStatus === 'WON' ? 'green' : recordStatus === 'REJECTED' ? 'red' : 'orange'}>{displayStatus(recordStatus)}</Badge></Td>
-                  <Td><Badge colorScheme={recordPriority === 'HIGH' ? 'red' : recordPriority === 'LOW' ? 'gray' : 'yellow'}>{displayStatus(recordPriority)}</Badge></Td>
-                  <Td>{recordValue(record, 'next_contact_at', 'nextContactAt') ? new Date(recordValue(record, 'next_contact_at', 'nextContactAt')).toLocaleString('bs-BA') : '—'}</Td>
-                  <Td maxW="320px" whiteSpace="pre-wrap">{recordValue(record, 'notes') || '—'}</Td>
-                  <Td><HStack><Button aria-label="Uredi komitenta" size="xs" leftIcon={<FaEdit />} variant="outline" onClick={() => openEdit(record)}>Uredi</Button><Button aria-label="Arhiviraj komitenta" size="xs" leftIcon={<FaTrash />} colorScheme="red" variant="ghost" onClick={() => remove(record)}>Arhiviraj</Button></HStack></Td>
-                </Tr>
-              );
-            })}</Tbody>
+          <Box display={{ base: 'none', xl: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" boxShadow="sm">
+            <Table size="sm" sx={{ tableLayout: 'fixed' }}>
+            <Thead bg="orange.50"><Tr><Th w="22%">Komitent</Th><Th w="16%">Profil</Th><Th w="25%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">Sljedeći kontakt</Th><Th w="10%" textAlign="right">Akcije</Th></Tr></Thead>
+            <Tbody>{items.map((record) => <CompactRecordRow key={record.id} record={record} onEdit={openEdit} onRemove={remove} />)}</Tbody>
             </Table>
           </Box>
         </>
       )}
 
-      <Flex justify="space-between" align="center" direction={{ base: 'column', sm: 'row' }} gap={3}>
-        <Text fontSize="sm" color="gray.600">Ukupno zapisa: {total}</Text>
-        <HStack w={{ base: 'full', sm: 'auto' }} justify="center"><Button flex={{ base: 1, sm: 'initial' }} minH="40px" size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button><Text flexShrink={0} fontSize="sm">{page} / {Math.max(1, pages)}</Text><Button flex={{ base: 1, sm: 'initial' }} minH="40px" size="sm" variant="outline" isDisabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Sljedeća</Button></HStack>
+      <Flex justify="space-between" align="center" direction={{ base: 'column', md: 'row' }} gap={3}>
+        <Text fontSize="sm" color="gray.600">Stranica {page} od {Math.max(1, pages)} · {total} zapisa</Text>
+        <HStack display={{ base: 'flex', md: 'none' }} w="full" justify="center">
+          <Button flex="1" minH="40px" size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button>
+          <Text flexShrink={0} fontSize="sm">{page} / {Math.max(1, pages)}</Text>
+          <Button flex="1" minH="40px" size="sm" variant="outline" isDisabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Sljedeća</Button>
+        </HStack>
+        <HStack display={{ base: 'none', md: 'flex' }} spacing={1}>
+          <Button minH="40px" size="sm" variant="ghost" isDisabled={page <= 1} onClick={() => setPage(1)}>Prva</Button>
+          <Button minH="40px" size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button>
+          {visiblePages.map((pageNumber) => <Button key={pageNumber} minW="40px" minH="40px" size="sm" colorScheme={pageNumber === page ? 'orange' : 'gray'} variant={pageNumber === page ? 'solid' : 'ghost'} onClick={() => setPage(pageNumber)}>{pageNumber}</Button>)}
+          <Button minH="40px" size="sm" variant="outline" isDisabled={page >= pages} onClick={() => setPage((value) => value + 1)}>Sljedeća</Button>
+          <Button minH="40px" size="sm" variant="ghost" isDisabled={page >= pages} onClick={() => setPage(pages)}>Zadnja</Button>
+        </HStack>
       </Flex>
 
       <RecordModal isOpen={modal.isOpen} onClose={modal.onClose} record={editing} brandCode={brandCode} onSaved={() => { toast({ title: 'Komitent je sačuvan.', status: 'success', position: 'top-right' }); changed(); }} />

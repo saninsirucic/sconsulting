@@ -84,6 +84,34 @@ test('prikazuje operativne Visiocast kolone bez iznosa i odvojene SAN Pest / FS 
   expect(await screen.findByText('Digitalni HACCP')).toBeInTheDocument();
 });
 
+test('omogućava pregled velikih baza kroz kompaktne kolone, sortiranje i izbor broja zapisa', async () => {
+  commercialApi.getRecords.mockResolvedValue({ items: [record], pagination: { total: 683, pages: 28 }, filters: {} });
+  renderModule();
+
+  expect(await screen.findByText(/Prikazano/)).toHaveTextContent('Prikazano 1–25 od 683 zapisa');
+  expect(screen.getByRole('columnheader', { name: 'Komitent', hidden: true })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Profil', hidden: true })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Kontakt', hidden: true })).toBeInTheDocument();
+  expect(screen.queryByRole('columnheader', { name: 'Komentar', hidden: true })).not.toBeInTheDocument();
+
+  commercialApi.getRecords.mockClear();
+  fireEvent.change(screen.getByLabelText('Broj zapisa po stranici'), { target: { value: '50' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    page: 1,
+    perPage: 50,
+    sortBy: 'company_name',
+    sortDirection: 'asc',
+  })));
+
+  commercialApi.getRecords.mockClear();
+  fireEvent.change(screen.getByLabelText('Sortiranje komitenata'), { target: { value: 'updated_at:desc' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    perPage: 50,
+    sortBy: 'updated_at',
+    sortDirection: 'desc',
+  })));
+});
+
 test('kreira Visiocast komitenta kroz modal', async () => {
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
