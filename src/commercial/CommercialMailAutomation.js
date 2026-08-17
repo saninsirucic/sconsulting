@@ -34,7 +34,7 @@ import { commercialApi } from './api';
 
 const SENDER_EMAIL = 'sales@s-consulting.ba';
 const DAILY_LIMIT = 30;
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES = 2_500_000;
 
 const EMPTY_FORM = { subject: '', body: '' };
 
@@ -211,7 +211,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
     setError('');
     if (file.size > MAX_ATTACHMENT_BYTES) {
       event.target.value = '';
-      setError('Prilog može imati najviše 10 MB.');
+      setError('Prilog može imati najviše 2,5 MB.');
       return;
     }
 
@@ -435,7 +435,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                     <FormControl>
                       <FormLabel>Attachment / prilog maila</FormLabel>
                       <Input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg" p={1.5} minH="44px" onChange={chooseAttachment} isDisabled={busy === 'file'} />
-                      <Text mt={1} fontSize="xs" color="gray.500">Jedan prilog, najviše 10 MB. Novi prilog zamjenjuje prethodni nakon spremanja.</Text>
+                      <Text mt={1} fontSize="xs" color="gray.500">Jedan prilog, najviše 2,5 MB. Novi prilog zamjenjuje prethodni nakon spremanja.</Text>
                     </FormControl>
 
                     {shownAttachment && (

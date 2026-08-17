@@ -100,6 +100,16 @@ test('sprema naslov, sadržaj i trajno uklanjanje postojećeg priloga', async ()
   }));
 });
 
+test('odbija prilog veći od Microsoft Graph limita od 2,5 MB', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+  const oversizedFile = new File([new Uint8Array(2_500_001)], 'prevelik.pdf', { type: 'application/pdf' });
+  fireEvent.change(screen.getByLabelText(/Attachment \/ prilog maila/), { target: { files: [oversizedFile] } });
+
+  expect(await screen.findByText('Prilog može imati najviše 2,5 MB.')).toBeInTheDocument();
+  expect(commercialApi.updateMailAutomation).not.toHaveBeenCalled();
+});
+
 test('šalje samo označene račune nakon potvrde i zatim osvježava CRM', async () => {
   const onChanged = jest.fn();
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
