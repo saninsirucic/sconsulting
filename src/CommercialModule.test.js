@@ -18,6 +18,7 @@ jest.mock('./commercial/api', () => ({
     getMailAutomation: jest.fn(),
     updateMailAutomation: jest.fn(),
     prepareMailAutomation: jest.fn(),
+    sendSelectedMailAutomation: jest.fn(),
     pauseMailAutomation: jest.fn(),
     sendNextMailAutomation: jest.fn(),
   },
@@ -70,6 +71,7 @@ beforeEach(() => {
   });
   commercialApi.updateMailAutomation.mockResolvedValue({ enabled: false, paused: true });
   commercialApi.prepareMailAutomation.mockResolvedValue({ settings: { enabled: false, paused: true }, counts: {}, queue: [] });
+  commercialApi.sendSelectedMailAutomation.mockResolvedValue({ sent_count: 1, failed_count: 0 });
   commercialApi.pauseMailAutomation.mockResolvedValue({ settings: { enabled: true, paused: true }, counts: {}, queue: [] });
   commercialApi.sendNextMailAutomation.mockResolvedValue({ sent: true });
 });

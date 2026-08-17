@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AlertDescription,
@@ -6,6 +6,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Collapse,
   Divider,
   Flex,
@@ -14,186 +15,473 @@ import {
   Heading,
   HStack,
   Input,
-  Select,
   SimpleGrid,
   Spinner,
-  Switch,
+  Table,
+  TableContainer,
+  Tbody,
+  Td,
   Text,
   Textarea,
+  Th,
+  Thead,
+  Tr,
   useToast,
   VStack,
 } from '@chakra-ui/react';
-import { FaEnvelope, FaPause, FaPaperPlane, FaRedo } from 'react-icons/fa';
+import { FaEnvelope, FaPaperPlane, FaPaperclip, FaRedo, FaSave, FaTrash } from 'react-icons/fa';
 import { commercialApi } from './api';
 
-const EMPTY_SETTINGS = {
-  enabled: false,
-  paused: true,
-  auto_send: true,
-  daily_limit: 30,
-  workdays: [1, 2, 3, 4, 5],
-  send_window_start: '09:00',
-  send_window_end: '15:00',
-  send_interval_minutes: 10,
-  follow_up_days: 7,
-  subject: '',
-  body_text: '',
-};
+const SENDER_EMAIL = 'sales@s-consulting.ba';
+const DAILY_LIMIT = 30;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+const EMPTY_FORM = { subject: '', body: '' };
 
 const STATUS_LABELS = {
-  PENDING: 'Čeka aktivaciju',
-  APPROVED: 'Spremno',
-  SENDING: 'Šalje se',
-  SENT: 'Poslano',
-  FAILED: 'Neuspjelo',
-  SKIPPED: 'Preskočeno',
+  PENDING: 'Spreman za izbor',
+  READY: 'Spreman za izbor',
+  APPROVED: 'Spreman za slanje',
+  SENDING: 'Slanje u toku',
+  FAILED: 'Neuspjelo — pokušaj ponovo',
 };
 
-function formatTimestamp(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('bs-BA');
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeCandidate(item, index) {
+  const account = item?.account || {};
+  const accountId = item?.account_id || item?.accountId || item?.crm_account_id || account.id || item?.id;
+  if (!accountId) return null;
+
+  const status = String(item?.status || 'PENDING').toUpperCase();
+  return {
+    ...item,
+    id: String(accountId),
+    account_id: String(accountId),
+    name: item?.name || item?.company_name || item?.account_name || account.company_name || `Komitent ${index + 1}`,
+    email: item?.email || item?.recipient_email || item?.raw_mail || account.raw_mail || '',
+    status,
+    comment: item?.comment || account.comment || '',
+    last_error: item?.last_error || item?.error || '',
+  };
+}
+
+export function normalizeMailAutomationState(input) {
+  const payload = input?.data || input || {};
+  const settings = payload.settings || {};
+  const template = payload.template || settings.template || settings;
+  const today = payload.today || {};
+  const counts = payload.counts || today.counts || {};
+  const sourceCandidates = today.candidates || payload.candidates || payload.queue || [];
+  const candidates = (Array.isArray(sourceCandidates) ? sourceCandidates : [])
+    .map(normalizeCandidate)
+    .filter((item) => item && item.status !== 'SENT')
+    .slice(0, DAILY_LIMIT);
+
+  return {
+    sender_email: payload.sender_email || settings.sender_email || SENDER_EMAIL,
+    daily_limit: Math.min(DAILY_LIMIT, Math.max(1, toNumber(payload.daily_limit ?? settings.daily_limit, DAILY_LIMIT))),
+    template: {
+      subject: template.subject || '',
+      body: template.body ?? template.body_text ?? '',
+      attachment_name: template.attachment_name || template.attachment?.name || '',
+      attachment_size: toNumber(template.attachment_size ?? template.attachment?.size),
+      attachment_type: template.attachment_type || template.attachment?.type || '',
+      updated_at: template.updated_at || settings.updated_at || null,
+    },
+    today: {
+      date: today.date || payload.date || '',
+      candidates,
+      sent_count: toNumber(today.sent_count ?? payload.sent_count ?? counts.SENT),
+      failed_count: toNumber(today.failed_count ?? payload.failed_count ?? counts.FAILED),
+    },
+  };
+}
+
+function formatBytes(value) {
+  const bytes = toNumber(value);
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const encoded = String(reader.result || '');
+      resolve(encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded);
+    };
+    reader.onerror = () => reject(new Error('Prilog nije moguće pročitati.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function candidateStatusColor(status) {
+  if (status === 'FAILED') return 'red';
+  if (status === 'SENDING') return 'orange';
+  if (status === 'APPROVED') return 'blue';
+  return 'gray';
 }
 
 export default function CommercialMailAutomation({ brandCode, brandName, user, onChanged }) {
   const toast = useToast();
-  const canManage = user?.role === 'direktor';
+  const fileInputRef = useRef(null);
+  const role = String(user?.role || '').toLowerCase();
+  const canManage = role === 'direktor' || role === 'komercijala';
   const [open, setOpen] = useState(false);
-  const [state, setState] = useState(null);
-  const [form, setForm] = useState(EMPTY_SETTINGS);
+  const [state, setState] = useState(() => normalizeMailAutomationState(null));
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [draftAttachment, setDraftAttachment] = useState(null);
+  const [removeAttachment, setRemoveAttachment] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const applyState = useCallback((result, { syncForm = false } = {}) => {
+    const normalized = normalizeMailAutomationState(result);
+    setState(normalized);
+    const availableIds = new Set(normalized.today.candidates.map((candidate) => candidate.id));
+    setSelectedIds((current) => new Set([...current].filter((id) => availableIds.has(id))));
+    if (syncForm) {
+      setForm({ subject: normalized.template.subject, body: normalized.template.body });
+      setDraftAttachment(null);
+      setRemoveAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+    return normalized;
+  }, []);
+
+  const load = useCallback(async ({ syncForm = true, showSpinner = true } = {}) => {
+    if (showSpinner) setLoading(true);
     setError('');
     try {
       const result = await commercialApi.getMailAutomation(brandCode);
-      setState(result);
-      setForm({ ...EMPTY_SETTINGS, ...(result?.settings || {}) });
+      return applyState(result, { syncForm });
     } catch (requestError) {
-      setError(requestError.message || 'Automatska komercijala trenutno nije dostupna.');
+      setError(requestError.message || 'Mail kampanja trenutno nije dostupna.');
+      return null;
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
-  }, [brandCode]);
+  }, [applyState, brandCode]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setSelectedIds(new Set());
+    load();
+  }, [load]);
 
-  const run = async (name, action, successMessage) => {
-    setBusy(name);
+  const candidates = state.today.candidates;
+  const selectableCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.status !== 'SENDING'),
+    [candidates]
+  );
+  const selectedCount = selectableCandidates.filter((candidate) => selectedIds.has(candidate.id)).length;
+  const allSelected = selectableCandidates.length > 0 && selectedCount === selectableCandidates.length;
+  const partlySelected = selectedCount > 0 && !allSelected;
+  const hasSavedTemplate = Boolean(state.template.subject && state.template.body);
+  const shownAttachment = draftAttachment || (!removeAttachment && state.template.attachment_name ? {
+    name: state.template.attachment_name,
+    size: state.template.attachment_size,
+  } : null);
+
+  const toggleCandidate = (id) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(selectableCandidates.map((candidate) => candidate.id)));
+  };
+
+  const chooseAttachment = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
     setError('');
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      event.target.value = '';
+      setError('Prilog može imati najviše 10 MB.');
+      return;
+    }
+
+    setBusy('file');
     try {
-      const result = await action();
-      if (result?.settings) setForm({ ...EMPTY_SETTINGS, ...result.settings });
-      setState(result?.queue ? result : await commercialApi.getMailAutomation(brandCode));
-      toast({ title: successMessage, status: 'success', position: 'top-right' });
-      onChanged?.();
-    } catch (requestError) {
-      setError(requestError.message || 'Akcija nije uspjela.');
+      const dataBase64 = await readFileAsBase64(file);
+      setDraftAttachment({
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        data_base64: dataBase64,
+      });
+      setRemoveAttachment(false);
+    } catch (fileError) {
+      event.target.value = '';
+      setError(fileError.message || 'Prilog nije moguće pročitati.');
     } finally {
       setBusy('');
     }
   };
 
-  const save = async () => {
-    if (form.enabled && !state?.settings?.enabled) {
-      const confirmed = window.confirm(
-        `Aktivirati automatsko slanje za ${brandName}? Sistem će u radnom terminu slati do ${form.daily_limit} stvarnih mailova dnevno sa sales@s-consulting.ba.`
-      );
-      if (!confirmed) return;
+  const clearAttachment = () => {
+    setDraftAttachment(null);
+    setRemoveAttachment(Boolean(state.template.attachment_name));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const saveTemplate = async () => {
+    if (!form.subject.trim() || !form.body.trim()) {
+      setError('Unesite naslov i sadržaj maila prije spremanja.');
+      return;
     }
-    await run('save', () => commercialApi.updateMailAutomation(brandCode, form),
-      form.enabled ? 'Automatska komercijala je sačuvana i aktivna.' : 'Postavke su sačuvane; slanje je isključeno.');
+
+    setBusy('save');
+    setError('');
+    try {
+      const payload = {
+        subject: form.subject.trim(),
+        body: form.body,
+        daily_limit: DAILY_LIMIT,
+      };
+      if (draftAttachment) payload.attachment = draftAttachment;
+      else if (removeAttachment) payload.remove_attachment = true;
+
+      await commercialApi.updateMailAutomation(brandCode, payload);
+      await load({ syncForm: true, showSpinner: false });
+      toast({
+        title: `Forma maila za ${brandName} je sačuvana.`,
+        description: 'Koristit će se dok je ponovo ne izmijenite.',
+        status: 'success',
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      setError(requestError.message || 'Forma maila nije sačuvana.');
+    } finally {
+      setBusy('');
+    }
   };
 
-  const prepare = () => run('prepare', () => commercialApi.prepareMailAutomation(brandCode),
-    'Današnja lista poznatih CRM kontakata je pripremljena.');
-
-  const pause = () => run('pause', () => commercialApi.pauseMailAutomation(brandCode),
-    'Automatsko slanje je odmah pauzirano.');
-
-  const sendNext = async () => {
-    if (!window.confirm('Poslati jedan STVARNI mail prvom kontaktu koji je spreman?')) return;
-    await run('send', () => commercialApi.sendNextMailAutomation(brandCode), 'Jedan mail je poslan i evidentiran u CRM-u.');
+  const prepareCandidates = async () => {
+    setBusy('prepare');
+    setError('');
+    try {
+      const result = await commercialApi.prepareMailAutomation(brandCode);
+      if (result) applyState(result);
+      await load({ syncForm: false, showSpinner: false });
+      setSelectedIds(new Set());
+      toast({
+        title: `Lista za ${brandName} je pripremljena.`,
+        description: 'Prikazani su samo komitenti s poznatom mail adresom koji još nisu dobili ovu kampanju.',
+        status: 'success',
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      setError(requestError.message || 'Današnju listu nije moguće pripremiti.');
+    } finally {
+      setBusy('');
+    }
   };
 
-  const counts = state?.counts || {};
-  const queue = state?.queue || [];
-  const active = Boolean(state?.settings?.enabled && !state?.settings?.paused);
+  const refreshCandidates = async () => {
+    setBusy('refresh');
+    await load({ syncForm: false, showSpinner: false });
+    setBusy('');
+  };
+
+  const sendSelected = async () => {
+    const accountIds = selectableCandidates
+      .filter((candidate) => selectedIds.has(candidate.id))
+      .map((candidate) => candidate.account_id)
+      .slice(0, DAILY_LIMIT);
+    if (!accountIds.length) return;
+
+    const confirmed = window.confirm(
+      `Poslati ${accountIds.length} ${accountIds.length === 1 ? 'stvarni mail' : 'stvarna maila'} za ${brandName} sa ${SENDER_EMAIL}? Nakon uspješnog slanja u komentar komitenta bit će upisan datum, a komitent se više neće nuditi za ovu kampanju.`
+    );
+    if (!confirmed) return;
+
+    setBusy('send');
+    setError('');
+    try {
+      const result = await commercialApi.sendSelectedMailAutomation(brandCode, accountIds);
+      const resultItems = Array.isArray(result?.results) ? result.results : [];
+      const failedCount = toNumber(result?.failed_count ?? result?.summary?.failed,
+        resultItems.filter((item) => String(item.status).toUpperCase() === 'FAILED').length);
+      const sentCount = toNumber(result?.sent_count ?? result?.summary?.sent ?? result?.sent,
+        resultItems.length ? resultItems.filter((item) => String(item.status).toUpperCase() === 'SENT').length : accountIds.length);
+
+      setSelectedIds(new Set());
+      await load({ syncForm: false, showSpinner: false });
+      onChanged?.();
+      toast({
+        title: failedCount ? `Poslano ${sentCount}, neuspjelo ${failedCount}.` : `Uspješno poslano: ${sentCount}.`,
+        description: failedCount
+          ? 'Neuspjele adrese ostale su na listi za ponovni pokušaj.'
+          : 'Komentari u CRM tabeli su automatski ažurirani.',
+        status: failedCount ? 'warning' : 'success',
+        duration: 6000,
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      setError(requestError.message || 'Označene mailove nije moguće poslati.');
+      await load({ syncForm: false, showSpinner: false });
+      onChanged?.();
+    } finally {
+      setBusy('');
+    }
+  };
 
   return (
-    <Box border="1px solid" borderColor={active ? 'green.300' : 'blue.200'} bg={active ? 'green.50' : 'blue.50'} borderRadius="2xl" overflow="hidden">
-      <Flex px={{ base: 4, md: 5 }} py={4} align={{ base: 'start', md: 'center' }} justify="space-between" gap={3} direction={{ base: 'column', md: 'row' }}>
-        <HStack align="start" spacing={3}>
-          <Flex flexShrink={0} boxSize="44px" borderRadius="xl" bg="white" color={active ? 'green.500' : 'blue.500'} align="center" justify="center"><FaEnvelope /></Flex>
-          <Box>
-            <HStack flexWrap="wrap"><Heading size="sm">Automatska komercijala · do 30 dnevno</Heading><Badge colorScheme={active ? 'green' : state?.settings?.enabled ? 'orange' : 'gray'}>{active ? 'AKTIVNA' : state?.settings?.enabled ? 'PAUZIRANA' : 'ISKLJUČENA'}</Badge></HStack>
-            <Text fontSize="sm" color="gray.600" mt={1}>Samo poznate adrese iz {brandName} CRM baze. Bez eJN i bez web-istraživanja.</Text>
+    <Box border="1px solid" borderColor="blue.200" bg="blue.50" borderRadius="2xl" overflow="hidden">
+      <Flex px={{ base: 4, md: 5 }} py={4} align={{ base: 'stretch', md: 'center' }} justify="space-between" gap={3} direction={{ base: 'column', md: 'row' }}>
+        <HStack align="start" spacing={3} minW={0}>
+          <Flex flexShrink={0} boxSize="44px" borderRadius="xl" bg="white" color="blue.500" align="center" justify="center"><FaEnvelope /></Flex>
+          <Box minW={0}>
+            <HStack flexWrap="wrap">
+              <Heading size="sm">Mail kampanja · ručni izbor do 30</Heading>
+              <Badge colorScheme={hasSavedTemplate ? 'green' : 'orange'}>{hasSavedTemplate ? 'FORMA SAČUVANA' : 'POTREBNO PODESITI'}</Badge>
+            </HStack>
+            <Text fontSize="sm" color="gray.600" mt={1}>Posebna kampanja za {brandName}. Samo poznate CRM adrese; ništa se ne šalje bez tvog izbora i potvrde.</Text>
           </Box>
         </HStack>
-        <HStack w={{ base: 'full', md: 'auto' }}>
-          {active && canManage && <Button minH="44px" leftIcon={<FaPause />} colorScheme="red" variant="outline" isLoading={busy === 'pause'} onClick={pause}>Hitni stop</Button>}
-          <Button flex={{ base: 1, md: 'initial' }} minH="44px" variant="outline" bg="white" onClick={() => setOpen((value) => !value)}>{open ? 'Sakrij' : 'Otvori kontrolu'}</Button>
-        </HStack>
+        <Button minH="44px" w={{ base: 'full', md: 'auto' }} variant="outline" bg="white" onClick={() => setOpen((value) => !value)}>{open ? 'Sakrij' : 'Otvori kampanju'}</Button>
       </Flex>
 
       <Collapse in={open} animateOpacity>
         <Box bg="white" borderTop="1px solid" borderColor="gray.200" p={{ base: 4, md: 5 }}>
-          {loading ? <Flex py={8} justify="center" gap={3}><Spinner /><Text>Učitavanje automatike...</Text></Flex> : (
+          {loading ? (
+            <Flex py={8} justify="center" gap={3}><Spinner /><Text>Učitavanje kampanje...</Text></Flex>
+          ) : (
             <VStack align="stretch" spacing={5}>
               {error && <Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>{error}</AlertDescription></Alert>}
 
-              <SimpleGrid columns={{ base: 2, md: 4 }} spacing={3}>
+              <SimpleGrid columns={{ base: 2, lg: 4 }} spacing={3}>
                 {[
-                  ['Današnja lista', queue.length],
-                  ['Spremno', counts.APPROVED || 0],
-                  ['Poslano', counts.SENT || 0],
-                  ['Neuspjelo', counts.FAILED || 0],
-                ].map(([label, value]) => <Box key={label} p={3} border="1px solid" borderColor="gray.200" borderRadius="xl"><Text fontSize="xs" color="gray.500">{label}</Text><Text fontSize="2xl" fontWeight="bold">{value}</Text></Box>)}
+                  ['Današnja lista', candidates.length],
+                  ['Označeno', selectedCount],
+                  ['Danas poslano', state.today.sent_count],
+                  ['Neuspjelo', state.today.failed_count],
+                ].map(([label, value]) => (
+                  <Box key={label} p={3} border="1px solid" borderColor="gray.200" borderRadius="xl" minW={0}>
+                    <Text fontSize="xs" color="gray.500">{label}</Text>
+                    <Text fontSize={{ base: 'xl', md: '2xl' }} fontWeight="bold">{value}</Text>
+                  </Box>
+                ))}
               </SimpleGrid>
 
               {canManage && (
-                <>
-                  <Divider />
-                  <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4}>
-                    <FormControl display="flex" alignItems="center" justifyContent="space-between" border="1px solid" borderColor="gray.200" borderRadius="lg" px={3} minH="44px">
-                      <FormLabel mb={0}>Aktiviraj dnevno slanje</FormLabel>
-                      <Switch colorScheme="green" isChecked={Boolean(form.enabled)} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked, paused: event.target.checked ? false : true }))} />
-                    </FormControl>
-                    <FormControl><FormLabel>Broj dnevno</FormLabel><Input type="number" min={1} max={30} value={form.daily_limit} onChange={(event) => setForm((current) => ({ ...current, daily_limit: event.target.value }))} /></FormControl>
-                    <FormControl><FormLabel>Početak</FormLabel><Input type="time" value={form.send_window_start} onChange={(event) => setForm((current) => ({ ...current, send_window_start: event.target.value }))} /></FormControl>
-                    <FormControl><FormLabel>Kraj</FormLabel><Input type="time" value={form.send_window_end} onChange={(event) => setForm((current) => ({ ...current, send_window_end: event.target.value }))} /></FormControl>
-                    <FormControl><FormLabel>Razmak slanja</FormLabel><Select value={form.send_interval_minutes} onChange={(event) => setForm((current) => ({ ...current, send_interval_minutes: event.target.value }))}><option value="10">10 minuta</option><option value="20">20 minuta</option><option value="30">30 minuta</option><option value="60">60 minuta</option></Select></FormControl>
-                    <FormControl><FormLabel>Follow-up nakon dana</FormLabel><Input type="number" min={1} max={90} value={form.follow_up_days} onChange={(event) => setForm((current) => ({ ...current, follow_up_days: event.target.value }))} /></FormControl>
-                  </SimpleGrid>
-
-                  <FormControl><FormLabel>Naslov poruke</FormLabel><Input value={form.subject || ''} placeholder="Unesite naslov maila" onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} /></FormControl>
-                  <FormControl><FormLabel>Sadržaj poruke</FormLabel><Textarea minH="260px" value={form.body_text || ''} placeholder="Unesite sadržaj maila. Dostupno: {{KOMITENT}}, {{LOKACIJA}}, {{KONTAKT_OSOBA}}" onChange={(event) => setForm((current) => ({ ...current, body_text: event.target.value }))} /><Text mt={1} fontSize="xs" color="gray.500">S-Consulting potpis s logom automatski se dodaje jednom pri slanju.</Text></FormControl>
-
-                  <Flex gap={3} flexWrap="wrap">
-                    <Button minH="44px" colorScheme="green" isLoading={busy === 'save'} onClick={save}>Sačuvaj i primijeni</Button>
-                    <Button minH="44px" leftIcon={<FaRedo />} variant="outline" isLoading={busy === 'prepare'} onClick={prepare}>Pripremi današnju listu</Button>
-                    <Button minH="44px" leftIcon={<FaPaperPlane />} variant="outline" colorScheme="blue" isLoading={busy === 'send'} isDisabled={!active || !(counts.APPROVED > 0)} onClick={sendNext}>Pošalji sljedeći sada</Button>
+                <Box border="1px solid" borderColor="gray.200" borderRadius="xl" p={{ base: 4, md: 5 }}>
+                  <Flex align={{ base: 'start', md: 'center' }} justify="space-between" gap={2} direction={{ base: 'column', md: 'row' }} mb={4}>
+                    <Box>
+                      <Heading size="sm">Forma maila za {brandName}</Heading>
+                      <Text fontSize="sm" color="gray.600" mt={1}>Sačuvaj jednom; forma i prilog ostaju odvojeni od drugih programa.</Text>
+                    </Box>
+                    {state.template.updated_at && <Text fontSize="xs" color="gray.500">Forma je ranije sačuvana</Text>}
                   </Flex>
-                </>
+
+                  <VStack align="stretch" spacing={4}>
+                    <FormControl>
+                      <FormLabel>Pošiljalac</FormLabel>
+                      <Input value={SENDER_EMAIL} isReadOnly bg="gray.50" fontWeight="semibold" />
+                      <Text mt={1} fontSize="xs" color="gray.500">Adresa je fiksna i ne može se promijeniti u ovoj formi.</Text>
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel>Subject / naslov maila</FormLabel>
+                      <Input value={form.subject} placeholder={`Naslov ${brandName} maila`} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel>Forma / sadržaj maila</FormLabel>
+                      <Textarea minH={{ base: '220px', md: '280px' }} resize="vertical" value={form.body} placeholder="Unesite sadržaj maila. Možete koristiti {{KOMITENT}} za naziv primaoca." onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
+                      <Text mt={1} fontSize="xs" color="gray.500">Oznaka {'{{KOMITENT}}'} automatski se zamjenjuje nazivom komitenta.</Text>
+                    </FormControl>
+                    <FormControl>
+                      <FormLabel>Attachment / prilog maila</FormLabel>
+                      <Input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg" p={1.5} minH="44px" onChange={chooseAttachment} isDisabled={busy === 'file'} />
+                      <Text mt={1} fontSize="xs" color="gray.500">Jedan prilog, najviše 10 MB. Novi prilog zamjenjuje prethodni nakon spremanja.</Text>
+                    </FormControl>
+
+                    {shownAttachment && (
+                      <Flex bg="blue.50" border="1px solid" borderColor="blue.200" borderRadius="lg" p={3} gap={3} align="center" justify="space-between">
+                        <HStack minW={0}>
+                          <Box color="blue.500" flexShrink={0}><FaPaperclip /></Box>
+                          <Box minW={0}><Text fontWeight="semibold" fontSize="sm" overflowWrap="anywhere">{shownAttachment.name}</Text><Text fontSize="xs" color="gray.600">{formatBytes(shownAttachment.size) || 'Sačuvani prilog'}</Text></Box>
+                        </HStack>
+                        <Button aria-label="Ukloni prilog" size="sm" minW="40px" colorScheme="red" variant="ghost" onClick={clearAttachment}><FaTrash /></Button>
+                      </Flex>
+                    )}
+
+                    <Button alignSelf={{ base: 'stretch', md: 'flex-start' }} minH="44px" leftIcon={<FaSave />} colorScheme="green" isLoading={busy === 'save'} loadingText="Spremanje" onClick={saveTemplate}>Sačuvaj formu i prilog</Button>
+                  </VStack>
+                </Box>
               )}
 
               <Divider />
-              <Box>
-                <Heading size="xs" mb={3}>Današnji red slanja</Heading>
-                {queue.length === 0 ? <Text color="gray.500">Lista još nije pripremljena ili nema dostupnih poznatih mail adresa.</Text> : (
-                  <VStack align="stretch" spacing={2} maxH="420px" overflowY="auto">
-                    {queue.map((item) => (
-                      <Flex key={item.id} p={3} border="1px solid" borderColor="gray.200" borderRadius="lg" justify="space-between" gap={3} direction={{ base: 'column', md: 'row' }}>
-                        <Box minW={0}><Text fontWeight="semibold" overflowWrap="anywhere">{item.sequence_number}. {item.company_name}</Text><Text fontSize="sm" color="gray.600" overflowWrap="anywhere">{item.recipient_email}</Text>{item.last_error && <Text fontSize="xs" color="red.600" mt={1}>{item.last_error}</Text>}</Box>
-                        <Box flexShrink={0} textAlign={{ md: 'right' }}><Badge colorScheme={item.status === 'SENT' ? 'green' : item.status === 'FAILED' ? 'red' : item.status === 'APPROVED' ? 'blue' : 'gray'}>{STATUS_LABELS[item.status] || item.status}</Badge><Text fontSize="xs" color="gray.500" mt={1}>{item.sent_at ? formatTimestamp(item.sent_at) : 'Nije poslano'}</Text></Box>
-                      </Flex>
-                    ))}
-                  </VStack>
+
+              <Flex align={{ base: 'stretch', md: 'center' }} justify="space-between" gap={3} direction={{ base: 'column', md: 'row' }}>
+                <Box>
+                  <Heading size="sm">Kandidati za današnje slanje ({candidates.length}/{state.daily_limit})</Heading>
+                  <Text fontSize="sm" color="gray.600" mt={1}>Poslani komitenti se više ne prikazuju u ovoj kampanji.</Text>
+                </Box>
+                {canManage && (
+                  <Flex gap={2} direction={{ base: 'column', sm: 'row' }}>
+                    <Button minH="44px" leftIcon={<FaRedo />} variant="outline" isLoading={busy === 'prepare'} onClick={prepareCandidates}>Pripremi / dopuni do 30</Button>
+                    <Button minH="44px" variant="ghost" isLoading={busy === 'refresh'} onClick={refreshCandidates}>Osvježi</Button>
+                  </Flex>
                 )}
-              </Box>
+              </Flex>
+
+              {candidates.length === 0 ? (
+                <Alert status="info" borderRadius="xl"><AlertIcon /><AlertDescription>Nema pripremljenih kandidata. Klikni „Pripremi / dopuni do 30“ za današnju listu poznatih mail adresa.</AlertDescription></Alert>
+              ) : (
+                <>
+                  <Flex p={3} bg="gray.50" border="1px solid" borderColor="gray.200" borderRadius="lg" align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }} gap={3}>
+                    <Checkbox aria-label="Označi sve kandidate" isChecked={allSelected} isIndeterminate={partlySelected} onChange={toggleAll}>Označi sve dostupne ({selectableCandidates.length})</Checkbox>
+                    <Button minH="44px" leftIcon={<FaPaperPlane />} colorScheme="orange" isDisabled={!canManage || selectedCount === 0 || !hasSavedTemplate} isLoading={busy === 'send'} loadingText="Slanje u toku" onClick={sendSelected}>Pošalji označene ({selectedCount})</Button>
+                  </Flex>
+
+                  {!hasSavedTemplate && <Alert status="warning" borderRadius="lg"><AlertIcon /><AlertDescription>Prvo sačuvaj naslov i sadržaj maila za {brandName}.</AlertDescription></Alert>}
+
+                  <TableContainer display={{ base: 'none', md: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl">
+                    <Table size="sm">
+                      <Thead bg="orange.50"><Tr><Th w="48px">Izbor</Th><Th>Komitent</Th><Th>Mail adresa</Th><Th>Status</Th></Tr></Thead>
+                      <Tbody>
+                        {candidates.map((candidate) => {
+                          const disabled = candidate.status === 'SENDING';
+                          return (
+                            <Tr key={candidate.id}>
+                              <Td><Checkbox aria-label={`Odaberi ${candidate.name}`} isChecked={selectedIds.has(candidate.id)} isDisabled={disabled} onChange={() => toggleCandidate(candidate.id)} /></Td>
+                              <Td maxW="320px"><Text fontWeight="semibold" whiteSpace="normal" overflowWrap="anywhere">{candidate.name}</Text>{candidate.comment && <Text fontSize="xs" color="gray.500" whiteSpace="normal" noOfLines={2}>{candidate.comment}</Text>}</Td>
+                              <Td><Text whiteSpace="normal" overflowWrap="anywhere">{candidate.email || '—'}</Text></Td>
+                              <Td><Badge colorScheme={candidateStatusColor(candidate.status)}>{STATUS_LABELS[candidate.status] || candidate.status}</Badge>{candidate.last_error && <Text mt={1} fontSize="xs" color="red.600" whiteSpace="normal">{candidate.last_error}</Text>}</Td>
+                            </Tr>
+                          );
+                        })}
+                      </Tbody>
+                    </Table>
+                  </TableContainer>
+
+                  <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
+                    {candidates.map((candidate) => {
+                      const disabled = candidate.status === 'SENDING';
+                      return (
+                        <Box key={candidate.id} border="1px solid" borderColor={selectedIds.has(candidate.id) ? 'orange.300' : 'gray.200'} borderRadius="xl" p={4} bg={selectedIds.has(candidate.id) ? 'orange.50' : 'white'}>
+                          <Checkbox aria-label={`Odaberi ${candidate.name}`} w="full" alignItems="start" isChecked={selectedIds.has(candidate.id)} isDisabled={disabled} onChange={() => toggleCandidate(candidate.id)}><Text fontWeight="bold" pr={2} overflowWrap="anywhere">{candidate.name}</Text></Checkbox>
+                          <Text mt={2} ml={6} fontSize="sm" color="gray.700" overflowWrap="anywhere">{candidate.email || 'Nema mail adrese'}</Text>
+                          <Flex mt={3} ml={6} align="start" gap={2} direction="column"><Badge colorScheme={candidateStatusColor(candidate.status)}>{STATUS_LABELS[candidate.status] || candidate.status}</Badge>{candidate.comment && <Text fontSize="xs" color="gray.500">{candidate.comment}</Text>}{candidate.last_error && <Text fontSize="xs" color="red.600">{candidate.last_error}</Text>}</Flex>
+                        </Box>
+                      );
+                    })}
+                  </VStack>
+                </>
+              )}
             </VStack>
           )}
         </Box>
