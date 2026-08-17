@@ -13,6 +13,7 @@ const {
   listActivities,
   readDailyAssignments,
   resolveBrand,
+  transferAccount,
   updateAccount,
   updateDailyAssignment
 } = require('./service');
@@ -59,6 +60,15 @@ function createCommercialRouter({ db }) {
     res.json(await archiveAccount(db, account, req.user));
   };
 
+  const transferRecord = async (req, res) => {
+    const account = await getAccount(req, true);
+    const body = req.body || {};
+    const targetCode = body.target_brand_code || body.targetBrandCode || body.target_brand;
+    if (!targetCode) throw httpError(400, 'Ciljna baza je obavezna.', 'TARGET_BRAND_REQUIRED');
+    const targetBrand = await resolveBrand(db, req.user, targetCode, { write: true });
+    res.json(await transferAccount(db, account, targetBrand, req.user));
+  };
+
   const readDailyList = async (req, res) => {
     const brand = await getBrand(req);
     res.json(await readDailyAssignments(db, req.user, brand));
@@ -96,6 +106,7 @@ function createCommercialRouter({ db }) {
   router.post('/brands/:code/records', asyncRoute(createRecord));
   router.put('/records/:id', asyncRoute(editRecord));
   router.patch('/records/:id', asyncRoute(editRecord));
+  router.post('/records/:id/transfer', asyncRoute(transferRecord));
   router.delete('/records/:id', asyncRoute(removeRecord));
 
   router.get('/records/:id/activities', asyncRoute(async (req, res) => {
@@ -117,6 +128,7 @@ function createCommercialRouter({ db }) {
   router.post('/accounts', asyncRoute(createRecord));
   router.put('/accounts/:id', asyncRoute(editRecord));
   router.patch('/accounts/:id', asyncRoute(editRecord));
+  router.post('/accounts/:id/transfer', asyncRoute(transferRecord));
   router.delete('/accounts/:id', asyncRoute(removeRecord));
   router.get('/dashboard', asyncRoute(async (req, res) => {
     const brand = await getBrand(req);

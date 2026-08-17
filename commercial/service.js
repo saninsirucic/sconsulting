@@ -313,6 +313,58 @@ async function updateAccount(db, account, user, body) {
   return serializeAccount(await db('crm_accounts').where({ id: account.id }).first());
 }
 
+async function transferAccount(db, account, targetBrand, user) {
+  if (account.archived_at) throw httpError(409, 'Arhivirani komitent se ne može prebaciti.');
+  if (!targetBrand || targetBrand.id === account.brand_id) {
+    throw httpError(400, 'Odaberite drugu ciljnu bazu.', 'SAME_BRAND_TRANSFER');
+  }
+
+  const sourceBrand = await db('crm_brands').where({ id: account.brand_id }).first();
+  if (!sourceBrand) throw httpError(404, 'Izvorna baza komitenta nije pronađena.', 'BRAND_NOT_FOUND');
+  const duplicateSource = await db('crm_accounts').where({
+    brand_id: targetBrand.id,
+    source_key: account.source_key
+  }).whereNot({ id: account.id }).first();
+  if (duplicateSource) {
+    throw httpError(409, 'U ciljnoj bazi već postoji ovaj izvorni zapis.', 'TRANSFER_SOURCE_CONFLICT');
+  }
+
+  const now = new Date();
+  await db.transaction(async (trx) => {
+    await trx('crm_daily_assignments')
+      .where({ account_id: account.id, status: 'PENDING' })
+      .delete();
+    await trx('crm_accounts').where({ id: account.id }).update({
+      brand_id: targetBrand.id,
+      updated_by: user.id,
+      updated_at: now
+    });
+    await logActivity(trx, {
+      account: { ...account, brand_id: targetBrand.id },
+      user,
+      type: 'ACCOUNT_TRANSFERRED',
+      fromStatus: account.status,
+      toStatus: account.status,
+      notes: `Prebačeno iz ${sourceBrand.name} u ${targetBrand.name}.`,
+      metadata: {
+        fromBrandId: sourceBrand.id,
+        fromBrandCode: sourceBrand.code,
+        fromBrandName: sourceBrand.name,
+        toBrandId: targetBrand.id,
+        toBrandCode: targetBrand.code,
+        toBrandName: targetBrand.name
+      }
+    });
+  });
+
+  const moved = await db('crm_accounts').where({ id: account.id }).first();
+  return {
+    account: serializeAccount(moved),
+    from_brand: serializeBrand(sourceBrand),
+    to_brand: serializeBrand(targetBrand)
+  };
+}
+
 async function archiveAccount(db, account, user) {
   if (account.archived_at) return { success: true, alreadyArchived: true };
   const now = new Date();
@@ -563,6 +615,7 @@ module.exports = {
   readDailyAssignments,
   serializeAccount,
   serializeBrand,
+  transferAccount,
   updateAccount,
   updateDailyAssignment
 };

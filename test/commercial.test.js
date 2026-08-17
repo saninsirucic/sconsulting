@@ -25,6 +25,7 @@ const {
   listActivities,
   readDailyAssignments,
   resolveBrand,
+  transferAccount,
   updateAccount
 } = require('../commercial/service');
 const { manageUser } = require('../scripts/manageUser');
@@ -268,6 +269,61 @@ test('CRM CRUD čuva audit aktivnosti, podržava filtere i radi soft delete', as
   const archived = await listAccounts(db, brand, { archived: 'true' });
   assert.equal(archived.pagination.total, 1);
   assert.ok(archived.items[0].archived_at);
+});
+
+test('komitent se prebacuje između baza uz očuvane podatke, audit i čišćenje nedovršenog dnevnog zadatka', async (t) => {
+  const db = await testDb(t);
+  const user = { id: 'env-director', role: 'direktor', authSource: 'env' };
+  const sourceBrand = await resolveBrand(db, user, 'SAN_PEST');
+  const targetBrand = await resolveBrand(db, user, 'VISIOCAST');
+  const created = await createAccount(db, sourceBrand, user, {
+    company_name: 'Komitent za prebacivanje',
+    raw_mail: 'kontakt@prebacivanje.ba',
+    raw_contact: '+387 61 111 222',
+    status: 'CONTACTED',
+    priority: 'HIGH',
+    notes: 'Sačuvaj ovu napomenu'
+  });
+  await db('crm_daily_assignments').insert({
+    id: 'pending-transfer-assignment',
+    user_id: user.id,
+    brand_id: sourceBrand.id,
+    account_id: created.id,
+    assignment_date: '2026-08-17',
+    sequence_number: 1,
+    status: 'PENDING',
+    created_at: new Date(),
+    updated_at: new Date()
+  });
+
+  const result = await transferAccount(
+    db,
+    await accountWithBrand(db, created.id),
+    targetBrand,
+    user
+  );
+
+  assert.equal(result.from_brand.code, 'SAN_PEST');
+  assert.equal(result.to_brand.code, 'VISIOCAST');
+  assert.equal(result.account.brand_id, targetBrand.id);
+  assert.equal(result.account.raw_mail, 'kontakt@prebacivanje.ba');
+  assert.equal(result.account.raw_contact, '+387 61 111 222');
+  assert.equal(result.account.status, 'CONTACTED');
+  assert.equal(result.account.priority, 'HIGH');
+  assert.equal(result.account.notes, 'Sačuvaj ovu napomenu');
+  assert.equal((await listAccounts(db, sourceBrand, { search: 'Komitent za prebacivanje' })).pagination.total, 0);
+  assert.equal((await listAccounts(db, targetBrand, { search: 'Komitent za prebacivanje' })).pagination.total, 1);
+  assert.equal(await db('crm_daily_assignments').where({ id: 'pending-transfer-assignment' }).first(), undefined);
+
+  const activities = await listActivities(db, created.id);
+  assert.equal(activities[0].activity_type, 'ACCOUNT_TRANSFERRED');
+  assert.equal(activities[0].brand_id, targetBrand.id);
+  assert.equal(activities[0].metadata.fromBrandCode, 'SAN_PEST');
+  assert.equal(activities[0].metadata.toBrandCode, 'VISIOCAST');
+  await assert.rejects(
+    transferAccount(db, await accountWithBrand(db, created.id), targetBrand, user),
+    (error) => error.status === 400 && error.code === 'SAME_BRAND_TRANSFER'
+  );
 });
 
 test('dnevna lista je read-only na GET, POST rotacija je idempotentna i ne ponavlja dok ima neviđenih', async (t) => {
