@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const { strictEmailAddress } = require('./email');
 
 const CRM_STATUSES = new Set([
   'NEW', 'CALL_REQUIRED', 'CONTACTED', 'EMAIL_SENT', 'MEETING_SCHEDULED',
@@ -160,7 +161,7 @@ function serializeAccount(row) {
   const rawCcEmails = parseJson(row?.cc_emails_json, []);
   const ccEmails = Array.isArray(rawCcEmails)
     ? [...new Set(rawCcEmails.map((email) => String(email || '').trim().toLowerCase())
-      .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)))].slice(0, 10)
+      .map(strictEmailAddress).filter(Boolean))].slice(0, 10)
     : [];
   return row ? {
     ...row,
@@ -557,6 +558,7 @@ async function updateDailyAssignment(db, assignment, account, user, body) {
     : (CRM_STATUSES.has(status) ? status : null);
   if (accountStatus && !CRM_STATUSES.has(accountStatus)) throw httpError(400, 'Status komitenta nije podržan.');
   const now = new Date();
+  const hasMailQueue = await db.schema.hasTable('crm_mail_queue');
   await db.transaction(async (trx) => {
     await trx('crm_daily_assignments').where({ id: assignment.id }).update({
       status,
@@ -569,6 +571,19 @@ async function updateDailyAssignment(db, assignment, account, user, body) {
         status: accountStatus,
         last_contact_at: now,
         updated_by: user.id,
+        updated_at: now
+      });
+    }
+    if (hasMailQueue && status !== 'APPROVED') {
+      await trx('crm_mail_queue').where({
+        brand_id: assignment.brand_id,
+        account_id: assignment.account_id,
+        queue_date: assignment.assignment_date
+      }).whereIn('status', ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED']).update({
+        status: status === 'PENDING' ? 'PENDING' : 'NOT_APPROVED',
+        claim_token: null,
+        claimed_at: null,
+        last_error: null,
         updated_at: now
       });
     }

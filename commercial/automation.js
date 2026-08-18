@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const { createOutlookService } = require('../outlookMail/service');
+const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
 
 const QUEUE_STATUSES = new Set([
@@ -43,8 +44,8 @@ function parseJson(value, fallback) {
 function storedCcEmails(value, toEmail) {
   const source = Array.isArray(value) ? value : parseJson(value, []);
   if (!Array.isArray(source)) return [];
-  const to = validEmail(toEmail);
-  return [...new Set(source.map(validEmail).filter((email) => email && email !== to))]
+  const to = String(toEmail || '').trim().toLowerCase();
+  return [...new Set(source.map(strictEmailAddress).filter((email) => email && email !== to))]
     .slice(0, MAX_CC_RECIPIENTS);
 }
 
@@ -52,11 +53,11 @@ function validatedCcEmails(value, toEmail) {
   if (!Array.isArray(value)) {
     throw httpError(400, 'CC adrese moraju biti poslane kao niz.', 'INVALID_CAMPAIGN_CC');
   }
-  const normalized = value.map((item) => validEmail(item));
+  const normalized = value.map((item) => strictEmailAddress(item));
   if (normalized.some((email) => !email)) {
     throw httpError(400, 'Jedna ili više CC adresa nisu ispravne.', 'INVALID_CAMPAIGN_CC');
   }
-  const to = validEmail(toEmail);
+  const to = String(toEmail || '').trim().toLowerCase();
   if (to && normalized.includes(to)) {
     throw httpError(400, 'Glavna To adresa ne može istovremeno biti CC.', 'INVALID_CAMPAIGN_CC');
   }
@@ -76,8 +77,8 @@ function strictQueueCcEmails(value, toEmail) {
   if (!Array.isArray(source) || source.length > MAX_CC_RECIPIENTS) {
     throw httpError(409, 'Sačuvani CC primaoci nisu ispravni.', 'CAMPAIGN_CC_SNAPSHOT_INVALID');
   }
-  const normalized = source.map(validEmail);
-  const to = validEmail(toEmail);
+  const normalized = source.map(strictEmailAddress);
+  const to = String(toEmail || '').trim().toLowerCase();
   if (normalized.some((email) => !email || email === to) || new Set(normalized).size !== normalized.length) {
     throw httpError(409, 'Sačuvani CC primaoci nisu ispravni.', 'CAMPAIGN_CC_SNAPSHOT_INVALID');
   }
@@ -719,6 +720,9 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite pripremu odobrenih komitenata sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
   }
+  const allowedAssignmentStatuses = options.includeLegacyCompleted === true
+    ? ['APPROVED', 'COMPLETED']
+    : ['APPROVED'];
   if (!Array.isArray(assignmentIds)) {
     throw httpError(400, 'Pošaljite označene zapise iz današnje liste.', 'DAILY_ASSIGNMENT_SELECTION_REQUIRED');
   }
@@ -739,20 +743,16 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
       throw httpError(409, 'Prvo sačuvajte naslov i sadržaj maila.', 'AUTOMATION_TEMPLATE_REQUIRED');
     }
     const assignments = await trx({ d: 'crm_daily_assignments' })
-      .join({ a: 'crm_accounts' }, function joinApprovedAccount() {
-        this.on('a.id', '=', 'd.account_id').andOn('a.brand_id', '=', 'd.brand_id');
-      })
       .where({
         'd.user_id': actor.id,
         'd.brand_id': brand.id,
         'd.assignment_date': date
       })
       .whereIn('d.id', ids)
-      .whereIn('d.status', ['COMPLETED', 'APPROVED'])
-      .whereNull('a.archived_at')
+      .whereIn('d.status', allowedAssignmentStatuses)
       .select(
-        'd.id as assignment_id', 'd.sequence_number as assignment_sequence',
-        'a.*'
+        'd.id as assignment_id', 'd.account_id',
+        'd.sequence_number as assignment_sequence'
       )
       .orderBy('d.sequence_number');
 
@@ -773,7 +773,7 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
     const historicalEmails = new Set(historyRows
       .filter((row) => row.queue_date !== date)
       .map((row) => validEmail(row.recipient_email)).filter(Boolean));
-    let activeSlots = existingRows.filter((row) => ['APPROVED', 'SENT', 'SENDING', 'SKIPPED'].includes(row.status)).length;
+    let activeSlots = existingRows.filter((row) => row.status !== 'NOT_APPROVED').length;
     let nextSequence = existingRows.reduce((maximum, row) => Math.max(maximum, Number(row.sequence_number) || 0), 0);
     const selectedEmails = new Set();
     const eligibleAccountIds = [];
@@ -787,24 +787,25 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
       suppressed: 0,
       already_processed: 0,
       duplicate_email: 0,
+      invalid_snapshot: 0,
       daily_limit: 0
     };
     const now = new Date();
 
-    for (const assignment of assignments) {
-      const email = validEmail(assignment.email);
-      const ccEmails = storedCcEmails(assignment.cc_emails_json, email);
-      const current = existingByAccount.get(assignment.id);
-      if (EXCLUDED_CANDIDATE_STATUSES.includes(assignment.status)) {
+    for (const assignmentRow of assignments) {
+      const account = await trx('crm_accounts').where({
+        id: assignmentRow.account_id,
+        brand_id: brand.id
+      }).whereNull('archived_at').forUpdate().first();
+      if (!account) {
         skippedCounts.invalid_account += 1;
         continue;
       }
-      if (!email) {
-        skippedCounts.invalid_email += 1;
-        continue;
-      }
-      if (suppressed.has(email) || ccEmails.some((ccEmail) => suppressed.has(ccEmail))) {
-        skippedCounts.suppressed += 1;
+      const assignment = { ...account, assignment_id: assignmentRow.assignment_id };
+      const email = validEmail(assignment.email);
+      const current = existingByAccount.get(assignment.id);
+      if (EXCLUDED_CANDIDATE_STATUSES.includes(assignment.status)) {
+        skippedCounts.invalid_account += 1;
         continue;
       }
       if (current && ['SENT', 'SENDING', 'SKIPPED'].includes(current.status)) {
@@ -815,60 +816,81 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
         skippedCounts.already_processed += 1;
         continue;
       }
+      if (current?.status === 'APPROVED') {
+        const snapshotEmail = validEmail(current.recipient_email);
+        if (!email || snapshotEmail !== email) {
+          skippedCounts.invalid_account += 1;
+          continue;
+        }
+        try {
+          checkedQueueRecipients(current, suppressed);
+        } catch (error) {
+          if (error.code === 'CAMPAIGN_RECIPIENT_SUPPRESSED') skippedCounts.suppressed += 1;
+          else skippedCounts.invalid_snapshot += 1;
+          continue;
+        }
+        const emailOwner = todayEmailOwner.get(snapshotEmail);
+        if ((emailOwner && emailOwner !== assignment.id) || selectedEmails.has(snapshotEmail)) {
+          skippedCounts.duplicate_email += 1;
+          continue;
+        }
+        alreadyReadyCount += 1;
+        selectedEmails.add(snapshotEmail);
+        eligibleAccountIds.push(assignment.id);
+        eligibleAssignmentIds.push(assignment.assignment_id);
+        continue;
+      }
+      const ccEmails = storedCcEmails(assignment.cc_emails_json, email);
+      if (!email) {
+        skippedCounts.invalid_email += 1;
+        continue;
+      }
+      if (suppressed.has(email) || ccEmails.some((ccEmail) => suppressed.has(ccEmail))) {
+        skippedCounts.suppressed += 1;
+        continue;
+      }
       const emailOwner = todayEmailOwner.get(email);
       if ((emailOwner && emailOwner !== assignment.id) || selectedEmails.has(email)) {
         skippedCounts.duplicate_email += 1;
         continue;
       }
-      if (current?.status === 'APPROVED') {
-        await trx('crm_mail_queue').where({ id: current.id, status: 'APPROVED' }).update({
-          recipient_email: email,
-          cc_emails_json: JSON.stringify(ccEmails),
-          subject: renderTemplate(settings.subject, assignment),
-          body_text: renderTemplate(settings.body_text, assignment),
-          attachment_id: settings.attachment_id || null,
-          last_error: null,
-          updated_at: now
-        });
-        alreadyReadyCount += 1;
-      } else {
-        if (activeSlots >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) {
-          skippedCounts.daily_limit += 1;
-          continue;
-        }
-        const queueValues = {
-          recipient_email: email,
-          cc_emails_json: JSON.stringify(ccEmails),
-          subject: renderTemplate(settings.subject, assignment),
-          body_text: renderTemplate(settings.body_text, assignment),
-          attachment_id: settings.attachment_id || null,
-          status: 'APPROVED',
-          claim_token: null,
-          claimed_at: null,
-          last_error: null,
-          updated_at: now
-        };
-        if (current) {
-          await trx('crm_mail_queue').where({ id: current.id })
-            .whereIn('status', ['PENDING', 'FAILED', 'NOT_APPROVED'])
-            .update(queueValues);
-        } else {
-          nextSequence += 1;
-          await trx('crm_mail_queue').insert({
-            id: uuidv4(),
-            brand_id: brand.id,
-            account_id: assignment.id,
-            queue_date: date,
-            sequence_number: nextSequence,
-            ...queueValues,
-            attempts: 0,
-            created_by: String(actor.id || actor.username || 'commercial-mail-user').slice(0, 120),
-            created_at: now
-          });
-        }
-        activeSlots += 1;
-        importedCount += 1;
+      const needsAdditionalSlot = !current || current.status === 'NOT_APPROVED';
+      if (needsAdditionalSlot && activeSlots >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) {
+        skippedCounts.daily_limit += 1;
+        continue;
       }
+      const queueValues = {
+        recipient_email: email,
+        cc_emails_json: JSON.stringify(ccEmails),
+        subject: renderTemplate(settings.subject, assignment),
+        body_text: renderTemplate(settings.body_text, assignment),
+        attachment_id: settings.attachment_id || null,
+        status: 'APPROVED',
+        claim_token: null,
+        claimed_at: null,
+        last_error: null,
+        updated_at: now
+      };
+      if (current) {
+        await trx('crm_mail_queue').where({ id: current.id })
+          .whereIn('status', ['PENDING', 'FAILED', 'NOT_APPROVED'])
+          .update(queueValues);
+      } else {
+        nextSequence += 1;
+        await trx('crm_mail_queue').insert({
+          id: uuidv4(),
+          brand_id: brand.id,
+          account_id: assignment.id,
+          queue_date: date,
+          sequence_number: nextSequence,
+          ...queueValues,
+          attempts: 0,
+          created_by: String(actor.id || actor.username || 'commercial-mail-user').slice(0, 120),
+          created_at: now
+        });
+      }
+      if (needsAdditionalSlot) activeSlots += 1;
+      importedCount += 1;
       selectedEmails.add(email);
       todayEmailOwner.set(email, assignment.id);
       eligibleAccountIds.push(assignment.id);
@@ -890,7 +912,8 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
       eligible_account_ids: eligibleAccountIds,
       account_ids: eligibleAccountIds,
       eligible_assignment_ids: eligibleAssignmentIds,
-      assignment_ids: eligibleAssignmentIds
+      assignment_ids: eligibleAssignmentIds,
+      include_legacy_completed: options.includeLegacyCompleted === true
     };
   });
   return { ...(await getAutomationState(db, brand, { date })), import: imported };
@@ -1268,7 +1291,6 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
   const nowProvider = typeof options.now === 'function' ? options.now : () => (options.now || new Date());
   const firstNow = new Date(nowProvider());
   await markStaleClaims(db, brand.id, firstNow);
-  const suppressed = await suppressionSet(db);
   const results = [];
 
   for (const identifier of ids) {
@@ -1277,8 +1299,8 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
     try {
       const now = new Date(nowProvider());
       claimed = await claimSelectedQueueItem(db, brand, identifier, now);
-      const recipients = checkedQueueRecipients(claimed, suppressed);
       const attachment = await queueAttachment(db, claimed.attachment_id, brand.id);
+      const recipients = checkedQueueRecipients(claimed, await suppressionSet(db));
       const result = await outlook.send({
         to: [recipients.toEmail],
         cc: recipients.ccEmails,
@@ -1332,8 +1354,8 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
   if (!claimed) return { sent: false, reason: 'Nema poruke spremne za slanje.' };
   let accepted = false;
   try {
-    const recipients = checkedQueueRecipients(claimed, await suppressionSet(db));
     const attachment = await queueAttachment(db, claimed.attachment_id, brand.id);
+    const recipients = checkedQueueRecipients(claimed, await suppressionSet(db));
     const result = await outlook.send({
       to: [recipients.toEmail],
       cc: recipients.ccEmails,

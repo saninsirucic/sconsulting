@@ -180,7 +180,10 @@ function createCommercialRouter({ db, outlookService }) {
       brand,
       req.user,
       body.assignment_ids || body.assignmentIds,
-      { confirmed: body.confirm === true }
+      {
+        confirmed: body.confirm === true,
+        includeLegacyCompleted: body.include_legacy_completed === true
+      }
     ));
   }));
   router.post('/brands/:code/mail-automation/send-selected', asyncRoute(async (req, res) => {
