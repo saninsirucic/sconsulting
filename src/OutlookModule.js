@@ -61,6 +61,7 @@ import {
   FaTrash,
 } from 'react-icons/fa';
 import { composePayload, outlookApi } from './outlook/api';
+import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL } from './outlook/signature';
 import {
   addressesToText,
   attachmentFileKey,
@@ -81,17 +82,6 @@ const green = '#1dba5b';
 const defaultAttachmentLimit = 5;
 const defaultAttachmentBytes = 2500000;
 const defaultTotalAttachmentBytes = 5000000;
-const signatureLogoUrl = 'https://www.s-consulting.ba/logo-wordmark.png';
-const defaultEmailSignature = Object.freeze({
-  greeting: 'Lijep pozdrav,',
-  name: 'Ermina Siručić',
-  title: 'Direktor | S-Consulting Group',
-  mobile: '+387 62 528 870 | +387 62 366 515',
-  phone: '+387 33 848 871',
-  email: 'info@s-consulting.ba',
-  website: 'www.s-consulting.ba',
-  address: 'Tvornička 3, Sarajevo',
-});
 const statusRetryDelays = process.env.NODE_ENV === 'test' ? [0, 0, 0] : [0, 1000, 3000];
 
 const folderIcons = {
@@ -422,7 +412,7 @@ const createEmptyCompose = () => ({
   bcc: '',
   subject: '',
   body: '',
-  signature: { ...defaultEmailSignature },
+  signature: { ...DEFAULT_EMAIL_SIGNATURE },
 });
 
 function SignatureLine({ label, field, value, onChange, fontWeight, type = 'text', placeholder }) {
@@ -462,7 +452,7 @@ function EditableSignature({ signature, onChange, onReset }) {
       <Box bg="white" border="1px solid" borderColor="blue.100" borderRadius="lg" p={{ base: 3, sm: 4 }} maxW="720px" boxShadow="sm">
         <SignatureLine field="greeting" value={signature.greeting} onChange={onChange} placeholder="Pozdrav" />
         <Link href="https://www.s-consulting.ba/" isExternal display="inline-block" mt={3}>
-          <Image src={signatureLogoUrl} alt="S-Consulting Group" w={{ base: '250px', sm: '320px' }} maxW="100%" h="auto" />
+          <Image src={EMAIL_SIGNATURE_LOGO_URL} alt="S-Consulting Group" w={{ base: '250px', sm: '320px' }} maxW="100%" h="auto" />
         </Link>
         <Divider maxW="520px" my={3} borderColor="#f97316" borderWidth="1px" />
         <SignatureLine field="name" value={signature.name} onChange={onChange} fontWeight="bold" placeholder="Ime i prezime" />
@@ -497,7 +487,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
       bcc: '',
       subject: message ? replySubject(message.subject, forward) : '',
       body: '',
-      signature: { ...defaultEmailSignature },
+      signature: { ...DEFAULT_EMAIL_SIGNATURE },
     });
     setShowCopies(replyAll);
     setFiles([]);
@@ -592,7 +582,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
                 <EditableSignature
                   signature={form.signature}
                   onChange={updateSignature}
-                  onReset={() => setForm((current) => ({ ...current, signature: { ...defaultEmailSignature } }))}
+                  onReset={() => setForm((current) => ({ ...current, signature: { ...DEFAULT_EMAIL_SIGNATURE } }))}
                 />
               </Box>
               <Text fontSize="xs" color="gray.500" mt={2}>Prikazani podaci se šalju kao potpis ove poruke. Logo se dodaje automatski i potpis se neće duplirati.</Text>

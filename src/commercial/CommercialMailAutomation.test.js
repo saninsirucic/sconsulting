@@ -77,6 +77,11 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
 
   expect(await screen.findByDisplayValue('sales@s-consulting.ba')).toBeInTheDocument();
   expect(screen.getByDisplayValue('Ponuda za {{KOMITENT}}')).toBeInTheDocument();
+  expect(screen.getByTestId('automatic-signature-preview')).toBeInTheDocument();
+  expect(screen.getByText('Ermina Siručić')).toBeInTheDocument();
+  expect(screen.getByText('Direktor | S-Consulting Group')).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'S-Consulting Group' })).toHaveAttribute('src', 'https://www.s-consulting.ba/logo-wordmark.png');
+  expect(screen.getByText(/Potpis se automatski dodaje jednom/)).toBeInTheDocument();
   expect(screen.getByText('ponuda.pdf')).toBeInTheDocument();
   expect(screen.getAllByText('Komitent A').length).toBeGreaterThan(0);
   expect(screen.getAllByText('a@example.ba').length).toBeGreaterThan(0);

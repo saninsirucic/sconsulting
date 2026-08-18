@@ -14,6 +14,7 @@ import {
   FormLabel,
   Heading,
   HStack,
+  Image,
   Input,
   SimpleGrid,
   Spinner,
@@ -30,6 +31,7 @@ import {
   VStack,
 } from '@chakra-ui/react';
 import { FaEnvelope, FaPaperPlane, FaPaperclip, FaRedo, FaSave, FaTrash } from 'react-icons/fa';
+import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL } from '../outlook/signature';
 import { commercialApi } from './api';
 
 const SENDER_EMAIL = 'sales@s-consulting.ba';
@@ -126,6 +128,71 @@ function candidateStatusColor(status) {
   if (status === 'SENDING') return 'orange';
   if (status === 'APPROVED') return 'blue';
   return 'gray';
+}
+
+function AutomaticSignaturePreview() {
+  const signature = DEFAULT_EMAIL_SIGNATURE;
+
+  return (
+    <Box
+      data-testid="automatic-signature-preview"
+      border="1px solid"
+      borderColor="orange.200"
+      bg="orange.50"
+      borderRadius="xl"
+      p={{ base: 4, md: 5 }}
+    >
+      <Flex
+        align={{ base: 'flex-start', sm: 'center' }}
+        justify="space-between"
+        direction={{ base: 'column', sm: 'row' }}
+        gap={2}
+        mb={4}
+      >
+        <Box>
+          <HStack flexWrap="wrap">
+            <Heading size="xs">Automatski potpis</Heading>
+            <Badge colorScheme="orange">PREGLED · NIJE ZA UREĐIVANJE</Badge>
+          </HStack>
+          <Text mt={1} fontSize="xs" color="gray.600">
+            Potpis se automatski dodaje jednom na kraj svakog poslanog maila. Ne upisuj ga u sadržaj iznad.
+          </Text>
+        </Box>
+      </Flex>
+
+      <Box
+        bg="white"
+        border="1px solid"
+        borderColor="gray.200"
+        borderRadius="lg"
+        p={{ base: 4, sm: 5 }}
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="sm"
+        lineHeight="1.45"
+        color="gray.800"
+        overflow="hidden"
+      >
+        <Text mb={4}>{signature.greeting}</Text>
+        <Image
+          src={EMAIL_SIGNATURE_LOGO_URL}
+          alt="S-Consulting Group"
+          w={{ base: '250px', sm: '320px' }}
+          maxW="100%"
+          h="auto"
+        />
+        <Box w="420px" maxW="100%" borderTop="2px solid" borderColor="orange.400" my={3} />
+        <Text mb={1} fontWeight="bold">{signature.name}</Text>
+        <Text mb={2}>{signature.title}</Text>
+        <Text mb={1} overflowWrap="anywhere"><Text as="span" fontWeight="bold">M:</Text> {signature.mobile}</Text>
+        <Text mb={1} overflowWrap="anywhere"><Text as="span" fontWeight="bold">T:</Text> {signature.phone}</Text>
+        <Text mb={1} overflowWrap="anywhere">
+          <Text as="span" fontWeight="bold">E:</Text> {signature.email}
+          <Text as="span" display={{ base: 'block', sm: 'inline' }}> <Text as="span" display={{ base: 'none', sm: 'inline' }}>| </Text><Text as="span" fontWeight="bold">W:</Text> {signature.website}</Text>
+        </Text>
+        <Text overflowWrap="anywhere"><Text as="span" fontWeight="bold">A:</Text> {signature.address}</Text>
+      </Box>
+    </Box>
+  );
 }
 
 export default function CommercialMailAutomation({ brandCode, brandName, user, onChanged }) {
@@ -432,6 +499,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                       <Textarea minH={{ base: '220px', md: '280px' }} resize="vertical" value={form.body} placeholder="Unesite sadržaj maila. Možete koristiti {{KOMITENT}} za naziv primaoca." onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
                       <Text mt={1} fontSize="xs" color="gray.500">Oznaka {'{{KOMITENT}}'} automatski se zamjenjuje nazivom komitenta.</Text>
                     </FormControl>
+                    <AutomaticSignaturePreview />
                     <FormControl>
                       <FormLabel>Attachment / prilog maila</FormLabel>
                       <Input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg" p={1.5} minH="44px" onChange={chooseAttachment} isDisabled={busy === 'file'} />
