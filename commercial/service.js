@@ -202,6 +202,11 @@ function parsePositiveInt(value, fallback, maximum) {
   return Math.min(parsed, maximum);
 }
 
+function countryFromLocation(value) {
+  const parts = String(value || '').split(',').map((part) => part.trim()).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : null;
+}
+
 function applyAccountFilters(query, params) {
   if (String(params.archived || '').toLowerCase() === 'true') query.whereNotNull('archived_at');
   else query.whereNull('archived_at');
@@ -217,6 +222,13 @@ function applyAccountFilters(query, params) {
   }
   if (params.record_type) query.where('record_type', String(params.record_type));
   if (params.location) query.where('location', String(params.location));
+  if (params.country) {
+    const country = String(params.country).trim().toLowerCase();
+    if (country.length > 100) throw httpError(400, 'Filter države nije podržan.');
+    query.where((builder) => builder
+      .whereRaw("LOWER(TRIM(COALESCE(location, ''))) = ?", [country])
+      .orWhereRaw("LOWER(TRIM(COALESCE(location, ''))) LIKE ?", [`%, ${country}`]));
+  }
   if (params.search) {
     const search = `%${String(params.search).trim().toLowerCase()}%`;
     query.where((builder) => builder
@@ -252,6 +264,8 @@ async function listAccounts(db, brand, params = {}) {
   const facets = await db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at')
     .select('status', 'priority', 'location', 'record_type');
   const unique = (key) => [...new Set(facets.map((row) => row[key]).filter(Boolean))].sort();
+  const countries = [...new Set(facets.map((row) => countryFromLocation(row.location)).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, 'bs'));
   const total = Number(countRow ? countRow.count : 0);
   return {
     items: items.map(serializeAccount),
@@ -260,7 +274,8 @@ async function listAccounts(db, brand, params = {}) {
       statuses: unique('status'),
       priorities: unique('priority'),
       locations: unique('location'),
-      recordTypes: unique('record_type')
+      recordTypes: unique('record_type'),
+      countries
     }
   };
 }

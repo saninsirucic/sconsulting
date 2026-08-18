@@ -272,6 +272,35 @@ test('CRM CRUD čuva audit aktivnosti, podržava filtere i radi soft delete', as
   assert.ok(archived.items[0].archived_at);
 });
 
+test('CRM liste podržavaju filter grada, države i vrste po odvojenim bazama', async (t) => {
+  const db = await testDb(t);
+  const user = { id: 'env-director', role: 'direktor', authSource: 'env' };
+
+  const visioBrand = await resolveBrand(db, user, 'visiocast');
+  const visioList = await listAccounts(db, visioBrand, {});
+  const city = visioList.filters.locations[0];
+  assert.ok(city);
+  const byCity = await listAccounts(db, visioBrand, { location: city, perPage: 100 });
+  assert.ok(byCity.pagination.total > 0);
+  assert.ok(byCity.items.every((item) => item.location === city));
+
+  const sanPestBrand = await resolveBrand(db, user, 'san-pest');
+  await createAccount(db, sanPestBrand, user, { company_name: 'DDD Zagreb', location: 'Zagreb, Hrvatska' });
+  await createAccount(db, sanPestBrand, user, { company_name: 'DDD Novi Sad', location: 'Novi Sad, Srbija' });
+  const byCountry = await listAccounts(db, sanPestBrand, { country: 'Hrvatska', perPage: 100 });
+  assert.equal(byCountry.pagination.total, 1);
+  assert.ok(byCountry.items.every((item) => item.location.endsWith(', Hrvatska')));
+  assert.deepEqual(byCountry.filters.countries, ['Hrvatska', 'Srbija']);
+
+  const fsAppBrand = await resolveBrand(db, user, 'fs-app');
+  const fsList = await listAccounts(db, fsAppBrand, {});
+  const recordType = fsList.filters.recordTypes[0];
+  assert.ok(recordType);
+  const byType = await listAccounts(db, fsAppBrand, { record_type: recordType, perPage: 100 });
+  assert.ok(byType.pagination.total > 0);
+  assert.ok(byType.items.every((item) => item.record_type === recordType));
+});
+
 test('komitent se prebacuje između baza uz očuvane podatke, audit i čišćenje nedovršenog dnevnog zadatka', async (t) => {
   const db = await testDb(t);
   const user = { id: 'env-director', role: 'direktor', authSource: 'env' };
