@@ -682,6 +682,142 @@ async function updateDailyAssignment(db, assignment, account, user, body) {
   return db('crm_daily_assignments').where({ id: assignment.id }).first();
 }
 
+async function approveDailyAssignments(db, user, brand, assignmentIds, decision, options = {}) {
+  if (!Array.isArray(assignmentIds)) {
+    throw httpError(400, 'Označeni dnevni zadaci moraju biti poslani kao niz.', 'DAILY_ASSIGNMENT_SELECTION_INVALID');
+  }
+  const ids = [];
+  const seenIds = new Set();
+  for (const value of assignmentIds) {
+    const id = String(value || '').trim();
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+    ids.push(id);
+    if (ids.length > 30) {
+      throw httpError(
+        400,
+        'Odjednom možete odobriti najviše 30 komitenata.',
+        'DAILY_ASSIGNMENT_SELECTION_TOO_LARGE'
+      );
+    }
+  }
+  if (!ids.length) {
+    throw httpError(400, 'Označite najmanje jednog komitenta.', 'DAILY_ASSIGNMENT_SELECTION_REQUIRED');
+  }
+  const normalizedDecision = String(decision || '').trim().toUpperCase();
+  if (normalizedDecision !== 'APPROVED') {
+    throw httpError(400, 'Odluka mora biti APPROVED.', 'DAILY_ASSIGNMENT_DECISION_INVALID');
+  }
+
+  const date = options.date || businessDate();
+  const [hasMailQueue, hasAutomationSettings] = await Promise.all([
+    db.schema.hasTable('crm_mail_queue'),
+    db.schema.hasTable('crm_mail_automation_settings')
+  ]);
+  const outcome = await db.transaction(async (trx) => {
+    // The per-brand settings row is the common first lock for queue/import/send mutations.
+    if (hasAutomationSettings) {
+      await trx('crm_mail_automation_settings')
+        .where({ brand_id: brand.id }).forUpdate().first();
+    }
+    const assignments = await trx('crm_daily_assignments').where({
+      user_id: user.id,
+      brand_id: brand.id,
+      assignment_date: date
+    }).whereIn('id', ids).orderBy('id').forUpdate();
+    const assignmentsById = new Map(assignments.map((row) => [row.id, row]));
+    const accountIds = [...new Set(assignments.map((row) => row.account_id))].sort();
+    const accounts = accountIds.length
+      ? await trx('crm_accounts').whereIn('id', accountIds).orderBy('id').forUpdate()
+      : [];
+    const accountsById = new Map(accounts.map((row) => [row.id, row]));
+    const queueRows = hasMailQueue && accountIds.length
+      ? await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
+        .whereIn('account_id', accountIds).orderBy('id').forUpdate()
+      : [];
+    const queueByAccount = new Map(queueRows.map((row) => [row.account_id, row]));
+
+    const changed = [];
+    const unchanged = [];
+    const rejections = [];
+    for (const id of ids) {
+      const assignment = assignmentsById.get(id);
+      if (!assignment) {
+        rejections.push({ assignment_id: id, code: 'NOT_FOUND_OR_OUT_OF_SCOPE' });
+        continue;
+      }
+      const account = accountsById.get(assignment.account_id);
+      if (!account || account.brand_id !== brand.id || account.archived_at) {
+        rejections.push({ assignment_id: id, code: 'ACCOUNT_UNAVAILABLE' });
+        continue;
+      }
+      if (['REJECTED', 'WON', 'EMAIL_SENT'].includes(account.status)) {
+        rejections.push({ assignment_id: id, code: 'ACCOUNT_NOT_ELIGIBLE' });
+        continue;
+      }
+      if (!strictEmailAddress(account.email)) {
+        rejections.push({ assignment_id: id, code: 'INVALID_EMAIL' });
+        continue;
+      }
+      const queue = queueByAccount.get(account.id);
+      if (queue && ['SENDING', 'SENT', 'SKIPPED'].includes(queue.status)) {
+        const code = queue.status === 'SENDING'
+          ? 'MAIL_SEND_IN_PROGRESS'
+          : (queue.status === 'SENT' ? 'MAIL_ALREADY_SENT' : 'MAIL_ALREADY_PROCESSED');
+        rejections.push({ assignment_id: id, code });
+        continue;
+      }
+      if (assignment.status === 'APPROVED') {
+        unchanged.push(id);
+        continue;
+      }
+      changed.push({ assignment, account });
+    }
+
+    const now = new Date();
+    if (changed.length) {
+      await trx('crm_daily_assignments').whereIn('id', changed.map(({ assignment }) => assignment.id)).update({
+        status: 'APPROVED',
+        completed_at: now,
+        updated_at: now
+      });
+      for (const { assignment, account } of changed) {
+        await logActivity(trx, {
+          account,
+          user,
+          type: 'DAILY_ASSIGNMENT_UPDATED',
+          fromStatus: account.status,
+          toStatus: account.status,
+          notes: 'Odobreno grupnim odabirom za mail.',
+          metadata: {
+            assignmentId: assignment.id,
+            assignmentStatus: 'APPROVED',
+            approvalDecision: normalizedDecision,
+            bulk: true
+          }
+        });
+      }
+    }
+    return {
+      requested_count: ids.length,
+      matched_count: assignments.length,
+      updated_count: changed.length,
+      unchanged_count: unchanged.length,
+      rejected_count: rejections.length,
+      decision: normalizedDecision,
+      rejections
+    };
+  });
+
+  return {
+    ...outcome,
+    updated: outcome.updated_count,
+    unchanged: outcome.unchanged_count,
+    rejected: outcome.rejected_count,
+    assignments: await readDailyAssignments(db, user, brand, date)
+  };
+}
+
 async function dashboard(db, brand, user, date = businessDate()) {
   const base = db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at');
   const [totalsRow, statusRows, todayRows] = await Promise.all([
@@ -743,5 +879,6 @@ module.exports = {
   serializeBrand,
   transferAccount,
   updateAccount,
+  approveDailyAssignments,
   updateDailyAssignment
 };

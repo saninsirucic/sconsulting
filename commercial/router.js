@@ -14,6 +14,7 @@ const {
 const {
   accountWithBrand,
   addManualActivity,
+  approveDailyAssignments,
   archiveAccount,
   createAccount,
   dashboard,
@@ -137,6 +138,17 @@ function createCommercialRouter({ db, outlookService }) {
 
   router.get('/brands/:code/daily-list', asyncRoute(readDailyList));
   router.post('/brands/:code/daily-list', asyncRoute(prepareDailyList));
+  router.patch('/brands/:code/daily-assignments/approval', asyncRoute(async (req, res) => {
+    const brand = await getBrand(req, true);
+    const body = req.body || {};
+    res.json(await approveDailyAssignments(
+      db,
+      req.user,
+      brand,
+      body.assignment_ids || body.assignmentIds,
+      body.decision
+    ));
+  }));
   router.put('/daily-assignments/:id', asyncRoute(editAssignment));
   router.patch('/daily-assignments/:id', asyncRoute(editAssignment));
 

@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 const knex = require('knex');
 const crmMigration = require('../migrations/20260813120000_create_commercial_crm');
 const automationMigration = require('../migrations/20260815120000_add_commercial_mail_automation');
@@ -19,11 +20,13 @@ const {
 } = require('../commercial/automation');
 const {
   accountWithBrand,
+  approveDailyAssignments,
   businessDate,
   readDailyAssignments,
   transferAccount,
   updateDailyAssignment
 } = require('../commercial/service');
+const { createCommercialRouter } = require('../commercial/router');
 
 async function testDb(t) {
   const db = knex({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
@@ -77,6 +80,25 @@ async function addAssignment(db, user, brand, account, suffix, overrides = {}) {
 
 const director = { id: 'director-sanin', username: 'sanin', role: 'direktor', displayName: 'Sanin' };
 
+async function startCommercialApi(t, db, user, outlookService) {
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => {
+    req.user = user;
+    next();
+  });
+  app.use('/api/commercial', createCommercialRouter({ db, outlookService }));
+  app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    return res.status(error.status || 500).json({ error: error.message, code: error.code || null });
+  });
+  const server = await new Promise((resolve) => {
+    const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
 test('migracija kreira tri ugašena agenta i unaprijed priprema SAN Pest sadržaj', async (t) => {
   const db = await testDb(t);
   const rows = await db({ s: 'crm_mail_automation_settings' })
@@ -93,6 +115,210 @@ test('migracija kreira tri ugašena agenta i unaprijed priprema SAN Pest sadrža
   assert.equal(Boolean(sanPest.report_enabled), true);
   assert.equal(sanPest.report_time, '16:00');
   assert.equal(sanPest.report_recipient, 'info@s-consulting.ba');
+});
+
+test('grupno odobrenje mijenja samo današnje zadatke prijavljenog korisnika i strogo provjerava To adresu', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const otherBrand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();
+  const commercial = { id: 'bulk-commercial', username: 'prodaja', role: 'komercijala' };
+  const otherUser = { id: 'bulk-other', username: 'drugi', role: 'komercijala' };
+  const date = '2026-08-18';
+  const valid = await addAccount(db, brand, 'bulk-1', { email: 'bulk1@firma.ba' });
+  const unchanged = await addAccount(db, brand, 'bulk-2', { email: 'bulk2@firma.ba' });
+  const invalid = await addAccount(db, brand, 'bulk-3', { email: 'a..b@firma.ba' });
+  const otherOwner = await addAccount(db, brand, 'bulk-4', { email: 'bulk4@firma.ba' });
+  const yesterday = await addAccount(db, brand, 'bulk-5', { email: 'bulk5@firma.ba' });
+  const ineligible = await addAccount(db, brand, 'bulk-6', { email: 'bulk6@firma.ba', status: 'WON' });
+  const foreign = await addAccount(db, otherBrand, 'bulk-7', { email: 'bulk7@firma.ba' });
+  const assignments = [
+    await addAssignment(db, commercial, brand, valid, 'bulk-1', { assignment_date: date }),
+    await addAssignment(db, commercial, brand, unchanged, 'bulk-2', { assignment_date: date, status: 'APPROVED' }),
+    await addAssignment(db, commercial, brand, invalid, 'bulk-3', { assignment_date: date }),
+    await addAssignment(db, otherUser, brand, otherOwner, 'bulk-4', { assignment_date: date }),
+    await addAssignment(db, commercial, brand, yesterday, 'bulk-5', { assignment_date: '2026-08-17' }),
+    await addAssignment(db, commercial, brand, ineligible, 'bulk-6', { assignment_date: date }),
+    await addAssignment(db, commercial, otherBrand, foreign, 'bulk-7', { assignment_date: date })
+  ];
+
+  const result = await approveDailyAssignments(
+    db,
+    commercial,
+    brand,
+    [...assignments.map((row) => row.id), assignments[0].id],
+    'APPROVED',
+    { date }
+  );
+
+  assert.equal(result.requested_count, 7);
+  assert.equal(result.matched_count, 4);
+  assert.equal(result.updated_count, 1);
+  assert.equal(result.unchanged_count, 1);
+  assert.equal(result.rejected_count, 5);
+  assert.equal(result.updated, 1);
+  assert.equal(result.assignments.date, date);
+  assert.equal(result.assignments.items.length, 4);
+  assert.equal((await db('crm_daily_assignments').where({ id: assignments[0].id }).first()).status, 'APPROVED');
+  assert.equal((await db('crm_daily_assignments').where({ id: assignments[2].id }).first()).status, 'PENDING');
+  assert.deepEqual(
+    new Set(result.rejections.map((row) => row.code)),
+    new Set(['INVALID_EMAIL', 'NOT_FOUND_OR_OUT_OF_SCOPE', 'ACCOUNT_NOT_ELIGIBLE'])
+  );
+  const auditBeforeRepeat = await db('crm_activities').where({
+    account_id: valid.id,
+    activity_type: 'DAILY_ASSIGNMENT_UPDATED'
+  });
+  assert.equal(auditBeforeRepeat.length, 1);
+  assert.equal(JSON.parse(auditBeforeRepeat[0].metadata_json).bulk, true);
+
+  const repeated = await approveDailyAssignments(
+    db, commercial, brand, [assignments[0].id, assignments[1].id], 'APPROVED', { date }
+  );
+  assert.equal(repeated.updated_count, 0);
+  assert.equal(repeated.unchanged_count, 2);
+  assert.equal(await db('crm_activities').where({
+    account_id: valid.id,
+    activity_type: 'DAILY_ASSIGNMENT_UPDATED'
+  }).count({ count: '*' }).first().then((row) => Number(row.count)), 1);
+});
+
+test('grupno odobrenje ne dira SENDING/SENT redove i ne pokreće Outlook slanje', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'bulk-terminal-user', username: 'prodaja', role: 'komercijala' };
+  const date = '2026-08-18';
+  const sendingAccount = await addAccount(db, brand, 'bulk-terminal-1', { email: 'terminal1@firma.ba' });
+  const sentAccount = await addAccount(db, brand, 'bulk-terminal-2', { email: 'terminal2@firma.ba' });
+  const sendingAssignment = await addAssignment(
+    db, commercial, brand, sendingAccount, 'bulk-terminal-1', { assignment_date: date }
+  );
+  const sentAssignment = await addAssignment(
+    db, commercial, brand, sentAccount, 'bulk-terminal-2', { assignment_date: date }
+  );
+  const now = new Date();
+  await db('crm_mail_queue').insert([
+    {
+      id: 'bulk-terminal-queue-1', brand_id: brand.id, account_id: sendingAccount.id,
+      queue_date: date, sequence_number: 1, recipient_email: sendingAccount.email,
+      cc_emails_json: '[]', subject: 'Test', body_text: 'Test', status: 'SENDING', attempts: 1,
+      claim_token: 'bulk-terminal-claim', claimed_at: now, created_at: now, updated_at: now
+    },
+    {
+      id: 'bulk-terminal-queue-2', brand_id: brand.id, account_id: sentAccount.id,
+      queue_date: date, sequence_number: 2, recipient_email: sentAccount.email,
+      cc_emails_json: '[]', subject: 'Test', body_text: 'Test', status: 'SENT', attempts: 1,
+      sent_at: now, provider_message_id: 'already-sent', created_at: now, updated_at: now
+    }
+  ]);
+
+  let outlookCalls = 0;
+  const result = await approveDailyAssignments(
+    db,
+    commercial,
+    brand,
+    [sendingAssignment.id, sentAssignment.id],
+    'APPROVED',
+    { date, outlookService: { async send() { outlookCalls += 1; } } }
+  );
+
+  assert.equal(result.updated_count, 0);
+  assert.equal(result.rejected_count, 2);
+  assert.deepEqual(result.rejections.map((row) => row.code), ['MAIL_SEND_IN_PROGRESS', 'MAIL_ALREADY_SENT']);
+  assert.equal(outlookCalls, 0);
+  assert.deepEqual(
+    (await db('crm_mail_queue').whereIn('id', ['bulk-terminal-queue-1', 'bulk-terminal-queue-2']).orderBy('id'))
+      .map((row) => [row.status, row.provider_message_id, row.claim_token]),
+    [['SENDING', null, 'bulk-terminal-claim'], ['SENT', 'already-sent', null]]
+  );
+  assert.ok((await db('crm_daily_assignments').whereIn('id', [sendingAssignment.id, sentAssignment.id]))
+    .every((row) => row.status === 'PENDING'));
+});
+
+test('istovremena grupna odobrenja su idempotentna i ostavljaju jedan audit zapis', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'bulk-race-user', username: 'prodaja', role: 'komercijala' };
+  const date = '2026-08-18';
+  const account = await addAccount(db, brand, 'bulk-race-1', { email: 'bulkrace1@firma.ba' });
+  const assignment = await addAssignment(db, commercial, brand, account, 'bulk-race-1', {
+    assignment_date: date
+  });
+
+  const results = await Promise.all([
+    approveDailyAssignments(db, commercial, brand, [assignment.id], 'APPROVED', { date }),
+    approveDailyAssignments(db, commercial, brand, [assignment.id], 'APPROVED', { date })
+  ]);
+
+  assert.deepEqual(results.map((result) => result.updated_count).sort(), [0, 1]);
+  assert.equal((await db('crm_daily_assignments').where({ id: assignment.id }).first()).status, 'APPROVED');
+  assert.equal(await db('crm_activities').where({
+    account_id: account.id,
+    activity_type: 'DAILY_ASSIGNMENT_UPDATED'
+  }).count({ count: '*' }).first().then((row) => Number(row.count)), 1);
+});
+
+test('bulk approval API zahtijeva write pristup brendu, ograničava izbor i ne šalje mail', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const user = {
+    id: 'bulk-api-user', username: 'bulk-api', role: 'komercijala', displayName: 'Bulk API'
+  };
+  const now = new Date();
+  await db('app_users').insert({
+    id: user.id,
+    username: user.username,
+    username_normalized: user.username,
+    password_hash: 'not-used-in-router-test',
+    display_name: user.displayName,
+    role: user.role,
+    active: true,
+    must_change_password: false,
+    created_at: now,
+    updated_at: now
+  });
+  await db('app_user_brand_access').insert({
+    id: 'bulk-api-access', user_id: user.id, brand_id: brand.id,
+    can_read: true, can_write: false, created_at: now, updated_at: now
+  });
+  const account = await addAccount(db, brand, 'bulk-api-1', { email: 'bulkapi1@firma.ba' });
+  const assignment = await addAssignment(db, user, brand, account, 'bulk-api-1', {
+    assignment_date: businessDate()
+  });
+  let outlookCalls = 0;
+  const baseUrl = await startCommercialApi(t, db, user, {
+    async send() { outlookCalls += 1; return { success: true }; }
+  });
+  const request = () => fetch(`${baseUrl}/api/commercial/brands/FS_APP/daily-assignments/approval`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ assignment_ids: [assignment.id], decision: 'APPROVED' })
+  });
+
+  const forbidden = await request();
+  assert.equal(forbidden.status, 403);
+  assert.equal((await forbidden.json()).code, 'BRAND_ACCESS_DENIED');
+  assert.equal((await db('crm_daily_assignments').where({ id: assignment.id }).first()).status, 'PENDING');
+
+  await db('app_user_brand_access').where({ id: 'bulk-api-access' }).update({ can_write: true });
+  const accepted = await request();
+  assert.equal(accepted.status, 200);
+  const payload = await accepted.json();
+  assert.equal(payload.updated_count, 1);
+  assert.equal(payload.assignments.items.find((row) => row.assignment_id === assignment.id).assignment_status, 'APPROVED');
+  assert.equal(outlookCalls, 0);
+
+  await assert.rejects(
+    approveDailyAssignments(db, user, brand, [], 'APPROVED'),
+    (error) => error.status === 400 && error.code === 'DAILY_ASSIGNMENT_SELECTION_REQUIRED'
+  );
+  await assert.rejects(
+    approveDailyAssignments(db, user, brand, Array.from({ length: 31 }, (_, index) => `id-${index}`), 'APPROVED'),
+    (error) => error.status === 400 && error.code === 'DAILY_ASSIGNMENT_SELECTION_TOO_LARGE'
+  );
+  await assert.rejects(
+    approveDailyAssignments(db, user, brand, [assignment.id], 'SKIPPED'),
+    (error) => error.status === 400 && error.code === 'DAILY_ASSIGNMENT_DECISION_INVALID'
+  );
 });
 
 test('dnevni red bira samo poznate validne CRM adrese i ne ponavlja komitente', async (t) => {
