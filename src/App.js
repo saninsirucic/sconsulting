@@ -316,7 +316,9 @@ function App() {
     let checkInFlight = false;
     let previousUnreadCount = null;
     const checkInbox = async () => {
-      if (checkInFlight) return;
+      // Outlook ekran već sam učitava nalog i brojače. Dodatni globalni poll
+      // ovdje samo povećava vjerovatnoću Microsoft throttlinga.
+      if (checkInFlight || currentPageRef.current === "outlook") return;
       checkInFlight = true;
       try {
         const account = await outlookApi.getAccount();

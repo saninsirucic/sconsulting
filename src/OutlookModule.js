@@ -676,8 +676,9 @@ export default function OutlookModule({ user }) {
       const payload = normalizeStatus(await getStatusWithRetry());
       setStatus(payload);
       if (payload.configured) {
-        try {
-          const [account] = await Promise.all([outlookApi.getAccount(), loadFolders()]);
+        const [accountResult] = await Promise.allSettled([outlookApi.getAccount(), loadFolders()]);
+        if (accountResult.status === 'fulfilled') {
+          const account = accountResult.value;
           if (account) {
             setStatus((current) => ({
               ...current,
@@ -692,8 +693,6 @@ export default function OutlookModule({ user }) {
               } : folder));
             }
           }
-        } catch (folderError) {
-          setError(folderError.message || 'Outlook nalog i folderi nisu potpuno dostupni.');
         }
       }
     } catch (requestError) {

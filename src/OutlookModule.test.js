@@ -172,6 +172,17 @@ test('kratki prekid status poziva automatski se oporavlja bez lažnog setup alar
   expect(screen.queryByText('Outlook mailbox još nije podešen')).not.toBeInTheDocument();
 });
 
+test('privremeni kvar brojača foldera ne prikazuje lažni Graph alarm dok poruke rade', async () => {
+  outlookApi.getFolders.mockRejectedValue(new Error('Microsoft Graph zahtjev nije uspio.'));
+
+  renderModule();
+
+  expect(await screen.findByText('Ponuda za HACCP')).toBeInTheDocument();
+  expect(await screen.findByText('S Consulting prodaja')).toBeInTheDocument();
+  expect(screen.queryByText('Microsoft Graph zahtjev nije uspio.')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Pokušaj ponovo' })).not.toBeInTheDocument();
+});
+
 test('duži prekid prikazuje ponovno povezivanje i ručni retry, ne administratorski setup', async () => {
   outlookApi.getStatus.mockRejectedValue(new Error('Server se pokreće'));
   renderModule();
