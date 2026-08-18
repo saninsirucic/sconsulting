@@ -14,7 +14,17 @@ jest.mock('./api', () => ({
 
 const campaignState = {
   sender_email: 'sales@s-consulting.ba',
+  enabled: false,
+  paused: true,
+  auto_send: false,
   daily_limit: 30,
+  send_window_start: '09:00',
+  send_window_end: '15:00',
+  send_interval_minutes: 10,
+  workdays: [1, 2, 3, 4, 5],
+  report_enabled: true,
+  report_time: '16:00',
+  report_recipient: 'info@s-consulting.ba',
   template: {
     subject: 'Ponuda za {{KOMITENT}}',
     body: 'Poštovani, ovo je ponuda za {{KOMITENT}}.',
@@ -55,7 +65,21 @@ beforeEach(() => {
 
 test('normalizira novi i prethodni oblik odgovora te uklanja već poslane kandidate', () => {
   const state = normalizeMailAutomationState({
-    settings: { subject: 'Naslov', body_text: 'Tekst', daily_limit: 50 },
+    settings: {
+      subject: 'Naslov',
+      body_text: 'Tekst',
+      daily_limit: 50,
+      enabled: true,
+      auto_send: true,
+      paused: false,
+      start_time: '10:15',
+      end_time: '14:45',
+      interval_minutes: 20,
+      workdays_json: '[0,1,2,3,4,5,6]',
+      daily_report_enabled: true,
+      daily_report_time: '15:00',
+      report_email: 'izvjestaj@example.ba',
+    },
     counts: { SENT: 4, FAILED: 1 },
     queue: [
       { id: 'queue-1', company_name: 'Aktivan', recipient_email: 'aktivan@example.ba', status: 'APPROVED' },
@@ -64,6 +88,17 @@ test('normalizira novi i prethodni oblik odgovora te uklanja već poslane kandid
   });
 
   expect(state.daily_limit).toBe(30);
+  expect(state.automation).toEqual(expect.objectContaining({
+    enabled: true,
+    daily_limit: 30,
+    send_window_start: '10:15',
+    send_window_end: '14:45',
+    send_interval_minutes: 20,
+    workdays: [0, 1, 2, 3, 4, 5, 6],
+    report_enabled: true,
+    report_time: '15:00',
+    report_recipient: 'izvjestaj@example.ba',
+  }));
   expect(state.template).toEqual(expect.objectContaining({ subject: 'Naslov', body: 'Tekst' }));
   expect(state.today.sent_count).toBe(4);
   expect(state.today.candidates).toHaveLength(1);
@@ -77,6 +112,16 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
 
   expect(await screen.findByDisplayValue('sales@s-consulting.ba')).toBeInTheDocument();
   expect(screen.getByDisplayValue('Ponuda za {{KOMITENT}}')).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Automatsko slanje' })).toHaveAttribute('data-mobile-layout', 'stacked');
+  expect(screen.getByRole('checkbox', { name: 'Uključi automatsko slanje' })).not.toBeChecked();
+  expect(screen.getByLabelText('Komitenata dnevno')).toHaveValue(30);
+  expect(screen.getByLabelText('Početak slanja')).toHaveValue('09:00');
+  expect(screen.getByLabelText('Kraj slanja')).toHaveValue('15:00');
+  expect(screen.getByLabelText('Razmak poruka (min)')).toHaveAttribute('min', '10');
+  expect(screen.getByRole('checkbox', { name: 'Samo radnim danima' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Dnevni izvještaj' })).toBeChecked();
+  expect(screen.getByLabelText('Vrijeme izvještaja')).toHaveValue('16:00');
+  expect(screen.getByLabelText('Primalac izvještaja')).toHaveValue('info@s-consulting.ba');
   expect(screen.getByTestId('automatic-signature-preview')).toBeInTheDocument();
   expect(screen.getByText('Ermina Siručić')).toBeInTheDocument();
   expect(screen.getByText('Direktor | S-Consulting Group')).toBeInTheDocument();
@@ -86,6 +131,72 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
   expect(screen.getAllByText('Komitent A').length).toBeGreaterThan(0);
   expect(screen.getAllByText('a@example.ba').length).toBeGreaterThan(0);
   expect(screen.getByRole('button', { name: 'Pošalji označene (0)' })).toBeDisabled();
+});
+
+test('sprema kompletne parametre automatskog slanja bez diranja ručnog workflowa', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Uključi automatsko slanje' }));
+  fireEvent.change(screen.getByLabelText('Komitenata dnevno'), { target: { value: '12' } });
+  fireEvent.change(screen.getByLabelText('Početak slanja'), { target: { value: '10:00' } });
+  fireEvent.change(screen.getByLabelText('Kraj slanja'), { target: { value: '14:00' } });
+  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '20' } });
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Samo radnim danima' }));
+  fireEvent.change(screen.getByLabelText('Vrijeme izvještaja'), { target: { value: '15:00' } });
+  fireEvent.change(screen.getByLabelText('Primalac izvještaja'), { target: { value: 'info@s-consulting.ba' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
+
+  await waitFor(() => expect(commercialApi.updateMailAutomation).toHaveBeenCalledWith('VISIOCAST', {
+    enabled: true,
+    auto_send: true,
+    daily_limit: 12,
+    send_window_start: '10:00',
+    send_window_end: '14:00',
+    send_interval_minutes: 20,
+    workdays: [0, 1, 2, 3, 4, 5, 6],
+    report_enabled: true,
+    report_time: '15:00',
+    report_recipient: 'info@s-consulting.ba',
+  }));
+  expect(commercialApi.prepareMailAutomation).not.toHaveBeenCalled();
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+});
+
+test('ne sprema neispravan period ili razmak kraći od deset minuta', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+
+  fireEvent.change(screen.getByLabelText('Početak slanja'), { target: { value: '15:00' } });
+  fireEvent.change(screen.getByLabelText('Kraj slanja'), { target: { value: '09:00' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
+  expect(await screen.findByText('Vrijeme početka mora biti prije vremena završetka slanja.')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Početak slanja'), { target: { value: '09:00' } });
+  fireEvent.change(screen.getByLabelText('Kraj slanja'), { target: { value: '15:00' } });
+  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '9' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
+  expect(await screen.findByText('Razmak poruka mora biti između 10 i 60 minuta.')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '10' } });
+  fireEvent.change(screen.getByLabelText('Vrijeme izvještaja'), { target: { value: '14:00' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
+  expect(await screen.findByText('Vrijeme izvještaja mora biti nakon završetka slanja.')).toBeInTheDocument();
+  expect(commercialApi.updateMailAutomation).not.toHaveBeenCalled();
+});
+
+test('upozorava kada dnevni broj poruka ne može stati u odabrani vremenski prozor', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+
+  fireEvent.change(screen.getByLabelText('Komitenata dnevno'), { target: { value: '30' } });
+  fireEvent.change(screen.getByLabelText('Početak slanja'), { target: { value: '09:00' } });
+  fireEvent.change(screen.getByLabelText('Kraj slanja'), { target: { value: '10:00' } });
+  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '10' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
+
+  expect(await screen.findByText('Odabrani broj komitenata i razmak poruka ne mogu stati u zadani period slanja.')).toBeInTheDocument();
+  expect(commercialApi.updateMailAutomation).not.toHaveBeenCalled();
 });
 
 test('sprema naslov, sadržaj i trajno uklanjanje postojećeg priloga', async () => {

@@ -18,6 +18,7 @@ import {
   Input,
   SimpleGrid,
   Spinner,
+  Switch,
   Table,
   TableContainer,
   Tbody,
@@ -37,8 +38,22 @@ import { commercialApi } from './api';
 const SENDER_EMAIL = 'sales@s-consulting.ba';
 const DAILY_LIMIT = 30;
 const MAX_ATTACHMENT_BYTES = 2_500_000;
+const DEFAULT_WORKDAYS = [1, 2, 3, 4, 5];
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 
 const EMPTY_FORM = { subject: '', body: '' };
+const EMPTY_AUTOMATION_FORM = {
+  enabled: false,
+  daily_limit: DAILY_LIMIT,
+  send_window_start: '09:00',
+  send_window_end: '15:00',
+  send_interval_minutes: 10,
+  workdays_only: true,
+  report_enabled: true,
+  report_time: '16:00',
+  report_recipient: DEFAULT_REPORT_RECIPIENT,
+};
 
 const STATUS_LABELS = {
   PENDING: 'Spreman za izbor',
@@ -51,6 +66,37 @@ const STATUS_LABELS = {
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'string') return value.toLowerCase() === 'true' || value === '1';
+  return Boolean(value);
+}
+
+function normalizeTime(value, fallback) {
+  const normalized = String(value || '').trim().slice(0, 5);
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : fallback;
+}
+
+function normalizeWorkdays(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch (error) {
+      source = DEFAULT_WORKDAYS;
+    }
+  }
+  if (!Array.isArray(source)) return DEFAULT_WORKDAYS;
+  const days = [...new Set(source.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort();
+  return days.length ? days : DEFAULT_WORKDAYS;
+}
+
+function timeToMinutes(value) {
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value || ''))) return null;
+  const [hours, minutes] = value.split(':').map(Number);
+  return (hours * 60) + minutes;
 }
 
 function normalizeCandidate(item, index) {
@@ -74,6 +120,7 @@ function normalizeCandidate(item, index) {
 export function normalizeMailAutomationState(input) {
   const payload = input?.data || input || {};
   const settings = payload.settings || {};
+  const automation = payload.automation || settings.automation || settings;
   const template = payload.template || settings.template || settings;
   const today = payload.today || {};
   const counts = payload.counts || today.counts || {};
@@ -85,7 +132,40 @@ export function normalizeMailAutomationState(input) {
 
   return {
     sender_email: payload.sender_email || settings.sender_email || SENDER_EMAIL,
-    daily_limit: Math.min(DAILY_LIMIT, Math.max(1, toNumber(payload.daily_limit ?? settings.daily_limit, DAILY_LIMIT))),
+    daily_limit: Math.min(DAILY_LIMIT, Math.max(1, toNumber(payload.daily_limit ?? automation.daily_limit, DAILY_LIMIT))),
+    automation: {
+      enabled: toBoolean(
+        payload.enabled ?? automation.enabled,
+        false
+      ) && toBoolean(payload.auto_send ?? automation.auto_send, true)
+        && !toBoolean(payload.paused ?? automation.paused, false),
+      daily_limit: Math.min(DAILY_LIMIT, Math.max(1, toNumber(payload.daily_limit ?? automation.daily_limit, DAILY_LIMIT))),
+      send_window_start: normalizeTime(
+        payload.send_window_start ?? automation.send_window_start ?? automation.start_time,
+        EMPTY_AUTOMATION_FORM.send_window_start
+      ),
+      send_window_end: normalizeTime(
+        payload.send_window_end ?? automation.send_window_end ?? automation.end_time,
+        EMPTY_AUTOMATION_FORM.send_window_end
+      ),
+      send_interval_minutes: Math.min(60, Math.max(10, toNumber(
+        payload.send_interval_minutes ?? automation.send_interval_minutes ?? automation.interval_minutes,
+        EMPTY_AUTOMATION_FORM.send_interval_minutes
+      ))),
+      workdays: normalizeWorkdays(payload.workdays ?? automation.workdays ?? automation.workdays_json),
+      report_enabled: toBoolean(
+        payload.report_enabled ?? automation.report_enabled ?? automation.daily_report_enabled,
+        EMPTY_AUTOMATION_FORM.report_enabled
+      ),
+      report_time: normalizeTime(
+        payload.report_time ?? automation.report_time ?? automation.daily_report_time,
+        EMPTY_AUTOMATION_FORM.report_time
+      ),
+      report_recipient: payload.report_recipient
+        || automation.report_recipient
+        || automation.report_email
+        || DEFAULT_REPORT_RECIPIENT,
+    },
     template: {
       subject: template.subject || '',
       body: template.body ?? template.body_text ?? '',
@@ -100,6 +180,22 @@ export function normalizeMailAutomationState(input) {
       sent_count: toNumber(today.sent_count ?? payload.sent_count ?? counts.SENT),
       failed_count: toNumber(today.failed_count ?? payload.failed_count ?? counts.FAILED),
     },
+  };
+}
+
+function automationFormFromState(state) {
+  const automation = state?.automation || {};
+  const workdays = normalizeWorkdays(automation.workdays);
+  return {
+    enabled: Boolean(automation.enabled),
+    daily_limit: automation.daily_limit || DAILY_LIMIT,
+    send_window_start: automation.send_window_start || EMPTY_AUTOMATION_FORM.send_window_start,
+    send_window_end: automation.send_window_end || EMPTY_AUTOMATION_FORM.send_window_end,
+    send_interval_minutes: automation.send_interval_minutes || EMPTY_AUTOMATION_FORM.send_interval_minutes,
+    workdays_only: !workdays.includes(0) && !workdays.includes(6),
+    report_enabled: automation.report_enabled !== false,
+    report_time: automation.report_time || EMPTY_AUTOMATION_FORM.report_time,
+    report_recipient: automation.report_recipient || DEFAULT_REPORT_RECIPIENT,
   };
 }
 
@@ -203,6 +299,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
   const [open, setOpen] = useState(false);
   const [state, setState] = useState(() => normalizeMailAutomationState(null));
   const [form, setForm] = useState(EMPTY_FORM);
+  const [automationForm, setAutomationForm] = useState(EMPTY_AUTOMATION_FORM);
   const [draftAttachment, setDraftAttachment] = useState(null);
   const [removeAttachment, setRemoveAttachment] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -212,7 +309,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
   const [sendProgress, setSendProgress] = useState(null);
   const [sendSummary, setSendSummary] = useState(null);
 
-  const applyState = useCallback((result, { syncForm = false } = {}) => {
+  const applyState = useCallback((result, { syncForm = false, syncAutomation = syncForm } = {}) => {
     const normalized = normalizeMailAutomationState(result);
     setState(normalized);
     const availableIds = new Set(normalized.today.candidates.map((candidate) => candidate.id));
@@ -223,15 +320,16 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
       setRemoveAttachment(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+    if (syncAutomation) setAutomationForm(automationFormFromState(normalized));
     return normalized;
   }, []);
 
-  const load = useCallback(async ({ syncForm = true, showSpinner = true } = {}) => {
+  const load = useCallback(async ({ syncForm = true, syncAutomation = syncForm, showSpinner = true } = {}) => {
     if (showSpinner) setLoading(true);
     setError('');
     try {
       const result = await commercialApi.getMailAutomation(brandCode);
-      return applyState(result, { syncForm });
+      return applyState(result, { syncForm, syncAutomation });
     } catch (requestError) {
       setError(requestError.message || 'Mail kampanja trenutno nije dostupna.');
       return null;
@@ -304,6 +402,71 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
     setDraftAttachment(null);
     setRemoveAttachment(Boolean(state.template.attachment_name));
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const saveAutomation = async () => {
+    const dailyLimit = Number(automationForm.daily_limit);
+    const interval = Number(automationForm.send_interval_minutes);
+    const startMinutes = timeToMinutes(automationForm.send_window_start);
+    const endMinutes = timeToMinutes(automationForm.send_window_end);
+    const reportMinutes = timeToMinutes(automationForm.report_time);
+    const reportRecipient = automationForm.report_recipient.trim();
+
+    if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > DAILY_LIMIT) {
+      setError('Broj komitenata dnevno mora biti između 1 i 30.');
+      return;
+    }
+    if (startMinutes === null || endMinutes === null || startMinutes >= endMinutes) {
+      setError('Vrijeme početka mora biti prije vremena završetka slanja.');
+      return;
+    }
+    if (!Number.isInteger(interval) || interval < 10 || interval > 60) {
+      setError('Razmak poruka mora biti između 10 i 60 minuta.');
+      return;
+    }
+    if (((dailyLimit - 1) * interval) > (endMinutes - startMinutes)) {
+      setError('Odabrani broj komitenata i razmak poruka ne mogu stati u zadani period slanja.');
+      return;
+    }
+    if (automationForm.report_enabled && (reportMinutes === null || reportMinutes < endMinutes)) {
+      setError('Vrijeme izvještaja mora biti nakon završetka slanja.');
+      return;
+    }
+    if (automationForm.report_enabled && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(reportRecipient)) {
+      setError('Unesite ispravnu email adresu primaoca izvještaja.');
+      return;
+    }
+
+    setBusy('automation');
+    setError('');
+    try {
+      const payload = {
+        enabled: automationForm.enabled,
+        auto_send: automationForm.enabled,
+        daily_limit: dailyLimit,
+        send_window_start: automationForm.send_window_start,
+        send_window_end: automationForm.send_window_end,
+        send_interval_minutes: interval,
+        workdays: automationForm.workdays_only ? DEFAULT_WORKDAYS : ALL_DAYS,
+        report_enabled: automationForm.report_enabled,
+        report_time: automationForm.report_time,
+        report_recipient: reportRecipient || DEFAULT_REPORT_RECIPIENT,
+      };
+      await commercialApi.updateMailAutomation(brandCode, payload);
+      await load({ syncForm: false, syncAutomation: true, showSpinner: false });
+      toast({
+        title: automationForm.enabled ? `Automatsko slanje za ${brandName} je uključeno.` : `Automatsko slanje za ${brandName} je pauzirano.`,
+        description: automationForm.enabled
+          ? `Mailovi se šalju sa ${SENDER_EMAIL} prema sačuvanoj satnici.`
+          : 'Nova automatska slanja su odmah zaustavljena.',
+        status: 'success',
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      setError(requestError.message || 'Parametri automatskog slanja nisu sačuvani.');
+    } finally {
+      setBusy('');
+    }
   };
 
   const saveTemplate = async () => {
@@ -458,6 +621,193 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                     {sendSummary.failed ? ' Neuspjeli komitenti ostaju dostupni za ponovni pokušaj.' : ' CRM komentari su ažurirani.'}
                   </AlertDescription>
                 </Alert>
+              )}
+
+              {canManage && (
+                <Box
+                  as="section"
+                  aria-labelledby="automatic-send-heading"
+                  data-testid="automatic-send-settings"
+                  data-mobile-layout="stacked"
+                  border="1px solid"
+                  borderColor={automationForm.enabled ? 'green.300' : 'gray.300'}
+                  bg={automationForm.enabled ? 'green.50' : 'gray.50'}
+                  borderRadius="xl"
+                  p={{ base: 4, md: 5 }}
+                >
+                  <Flex
+                    align={{ base: 'stretch', md: 'center' }}
+                    justify="space-between"
+                    direction={{ base: 'column', md: 'row' }}
+                    gap={4}
+                    mb={5}
+                  >
+                    <Box>
+                      <HStack flexWrap="wrap">
+                        <Heading id="automatic-send-heading" size="sm">Automatsko slanje</Heading>
+                        <Badge colorScheme={automationForm.enabled ? 'green' : 'gray'}>
+                          {automationForm.enabled ? 'UKLJUČENO' : 'PAUZIRANO'}
+                        </Badge>
+                      </HStack>
+                      <Text mt={1} fontSize="sm" color="gray.600">
+                        Sve poruke se šalju sa <Text as="span" fontWeight="bold">{SENDER_EMAIL}</Text>.
+                      </Text>
+                    </Box>
+                    <FormControl
+                      display="flex"
+                      alignItems="center"
+                      justifyContent={{ base: 'space-between', md: 'flex-end' }}
+                      minH="44px"
+                      w={{ base: 'full', md: 'auto' }}
+                    >
+                      <FormLabel htmlFor="automatic-send-enabled" mb="0" mr={3} fontWeight="semibold">
+                        Uključi automatsko slanje
+                      </FormLabel>
+                      <Switch
+                        id="automatic-send-enabled"
+                        aria-label="Uključi automatsko slanje"
+                        colorScheme="green"
+                        size="lg"
+                        isChecked={automationForm.enabled}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, enabled: event.target.checked }))}
+                      />
+                    </FormControl>
+                  </Flex>
+
+                  <SimpleGrid data-testid="automation-schedule-grid" columns={{ base: 1, sm: 2, xl: 4 }} spacing={4}>
+                    <FormControl isRequired>
+                      <FormLabel htmlFor="automation-daily-limit">Komitenata dnevno</FormLabel>
+                      <Input
+                        id="automation-daily-limit"
+                        aria-label="Komitenata dnevno"
+                        minH="44px"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={DAILY_LIMIT}
+                        value={automationForm.daily_limit}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, daily_limit: event.target.value }))}
+                      />
+                      <Text mt={1} fontSize="xs" color="gray.500">Od 1 do 30.</Text>
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel htmlFor="automation-window-start">Početak slanja</FormLabel>
+                      <Input
+                        id="automation-window-start"
+                        aria-label="Početak slanja"
+                        minH="44px"
+                        type="time"
+                        value={automationForm.send_window_start}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, send_window_start: event.target.value }))}
+                      />
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel htmlFor="automation-window-end">Kraj slanja</FormLabel>
+                      <Input
+                        id="automation-window-end"
+                        aria-label="Kraj slanja"
+                        minH="44px"
+                        type="time"
+                        value={automationForm.send_window_end}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, send_window_end: event.target.value }))}
+                      />
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel htmlFor="automation-send-interval">Razmak poruka (min)</FormLabel>
+                      <Input
+                        id="automation-send-interval"
+                        aria-label="Razmak poruka (min)"
+                        minH="44px"
+                        type="number"
+                        inputMode="numeric"
+                        min={10}
+                        max={60}
+                        value={automationForm.send_interval_minutes}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, send_interval_minutes: event.target.value }))}
+                      />
+                      <Text mt={1} fontSize="xs" color="gray.500">Od 10 do 60 minuta.</Text>
+                    </FormControl>
+                  </SimpleGrid>
+
+                  <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4} mt={5}>
+                    <Box border="1px solid" borderColor="gray.200" bg="white" borderRadius="lg" p={4}>
+                      <FormControl display="flex" alignItems="center" justifyContent="space-between" minH="44px">
+                        <FormLabel htmlFor="automation-workdays-only" mb="0" pr={3}>Samo radnim danima</FormLabel>
+                        <Switch
+                          id="automation-workdays-only"
+                          aria-label="Samo radnim danima"
+                          colorScheme="blue"
+                          isChecked={automationForm.workdays_only}
+                          onChange={(event) => setAutomationForm((current) => ({ ...current, workdays_only: event.target.checked }))}
+                        />
+                      </FormControl>
+                      <Text mt={1} fontSize="xs" color="gray.500">
+                        {automationForm.workdays_only ? 'Slanje od ponedjeljka do petka.' : 'Slanje svim danima u sedmici.'}
+                      </Text>
+                    </Box>
+
+                    <Box border="1px solid" borderColor="gray.200" bg="white" borderRadius="lg" p={4}>
+                      <FormControl display="flex" alignItems="center" justifyContent="space-between" minH="44px">
+                        <FormLabel htmlFor="automation-report-enabled" mb="0" pr={3}>Dnevni izvještaj</FormLabel>
+                        <Switch
+                          id="automation-report-enabled"
+                          aria-label="Dnevni izvještaj"
+                          colorScheme="blue"
+                          isChecked={automationForm.report_enabled}
+                          onChange={(event) => setAutomationForm((current) => ({ ...current, report_enabled: event.target.checked }))}
+                        />
+                      </FormControl>
+                      <Text mt={1} fontSize="xs" color="gray.500">Izvještaj se šalje nakon završetka dnevnog perioda.</Text>
+                    </Box>
+                  </SimpleGrid>
+
+                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4} mt={4}>
+                    <FormControl isRequired={automationForm.report_enabled} isDisabled={!automationForm.report_enabled}>
+                      <FormLabel htmlFor="automation-report-time">Vrijeme izvještaja</FormLabel>
+                      <Input
+                        id="automation-report-time"
+                        aria-label="Vrijeme izvještaja"
+                        minH="44px"
+                        type="time"
+                        value={automationForm.report_time}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, report_time: event.target.value }))}
+                      />
+                    </FormControl>
+                    <FormControl isRequired={automationForm.report_enabled} isDisabled={!automationForm.report_enabled}>
+                      <FormLabel htmlFor="automation-report-recipient">Primalac izvještaja</FormLabel>
+                      <Input
+                        id="automation-report-recipient"
+                        aria-label="Primalac izvještaja"
+                        minH="44px"
+                        type="email"
+                        value={automationForm.report_recipient}
+                        onChange={(event) => setAutomationForm((current) => ({ ...current, report_recipient: event.target.value }))}
+                      />
+                    </FormControl>
+                  </SimpleGrid>
+
+                  <Alert status={automationForm.enabled ? 'success' : 'info'} variant="left-accent" borderRadius="lg" mt={5}>
+                    <AlertIcon />
+                    <AlertDescription fontSize="sm">
+                      {automationForm.enabled
+                        ? 'Automatizacija će koristiti samo sačuvanu formu i prilog ove aplikacije.'
+                        : 'Kada sačuvaš pauzirano stanje, odmah se zaustavljaju sva nova automatska slanja. Ručno slanje ispod ostaje dostupno.'}
+                    </AlertDescription>
+                  </Alert>
+
+                  <Button
+                    mt={4}
+                    minH="44px"
+                    w={{ base: 'full', md: 'auto' }}
+                    colorScheme={automationForm.enabled ? 'green' : 'gray'}
+                    leftIcon={<FaSave />}
+                    isLoading={busy === 'automation'}
+                    loadingText="Spremanje"
+                    onClick={saveAutomation}
+                  >
+                    Sačuvaj automatsko slanje
+                  </Button>
+                </Box>
               )}
 
               <SimpleGrid columns={{ base: 2, lg: 4 }} spacing={3}>
