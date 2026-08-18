@@ -3,7 +3,9 @@ const crypto = require('crypto');
 const { createOutlookService } = require('../outlookMail/service');
 const { businessDate, httpError } = require('./service');
 
-const QUEUE_STATUSES = new Set(['PENDING', 'APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED']);
+const QUEUE_STATUSES = new Set([
+  'PENDING', 'APPROVED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
+]);
 const EXCLUDED_CANDIDATE_STATUSES = ['REJECTED', 'WON', 'EMAIL_SENT'];
 const DEFAULT_WORKDAYS = [1, 2, 3, 4, 5];
 const MAX_DAILY_LIMIT = 30;
@@ -371,10 +373,6 @@ async function updateAutomationSettings(db, brand, actor, input = {}) {
         updated_at: next.updated_at
       });
     }
-    if (enabled && next.auto_send) {
-      await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: businessDate(), status: 'PENDING' })
-        .update({ status: 'APPROVED', updated_at: new Date() });
-    }
   });
   return serializeSettings(await automationSettingRow(db, brand.id));
 }
@@ -406,7 +404,8 @@ async function prepareAutomationQueue(db, brand, actor = { id: 'commercial-mail-
       throw httpError(409, 'Unesite naslov i sadržaj maila prije pripreme liste.', 'AUTOMATION_TEMPLATE_REQUIRED');
     }
     const existing = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date }).orderBy('sequence_number');
-    const needed = Math.max(0, settings.daily_limit - existing.length);
+    const activeCount = existing.filter((row) => row.status !== 'NOT_APPROVED').length;
+    const needed = Math.max(0, settings.daily_limit - activeCount);
     if (needed > 0) {
       const [history, usedToday, suppressed] = await Promise.all([
         trx('crm_mail_queue').where({ brand_id: brand.id }).whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).select('account_id', 'recipient_email'),
@@ -455,7 +454,7 @@ async function prepareAutomationQueue(db, brand, actor = { id: 'commercial-mail-
           subject: renderTemplate(settings.subject, account),
           body_text: renderTemplate(settings.body_text, account),
           attachment_id: settings.attachment_id || null,
-          status: settings.enabled && !settings.paused && settings.auto_send ? 'APPROVED' : 'PENDING',
+          status: 'PENDING',
           attempts: 0,
           created_by: String(actor.id || actor.username || 'commercial-mail-bot').slice(0, 120),
           created_at: now,
@@ -487,7 +486,7 @@ async function getAutomationState(db, brand, options = {}) {
   const counts = Object.fromEntries([...QUEUE_STATUSES].map((status) => [status, 0]));
   rows.forEach((row) => { counts[row.status] = (counts[row.status] || 0) + 1; });
   const sender = 'sales@s-consulting.ba';
-  const candidates = rows.filter((row) => !['SENT', 'SKIPPED'].includes(row.status)).map((row) => ({
+  const candidates = rows.filter((row) => !['SENT', 'SKIPPED', 'NOT_APPROVED'].includes(row.status)).map((row) => ({
     id: row.account_id,
     candidate_id: row.id,
     account_id: row.account_id,
@@ -522,7 +521,7 @@ async function getAutomationState(db, brand, options = {}) {
     today: {
       date,
       candidates,
-      prepared_count: rows.length,
+      prepared_count: rows.filter((row) => row.status !== 'NOT_APPROVED').length,
       sent_count: counts.SENT || 0,
       failed_count: counts.FAILED || 0,
       available_count: candidates.length,
@@ -540,6 +539,60 @@ async function getAutomationState(db, brand, options = {}) {
     },
     source_policy: 'ONLY_EXISTING_CRM_EMAILS'
   };
+}
+
+async function reviewAutomationCandidates(db, brand, accountIds, decision, options = {}) {
+  const ids = [...new Set((Array.isArray(accountIds) ? accountIds : [])
+    .map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!ids.length) {
+    throw httpError(400, 'Označite najmanje jednog prijedloga.', 'CAMPAIGN_SELECTION_REQUIRED');
+  }
+  if (ids.length > MAX_DAILY_LIMIT) {
+    throw httpError(400, 'Odjednom možete označiti najviše 30 prijedloga.', 'CAMPAIGN_SELECTION_TOO_LARGE');
+  }
+  const normalizedDecision = String(decision || '').trim().toUpperCase();
+  if (!['APPROVED', 'REJECTED'].includes(normalizedDecision)) {
+    throw httpError(400, 'Odluka mora biti APPROVED ili REJECTED.', 'INVALID_CAMPAIGN_DECISION');
+  }
+
+  const date = options.date || businessDate();
+  const targetStatus = normalizedDecision === 'APPROVED' ? 'APPROVED' : 'NOT_APPROVED';
+  const now = new Date();
+  const result = await db.transaction(async (trx) => {
+    const rows = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, queue_date: date })
+      .whereIn('status', ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'])
+      .andWhere((query) => query.whereIn('account_id', ids).orWhereIn('id', ids))
+      .select('id', 'account_id', 'status');
+    if (!rows.length) {
+      throw httpError(
+        409,
+        'Označeni prijedlozi više nisu dostupni za odluku.',
+        'CAMPAIGN_CANDIDATES_NOT_AVAILABLE'
+      );
+    }
+    const changed = rows.filter((row) => row.status !== targetStatus);
+    if (changed.length) {
+      await trx('crm_mail_queue').whereIn('id', changed.map((row) => row.id)).update({
+        status: targetStatus,
+        claim_token: null,
+        claimed_at: null,
+        last_error: null,
+        updated_at: now
+      });
+    }
+    return {
+      requested_count: ids.length,
+      matched_count: rows.length,
+      updated_count: changed.length,
+      unavailable_count: Math.max(0, ids.length - rows.length),
+      decision: normalizedDecision,
+      status: targetStatus
+    };
+  });
+
+  const state = await getAutomationState(db, brand, { date });
+  return { ...state, review: result };
 }
 
 async function pauseAutomation(db, brand, actor) {
@@ -610,7 +663,9 @@ async function claimDailyReport(db, brand, settings, date, now) {
       .count({ count: '*' })
       .groupBy('status');
     const counts = Object.fromEntries(grouped.map((row) => [row.status, Number(row.count || 0)]));
-    const preparedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
+    const preparedCount = Object.entries(counts)
+      .filter(([status]) => status !== 'NOT_APPROVED')
+      .reduce((sum, [, count]) => sum + count, 0);
     const sentCount = counts.SENT || 0;
     const failedCount = counts.FAILED || 0;
     const remainingCount = (counts.PENDING || 0) + (counts.APPROVED || 0) + (counts.SENDING || 0);
@@ -857,11 +912,18 @@ async function claimSelectedQueueItem(db, brand, identifier, now) {
       throw httpError(409, `Dnevni limit od ${dailyLimit} mailova za ${brand.name} je dostignut.`, 'CAMPAIGN_DAILY_LIMIT_REACHED');
     }
     const item = await trx('crm_mail_queue')
-      .where({ brand_id: brand.id, queue_date: date })
-      .whereIn('status', ['PENDING', 'APPROVED', 'FAILED'])
+      .where({ brand_id: brand.id, queue_date: date, status: 'APPROVED' })
       .andWhere((query) => query.where({ account_id: identifier }).orWhere({ id: identifier }))
       .orderBy('sequence_number').forUpdate().first();
     if (!item) {
+      const waiting = await trx('crm_mail_queue')
+        .where({ brand_id: brand.id, queue_date: date })
+        .whereIn('status', ['PENDING', 'FAILED'])
+        .andWhere((query) => query.where({ account_id: identifier }).orWhere({ id: identifier }))
+        .first();
+      if (waiting) {
+        throw httpError(409, 'Prvo odobrite prijedlog prije slanja.', 'CAMPAIGN_APPROVAL_REQUIRED');
+      }
       throw httpError(409, 'Kandidat više nije dostupan za današnje slanje.', 'CAMPAIGN_CANDIDATE_NOT_AVAILABLE');
     }
     const account = await trx('crm_accounts').where({ id: item.account_id, brand_id: brand.id })
@@ -1038,6 +1100,7 @@ module.exports = {
   getAutomationState,
   pauseAutomation,
   prepareAutomationQueue,
+  reviewAutomationCandidates,
   runAutomationTick,
   sendDailyReport,
   sendNextAutomatedMail,

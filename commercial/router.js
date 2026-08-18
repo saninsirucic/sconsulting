@@ -4,6 +4,7 @@ const {
   getAutomationState,
   pauseAutomation,
   prepareAutomationQueue,
+  reviewAutomationCandidates,
   sendNextAutomatedMail,
   sendSelectedMails,
   updateAutomationSettings
@@ -148,6 +149,16 @@ function createCommercialRouter({ db, outlookService }) {
   router.post('/brands/:code/mail-automation/prepare', asyncRoute(async (req, res) => {
     const brand = await getBrand(req, true);
     res.json(await prepareAutomationQueue(db, brand, req.user));
+  }));
+  router.patch('/brands/:code/mail-automation/candidates', asyncRoute(async (req, res) => {
+    const brand = await getBrand(req, true);
+    const body = req.body || {};
+    res.json(await reviewAutomationCandidates(
+      db,
+      brand,
+      body.account_ids || body.accountIds || body.candidate_ids || body.ids,
+      body.decision
+    ));
   }));
   router.post('/brands/:code/mail-automation/send-selected', asyncRoute(async (req, res) => {
     if (!req.body || req.body.confirm !== true) {
