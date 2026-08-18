@@ -311,88 +311,109 @@ async function automationSettingRow(db, brandId) {
 }
 
 async function updateAutomationSettings(db, brand, actor, input = {}) {
-  const current = await ensureAutomationSetting(db, brand);
-  const subject = hasOwn(input, 'subject') ? text(input.subject, 255) : current.subject;
-  const bodyText = hasOwn(input, 'body')
-    ? text(input.body)
-    : (hasOwn(input, 'body_text') ? text(input.body_text) : current.body_text);
-  if (subject && /[\r\n]/.test(subject)) throw httpError(400, 'Naslov maila ne smije sadržavati novi red.', 'INVALID_AUTOMATION_SUBJECT');
-  if (!subject || !bodyText) {
-    throw httpError(400, 'Naslov i sadržaj maila su obavezni.', 'AUTOMATION_TEMPLATE_REQUIRED');
-  }
-  const enabled = bool(input.enabled, Boolean(current.enabled));
-  const workdays = validatedWorkdays(input, current.workdays_json);
-  const sendWindowStart = validatedClock(
-    input, 'send_window_start', current.send_window_start || '09:00', 'Početak slanja'
-  );
-  const sendWindowEnd = validatedClock(
-    input, 'send_window_end', current.send_window_end || '15:00', 'Kraj slanja'
-  );
-  const reportTime = validatedClock(input, 'report_time', current.report_time || '16:00', 'Vrijeme izvještaja');
-  const dailyLimit = validatedInteger(
-    input, 'daily_limit', Number(current.daily_limit) || 30, 1, MAX_DAILY_LIMIT, 'Dnevni broj komitenata'
-  );
-  const sendIntervalMinutes = validatedInteger(
-    input,
-    'send_interval_minutes',
-    Number(current.send_interval_minutes) || 10,
-    MIN_SEND_INTERVAL_MINUTES,
-    MAX_SEND_INTERVAL_MINUTES,
-    'Razmak poruka'
-  );
-  if (sendWindowStart >= sendWindowEnd) {
-    throw httpError(400, 'Početak slanja mora biti prije kraja slanja.', 'INVALID_AUTOMATION_SETTINGS');
-  }
-  const windowMinutes = clockMinutes(sendWindowEnd) - clockMinutes(sendWindowStart);
-  if ((dailyLimit - 1) * sendIntervalMinutes > windowMinutes) {
-    throw httpError(
-      400,
-      `Termin slanja nema dovoljno vremena za ${dailyLimit} poruka uz razmak od ${sendIntervalMinutes} minuta.`,
-      'AUTOMATION_WINDOW_CAPACITY_EXCEEDED'
-    );
-  }
-  if (reportTime < sendWindowEnd) {
-    throw httpError(400, 'Vrijeme izvještaja mora biti nakon završetka slanja.', 'INVALID_AUTOMATION_SETTINGS');
-  }
-  const reportRecipient = hasOwn(input, 'report_recipient')
-    ? validEmail(input.report_recipient)
-    : (validEmail(current.report_recipient) || DEFAULT_REPORT_RECIPIENT);
-  if (!reportRecipient) {
-    throw httpError(400, 'Adresa primaoca izvještaja nije ispravna.', 'INVALID_AUTOMATION_SETTINGS');
-  }
+  await ensureAutomationSetting(db, brand);
   let attachment = null;
   if (hasOwn(input, 'attachment') && input.attachment) {
     attachment = normalizeAttachmentInput(input.attachment);
   }
   const removeAttachment = bool(input.remove_attachment, false);
-  const attachmentId = attachment ? uuidv4() : (removeAttachment ? null : current.attachment_id);
-  const next = {
-    enabled,
-    paused: !enabled
-      ? true
-      : (hasOwn(input, 'paused')
-        ? bool(input.paused, false)
-        : (hasOwn(input, 'enabled') ? false : Boolean(current.paused))),
-    auto_send: bool(input.auto_send, Boolean(current.auto_send)),
-    daily_limit: dailyLimit,
-    workdays_json: JSON.stringify(workdays),
-    send_window_start: sendWindowStart,
-    send_window_end: sendWindowEnd,
-    send_interval_minutes: sendIntervalMinutes,
-    report_enabled: bool(input.report_enabled, current.report_enabled === undefined ? true : Boolean(current.report_enabled)),
-    report_time: reportTime,
-    report_recipient: reportRecipient,
-    follow_up_days: validatedInteger(
-      input, 'follow_up_days', Number(current.follow_up_days) || 7, 1, 90, 'Follow-up period'
-    ),
-    subject,
-    body_text: bodyText,
-    attachment_id: attachmentId,
-    last_error: null,
-    updated_by: String(actor.displayName || actor.display_name || actor.username || actor.id || 'direktor').slice(0, 120),
-    updated_at: new Date()
-  };
   await db.transaction(async (trx) => {
+    const current = await trx('crm_mail_automation_settings')
+      .where({ brand_id: brand.id }).forUpdate().first();
+    if (!current) throw httpError(409, 'Postavke automatizacije nisu dostupne.', 'AUTOMATION_SETTINGS_NOT_FOUND');
+    const subject = hasOwn(input, 'subject') ? text(input.subject, 255) : current.subject;
+    const bodyText = hasOwn(input, 'body')
+      ? text(input.body)
+      : (hasOwn(input, 'body_text') ? text(input.body_text) : current.body_text);
+    if (subject && /[\r\n]/.test(subject)) {
+      throw httpError(400, 'Naslov maila ne smije sadržavati novi red.', 'INVALID_AUTOMATION_SUBJECT');
+    }
+    if (!subject || !bodyText) {
+      throw httpError(400, 'Naslov i sadržaj maila su obavezni.', 'AUTOMATION_TEMPLATE_REQUIRED');
+    }
+    const enabled = bool(input.enabled, Boolean(current.enabled));
+    const workdays = validatedWorkdays(input, current.workdays_json);
+    const sendWindowStart = validatedClock(
+      input, 'send_window_start', current.send_window_start || '09:00', 'Početak slanja'
+    );
+    const sendWindowEnd = validatedClock(
+      input, 'send_window_end', current.send_window_end || '15:00', 'Kraj slanja'
+    );
+    const reportTime = validatedClock(input, 'report_time', current.report_time || '16:00', 'Vrijeme izvještaja');
+    const dailyLimit = validatedInteger(
+      input, 'daily_limit', Number(current.daily_limit) || 30, 1, MAX_DAILY_LIMIT, 'Dnevni broj komitenata'
+    );
+    const sendIntervalMinutes = validatedInteger(
+      input,
+      'send_interval_minutes',
+      Number(current.send_interval_minutes) || 10,
+      MIN_SEND_INTERVAL_MINUTES,
+      MAX_SEND_INTERVAL_MINUTES,
+      'Razmak poruka'
+    );
+    if (sendWindowStart >= sendWindowEnd) {
+      throw httpError(400, 'Početak slanja mora biti prije kraja slanja.', 'INVALID_AUTOMATION_SETTINGS');
+    }
+    const windowMinutes = clockMinutes(sendWindowEnd) - clockMinutes(sendWindowStart);
+    if ((dailyLimit - 1) * sendIntervalMinutes > windowMinutes) {
+      throw httpError(
+        400,
+        `Termin slanja nema dovoljno vremena za ${dailyLimit} poruka uz razmak od ${sendIntervalMinutes} minuta.`,
+        'AUTOMATION_WINDOW_CAPACITY_EXCEEDED'
+      );
+    }
+    if (reportTime < sendWindowEnd) {
+      throw httpError(400, 'Vrijeme izvještaja mora biti nakon završetka slanja.', 'INVALID_AUTOMATION_SETTINGS');
+    }
+    const reportRecipient = hasOwn(input, 'report_recipient')
+      ? validEmail(input.report_recipient)
+      : (validEmail(current.report_recipient) || DEFAULT_REPORT_RECIPIENT);
+    if (!reportRecipient) {
+      throw httpError(400, 'Adresa primaoca izvještaja nije ispravna.', 'INVALID_AUTOMATION_SETTINGS');
+    }
+    const attachmentId = attachment ? uuidv4() : (removeAttachment ? null : current.attachment_id);
+    const contentChanged = subject !== current.subject
+      || bodyText !== current.body_text
+      || attachmentId !== (current.attachment_id || null);
+    const next = {
+      enabled,
+      paused: !enabled
+        ? true
+        : (hasOwn(input, 'paused')
+          ? bool(input.paused, false)
+          : (hasOwn(input, 'enabled') ? false : Boolean(current.paused))),
+      auto_send: bool(input.auto_send, Boolean(current.auto_send)),
+      daily_limit: dailyLimit,
+      workdays_json: JSON.stringify(workdays),
+      send_window_start: sendWindowStart,
+      send_window_end: sendWindowEnd,
+      send_interval_minutes: sendIntervalMinutes,
+      report_enabled: bool(input.report_enabled, current.report_enabled === undefined ? true : Boolean(current.report_enabled)),
+      report_time: reportTime,
+      report_recipient: reportRecipient,
+      follow_up_days: validatedInteger(
+        input, 'follow_up_days', Number(current.follow_up_days) || 7, 1, 90, 'Follow-up period'
+      ),
+      subject,
+      body_text: bodyText,
+      attachment_id: attachmentId,
+      last_error: null,
+      updated_by: String(actor.displayName || actor.display_name || actor.username || actor.id || 'direktor').slice(0, 120),
+      updated_at: new Date()
+    };
+    if (hasOwn(input, 'daily_limit') && dailyLimit < Number(current.daily_limit || MAX_DAILY_LIMIT)) {
+      const activeRow = await trx('crm_mail_queue')
+        .where({ brand_id: brand.id, queue_date: businessDate() })
+        .whereNot({ status: 'NOT_APPROVED' })
+        .count({ count: '*' }).first();
+      if (Number(activeRow?.count || 0) > dailyLimit) {
+        throw httpError(
+          409,
+          `Današnja lista već ima više od ${dailyLimit} aktivnih zapisa. Prvo uklonite višak prijedloga.`,
+          'CAMPAIGN_DAILY_LIMIT_REACHED'
+        );
+      }
+    }
     if (attachment) {
       await trx('crm_mail_attachments').insert({
         id: attachmentId,
@@ -407,18 +428,28 @@ async function updateAutomationSettings(db, brand, actor, input = {}) {
       });
     }
     await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).update(next);
-    const editableQueue = await trx({ q: 'crm_mail_queue' })
-      .join({ a: 'crm_accounts' }, 'a.id', 'q.account_id')
-      .where({ 'q.brand_id': brand.id, 'q.queue_date': businessDate() })
-      .whereIn('q.status', ['PENDING', 'APPROVED', 'FAILED'])
-      .select('q.id', 'a.company_name', 'a.location', 'a.contact_person');
-    for (const queued of editableQueue) {
-      await trx('crm_mail_queue').where({ id: queued.id }).update({
-        subject: renderTemplate(subject, queued),
-        body_text: renderTemplate(bodyText, queued),
-        attachment_id: attachmentId,
-        updated_at: next.updated_at
-      });
+    if (contentChanged) {
+      const editableQueue = await trx({ q: 'crm_mail_queue' })
+        .join({ a: 'crm_accounts' }, 'a.id', 'q.account_id')
+        .where({ 'q.brand_id': brand.id, 'q.queue_date': businessDate() })
+        .whereIn('q.status', ['PENDING', 'APPROVED', 'FAILED'])
+        .select('q.id', 'q.status', 'a.company_name', 'a.location', 'a.contact_person');
+      for (const queued of editableQueue) {
+        const approvalReset = queued.status === 'APPROVED';
+        const queueUpdate = {
+          subject: renderTemplate(subject, queued),
+          body_text: renderTemplate(bodyText, queued),
+          attachment_id: attachmentId,
+          status: approvalReset ? 'PENDING' : queued.status,
+          updated_at: next.updated_at
+        };
+        if (approvalReset) Object.assign(queueUpdate, {
+          claim_token: null,
+          claimed_at: null,
+          last_error: null
+        });
+        await trx('crm_mail_queue').where({ id: queued.id }).update(queueUpdate);
+      }
     }
   });
   return serializeSettings(await automationSettingRow(db, brand.id));
@@ -619,12 +650,15 @@ async function reviewAutomationCandidates(db, brand, accountIds, decision, optio
   const date = options.date || businessDate();
   const targetStatus = normalizedDecision === 'APPROVED' ? 'APPROVED' : 'NOT_APPROVED';
   const now = new Date();
+  await ensureAutomationSetting(db, brand);
   const result = await db.transaction(async (trx) => {
+    const settings = serializeSettings(await trx('crm_mail_automation_settings')
+      .where({ brand_id: brand.id }).forUpdate().first());
     const rows = await trx('crm_mail_queue')
       .where({ brand_id: brand.id, queue_date: date })
       .whereIn('status', ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'])
       .andWhere((query) => query.whereIn('account_id', ids).orWhereIn('id', ids))
-      .select('id', 'account_id', 'status');
+      .select('id', 'account_id', 'status').forUpdate();
     if (!rows.length) {
       throw httpError(
         409,
@@ -633,6 +667,23 @@ async function reviewAutomationCandidates(db, brand, accountIds, decision, optio
       );
     }
     const changed = rows.filter((row) => row.status !== targetStatus);
+    if (targetStatus === 'APPROVED') {
+      const reactivatedCount = changed.filter((row) => row.status === 'NOT_APPROVED').length;
+      if (reactivatedCount) {
+        const activeRow = await trx('crm_mail_queue')
+          .where({ brand_id: brand.id, queue_date: date })
+          .whereNot({ status: 'NOT_APPROVED' })
+          .count({ count: '*' }).first();
+        const dailyLimit = Math.min(MAX_DAILY_LIMIT, Number(settings?.daily_limit) || MAX_DAILY_LIMIT);
+        if (Number(activeRow?.count || 0) + reactivatedCount > dailyLimit) {
+          throw httpError(
+            409,
+            `Dnevni limit od ${dailyLimit} prijedloga za ${brand.name} je dostignut.`,
+            'CAMPAIGN_DAILY_LIMIT_REACHED'
+          );
+        }
+      }
+    }
     if (changed.length) {
       await trx('crm_mail_queue').whereIn('id', changed.map((row) => row.id)).update({
         status: targetStatus,
@@ -658,17 +709,19 @@ async function reviewAutomationCandidates(db, brand, accountIds, decision, optio
 
 async function updateCandidateRecipients(db, brand, accountId, actor, input = {}, options = {}) {
   const date = options.date || businessDate();
-  const account = await db('crm_accounts').where({ id: accountId, brand_id: brand.id })
-    .whereNull('archived_at').first();
-  if (!account) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
-  const toEmail = validEmail(account.email);
-  if (!toEmail) {
-    throw httpError(409, 'Komitent nema ispravnu glavnu e-mail adresu.', 'CAMPAIGN_RECIPIENT_INVALID');
-  }
-  const ccEmails = validatedCcEmails(input.cc_emails, toEmail);
-  const previousCcEmails = storedCcEmails(account.cc_emails_json, toEmail);
-  const now = new Date();
-  await db.transaction(async (trx) => {
+  await ensureAutomationSetting(db, brand);
+  const recipients = await db.transaction(async (trx) => {
+    await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).forUpdate().first();
+    const account = await trx('crm_accounts').where({ id: accountId, brand_id: brand.id })
+      .whereNull('archived_at').forUpdate().first();
+    if (!account) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
+    const toEmail = validEmail(account.email);
+    if (!toEmail) {
+      throw httpError(409, 'Komitent nema ispravnu glavnu e-mail adresu.', 'CAMPAIGN_RECIPIENT_INVALID');
+    }
+    const ccEmails = validatedCcEmails(input.cc_emails, toEmail);
+    const previousCcEmails = storedCcEmails(account.cc_emails_json, toEmail);
+    const now = new Date();
     const approvedQueue = await trx('crm_mail_queue')
       .where({ brand_id: brand.id, account_id: account.id, queue_date: date, status: 'APPROVED' })
       .first();
@@ -708,11 +761,12 @@ async function updateCandidateRecipients(db, brand, accountId, actor, input = {}
       occurred_at: now,
       created_at: now
     });
+    return { account_id: account.id, to_email: toEmail, cc_emails: ccEmails };
   });
   const state = await getAutomationState(db, brand, { date });
   return {
     ...state,
-    recipients: { account_id: account.id, to_email: toEmail, cc_emails: ccEmails }
+    recipients
   };
 }
 
@@ -742,19 +796,39 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
     if (!settings?.subject || !settings?.body_text) {
       throw httpError(409, 'Prvo sačuvajte naslov i sadržaj maila.', 'AUTOMATION_TEMPLATE_REQUIRED');
     }
-    const assignments = await trx({ d: 'crm_daily_assignments' })
+    const assignmentCandidates = await trx({ d: 'crm_daily_assignments' })
       .where({
         'd.user_id': actor.id,
         'd.brand_id': brand.id,
         'd.assignment_date': date
       })
       .whereIn('d.id', ids)
-      .whereIn('d.status', allowedAssignmentStatuses)
       .select(
         'd.id as assignment_id', 'd.account_id',
         'd.sequence_number as assignment_sequence'
       )
-      .orderBy('d.sequence_number');
+      .orderBy('d.sequence_number')
+      .orderBy('d.id');
+    if (typeof options.afterAssignmentDiscovery === 'function') {
+      await options.afterAssignmentDiscovery(trx, assignmentCandidates);
+    }
+    // Re-read under a row lock so a concurrent revoke either wins here or waits and revokes the queue after commit.
+    const assignments = [];
+    for (const candidate of assignmentCandidates) {
+      const locked = await trx('crm_daily_assignments').where({
+        id: candidate.assignment_id,
+        user_id: actor.id,
+        brand_id: brand.id,
+        assignment_date: date
+      }).whereIn('status', allowedAssignmentStatuses).forUpdate().first();
+      if (locked) {
+        assignments.push({
+          assignment_id: locked.id,
+          account_id: locked.account_id,
+          assignment_sequence: Number(locked.sequence_number)
+        });
+      }
+    }
 
     const [existingRows, historyRows, suppressed] = await Promise.all([
       trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date }).orderBy('sequence_number'),
@@ -951,23 +1025,40 @@ async function claimNext(db, brand, now, { ignoreInterval = false } = {}) {
       .whereIn('status', ['SENT', 'SENDING', 'SKIPPED'])
       .count({ count: '*' }).first();
     if (Number(usedRow?.count || 0) >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) return null;
-    const item = await trx('crm_mail_queue').where({
-      brand_id: brand.id,
-      queue_date: businessDate('Europe/Sarajevo', now),
-      status: 'APPROVED'
-    })
-      .orderBy('sequence_number').first();
-    if (!item) return null;
-    const claimToken = uuidv4();
-    const updated = await trx('crm_mail_queue').where({ id: item.id, status: 'APPROVED' }).update({
-      status: 'SENDING',
-      attempts: Number(item.attempts || 0) + 1,
-      claim_token: claimToken,
-      claimed_at: now,
-      last_error: null,
-      updated_at: now
-    });
-    return updated ? { ...item, claim_token: claimToken, settings } : null;
+    while (true) {
+      const item = await trx('crm_mail_queue').where({
+        brand_id: brand.id,
+        queue_date: businessDate('Europe/Sarajevo', now),
+        status: 'APPROVED'
+      })
+        .orderBy('sequence_number').forUpdate().first();
+      if (!item) return null;
+      const account = await trx('crm_accounts').where({ id: item.account_id, brand_id: brand.id })
+        .whereNull('archived_at').forUpdate().first();
+      const currentEmail = validEmail(account?.email);
+      const snapshotEmail = validEmail(item.recipient_email);
+      if (!account || EXCLUDED_CANDIDATE_STATUSES.includes(account.status)
+        || !currentEmail || currentEmail !== snapshotEmail) {
+        await trx('crm_mail_queue').where({ id: item.id, status: 'APPROVED' }).update({
+          status: 'NOT_APPROVED',
+          claim_token: null,
+          claimed_at: null,
+          last_error: 'Podaci komitenta su promijenjeni nakon odobrenja. Potrebna je nova provjera.',
+          updated_at: now
+        });
+        continue;
+      }
+      const claimToken = uuidv4();
+      const updated = await trx('crm_mail_queue').where({ id: item.id, status: 'APPROVED' }).update({
+        status: 'SENDING',
+        attempts: Number(item.attempts || 0) + 1,
+        claim_token: claimToken,
+        claimed_at: now,
+        last_error: null,
+        updated_at: now
+      });
+      return updated ? { ...item, claim_token: claimToken, settings, account } : null;
+    }
   });
 }
 
@@ -1118,6 +1209,7 @@ async function queueAttachment(db, attachmentId, brandId) {
 
 async function recordSuccessfulSend(db, brand, claimed, result, actor, sender, sentAt) {
   await db.transaction(async (trx) => {
+    await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).forUpdate().first();
     const item = await trx('crm_mail_queue').where({ id: claimed.id, claim_token: claimed.claim_token, status: 'SENDING' }).forUpdate().first();
     if (!item) throw httpError(409, 'Red slanja je promijenjen tokom obrade.', 'AUTOMATION_CLAIM_LOST');
     const account = await trx('crm_accounts').where({ id: item.account_id, brand_id: brand.id }).forUpdate().first();
@@ -1192,6 +1284,7 @@ async function recordSuccessfulSend(db, brand, claimed, result, actor, sender, s
 async function recordFailedSend(db, brand, claimed, error, now) {
   const message = String(error && error.message || 'Slanje nije uspjelo.').slice(0, 2000);
   await db.transaction(async (trx) => {
+    await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).forUpdate().first();
     await trx('crm_mail_queue').where({ id: claimed.id, claim_token: claimed.claim_token }).update({
       status: 'FAILED',
       claim_token: null,
@@ -1217,6 +1310,7 @@ function assertOutlookReady(outlook) {
 async function recordUnconfirmedAcceptedSend(db, brand, claimed, error, now) {
   const message = `Microsoft je prihvatio poruku, ali završni upis nije potvrđen. Ne ponavljati slanje. ${String(error?.message || '').slice(0, 1200)}`.trim();
   await db.transaction(async (trx) => {
+    await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).forUpdate().first();
     await trx('crm_mail_queue').where({ id: claimed.id, claim_token: claimed.claim_token }).update({
       last_error: message,
       updated_at: now
@@ -1261,7 +1355,8 @@ async function claimSelectedQueueItem(db, brand, identifier, now) {
     const account = await trx('crm_accounts').where({ id: item.account_id, brand_id: brand.id })
       .whereNull('archived_at').forUpdate().first();
     const currentEmail = validEmail(account?.email);
-    if (!account || EXCLUDED_CANDIDATE_STATUSES.includes(account.status) || currentEmail !== validEmail(item.recipient_email)) {
+    if (!account || EXCLUDED_CANDIDATE_STATUSES.includes(account.status)
+      || !currentEmail || currentEmail !== validEmail(item.recipient_email)) {
       throw httpError(409, 'Podaci kandidata su promijenjeni. Osvježite listu prije slanja.', 'CAMPAIGN_CANDIDATE_CHANGED');
     }
     const claimToken = uuidv4();

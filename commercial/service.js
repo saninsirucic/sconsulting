@@ -560,6 +560,34 @@ async function updateDailyAssignment(db, assignment, account, user, body) {
   const now = new Date();
   const hasMailQueue = await db.schema.hasTable('crm_mail_queue');
   await db.transaction(async (trx) => {
+    let automationSettings = null;
+    if (hasMailQueue) {
+      automationSettings = await trx('crm_mail_automation_settings')
+        .where({ brand_id: assignment.brand_id }).forUpdate().first();
+      if (status === 'PENDING') {
+        const targetRows = await trx('crm_mail_queue').where({
+          brand_id: assignment.brand_id,
+          account_id: assignment.account_id,
+          queue_date: assignment.assignment_date
+        }).whereIn('status', ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'])
+          .select('id', 'status').forUpdate();
+        const reactivatedCount = targetRows.filter((row) => row.status === 'NOT_APPROVED').length;
+        if (reactivatedCount) {
+          const activeRow = await trx('crm_mail_queue').where({
+            brand_id: assignment.brand_id,
+            queue_date: assignment.assignment_date
+          }).whereNot({ status: 'NOT_APPROVED' }).count({ count: '*' }).first();
+          const dailyLimit = Math.min(30, Number(automationSettings?.daily_limit) || 30);
+          if (Number(activeRow?.count || 0) + reactivatedCount > dailyLimit) {
+            throw httpError(
+              409,
+              `Dnevni limit od ${dailyLimit} prijedloga je dostignut.`,
+              'CAMPAIGN_DAILY_LIMIT_REACHED'
+            );
+          }
+        }
+      }
+    }
     await trx('crm_daily_assignments').where({ id: assignment.id }).update({
       status,
       notes,

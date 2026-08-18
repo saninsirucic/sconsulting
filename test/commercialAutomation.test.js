@@ -528,6 +528,173 @@ test('uvoz ne prelazi dnevni limit kada drugi vidljivi PENDING red već zauzima 
   assert.equal(imported.today.prepared_count, 1);
 });
 
+test('uvoz ponovo zaključava i provjerava odobrenje nakon početnog pronalaska assignmenta', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  const account = await addAccount(db, brand, 'race-96', { email: 'race96@firma.ba' });
+  const assignment = await addAssignment(db, commercial, brand, account, 'race-96', { status: 'APPROVED' });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 1
+  });
+
+  const state = await importApprovedDailyAssignments(db, brand, commercial, [assignment.id], {
+    date: '2026-08-18',
+    confirmed: true,
+    async afterAssignmentDiscovery(trx, candidates) {
+      assert.deepEqual(candidates.map((candidate) => candidate.assignment_id), [assignment.id]);
+      await trx('crm_daily_assignments').where({ id: assignment.id }).update({
+        status: 'SKIPPED',
+        updated_at: new Date()
+      });
+    }
+  });
+
+  assert.equal(state.import.approved_count, 0);
+  assert.equal(state.import.eligible_count, 0);
+  assert.equal(state.import.skipped_counts.not_approved_or_unavailable, 1);
+  assert.equal(state.queue.length, 0);
+  assert.equal((await db('crm_daily_assignments').where({ id: assignment.id }).first()).status, 'SKIPPED');
+  assert.equal(await db('crm_mail_queue').where({ account_id: account.id }).first(), undefined);
+});
+
+test('reaktiviranje odbijenog prijedloga i smanjenje postavke ne mogu probiti dnevni limit', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const date = businessDate();
+  const first = await addAccount(db, brand, 'limit-89', { email: 'limit89@firma.ba', source_row_number: 1 });
+  const second = await addAccount(db, brand, 'limit-90', { email: 'limit90@firma.ba', source_row_number: 2 });
+  const assignment = await addAssignment(db, director, brand, first, 'limit-89', {
+    status: 'SKIPPED', assignment_date: date
+  });
+  await updateAutomationSettings(db, brand, director, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 1
+  });
+  await prepareAutomationQueue(db, brand, director, { date });
+  await reviewAutomationCandidates(db, brand, [first.id], 'REJECTED', { date });
+  await prepareAutomationQueue(db, brand, director, { date });
+  await assert.rejects(
+    updateDailyAssignment(db, assignment, first, director, { status: 'PENDING' }),
+    (error) => error.status === 409 && error.code === 'CAMPAIGN_DAILY_LIMIT_REACHED'
+  );
+  assert.equal((await db('crm_daily_assignments').where({ id: assignment.id }).first()).status, 'SKIPPED');
+  await assert.rejects(
+    reviewAutomationCandidates(db, brand, [first.id], 'APPROVED', { date }),
+    (error) => error.status === 409 && error.code === 'CAMPAIGN_DAILY_LIMIT_REACHED'
+  );
+  const activeRows = await db('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
+    .whereNot({ status: 'NOT_APPROVED' });
+  assert.equal(activeRows.length, 1);
+  assert.equal(activeRows[0].account_id, second.id);
+
+  await updateAutomationSettings(db, brand, director, { daily_limit: 2 });
+  await reviewAutomationCandidates(db, brand, [first.id], 'APPROVED', { date });
+  await assert.rejects(
+    updateAutomationSettings(db, brand, director, { daily_limit: 1 }),
+    (error) => error.status === 409 && error.code === 'CAMPAIGN_DAILY_LIMIT_REACHED'
+  );
+  assert.equal(Number((await db('crm_mail_automation_settings').where({ brand_id: brand.id }).first()).daily_limit), 2);
+});
+
+test('promjena sadržaja resetuje odobreni snapshot, a auto slanje odbija zastarjeli account email', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const account = await addAccount(db, brand, 'snapshot-95', { email: 'snapshot95@firma.ba' });
+  await updateAutomationSettings(db, brand, director, {
+    subject: 'Prvobitni naslov',
+    body: 'Prvobitni sadržaj',
+    enabled: true,
+    auto_send: true,
+    daily_limit: 1
+  });
+  const date = businessDate();
+  await prepareAutomationQueue(db, brand, director, { date });
+  await reviewAutomationCandidates(db, brand, [account.id], 'APPROVED', { date });
+  await updateAutomationSettings(db, brand, director, { body: 'Novi sadržaj' });
+  let queue = await db('crm_mail_queue').where({ account_id: account.id, queue_date: date }).first();
+  assert.equal(queue.status, 'PENDING');
+  assert.equal(queue.body_text, 'Novi sadržaj');
+
+  await reviewAutomationCandidates(db, brand, [account.id], 'APPROVED', { date });
+  await updateAutomationSettings(db, brand, director, { send_interval_minutes: 11 });
+  queue = await db('crm_mail_queue').where({ account_id: account.id, queue_date: date }).first();
+  assert.equal(queue.status, 'APPROVED');
+  await db('crm_accounts').where({ id: account.id }).update({ email: 'promijenjen95@firma.ba' });
+  let sends = 0;
+  const automatic = await sendNextAutomatedMail(db, brand, {
+    now: new Date(),
+    ignoreInterval: true,
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send() { sends += 1; return { success: true, accepted: true }; }
+    }
+  });
+  assert.equal(automatic.sent, false);
+  assert.equal(sends, 0);
+  queue = await db('crm_mail_queue').where({ account_id: account.id, queue_date: date }).first();
+  assert.equal(queue.status, 'NOT_APPROVED');
+});
+
+test('auto slanje preskače arhivirane, završene i promijenjene komitente te šalje samo aktuelnog', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const archived = await addAccount(db, brand, 'auto-96', {
+    email: 'auto96@firma.ba', source_row_number: 1
+  });
+  const finished = await addAccount(db, brand, 'auto-97', {
+    email: 'auto97@firma.ba', source_row_number: 2
+  });
+  const changed = await addAccount(db, brand, 'auto-98', {
+    email: 'auto98@firma.ba', source_row_number: 3
+  });
+  const current = await addAccount(db, brand, 'auto-99', {
+    email: 'auto99@firma.ba', source_row_number: 4
+  });
+  await updateAutomationSettings(db, brand, director, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: true,
+    auto_send: true,
+    daily_limit: 4
+  });
+  const date = '2026-08-18';
+  await prepareAutomationQueue(db, brand, director, { date });
+  await reviewAutomationCandidates(db, brand, [archived.id, finished.id, changed.id, current.id], 'APPROVED', { date });
+  await db('crm_accounts').where({ id: archived.id }).update({ archived_at: new Date() });
+  await db('crm_accounts').where({ id: finished.id }).update({ status: 'WON' });
+  await db('crm_accounts').where({ id: changed.id }).update({ email: 'nova98@firma.ba' });
+  const payloads = [];
+
+  const result = await sendNextAutomatedMail(db, brand, {
+    now: new Date('2026-08-18T08:00:00.000Z'),
+    ignoreInterval: true,
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send(payload) {
+        payloads.push(payload);
+        return { success: true, accepted: true, id: 'auto-current', conversationId: 'auto-current-thread' };
+      }
+    }
+  });
+
+  assert.equal(result.sent, true);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(payloads[0].to, ['auto99@firma.ba']);
+  const queueRows = await db('crm_mail_queue').where({ brand_id: brand.id, queue_date: date });
+  for (const account of [archived, finished, changed]) {
+    const row = queueRows.find((candidate) => candidate.account_id === account.id);
+    assert.equal(row.status, 'NOT_APPROVED');
+    assert.match(row.last_error, /Potrebna je nova provjera/);
+  }
+  assert.equal(queueRows.find((candidate) => candidate.account_id === current.id).status, 'SENT');
+});
+
 test('trajni CC se normalizuje, snapshotuje, resetuje odobrenje i koristi pri ručnom slanju', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
