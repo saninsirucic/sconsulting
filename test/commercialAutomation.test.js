@@ -540,6 +540,43 @@ test('dugme u CRM redu odmah šalje sačuvani dopis i upisuje tačan datum i vri
   );
 });
 
+test('dugme ne šalje na stari glavni email kada izvorni mail sadrži jednu novu adresu', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();
+  const commercial = { id: 'quick-mismatch-user', username: 'prodaja', role: 'komercijala' };
+  const account = await addAccount(db, brand, 'quick-mismatch-21', {
+    company_name: 'AD LIBITUM d.o.o.',
+    email: 'stari@adlibitum.hr',
+    raw_mail: 'novi.kontakt@gmail.com'
+  });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'Dopis za {{KOMITENT}}',
+    body: 'Poštovani {{KOMITENT}}.'
+  });
+  let sends = 0;
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send() {
+      sends += 1;
+      return { success: true, accepted: true };
+    }
+  };
+
+  await assert.rejects(
+    sendImmediateAccountMail(db, brand, account.id, {
+      confirmed: true,
+      actor: commercial,
+      outlookService,
+      now: new Date('2026-08-18T18:18:00.000Z')
+    }),
+    (error) => error.status === 409 && error.code === 'QUICK_SEND_EMAIL_MISMATCH'
+      && /novi\.kontakt@gmail\.com/.test(error.message)
+  );
+
+  assert.equal(sends, 0);
+  assert.equal(await db('crm_mail_queue').where({ account_id: account.id }).first(), undefined);
+});
+
 test('ručna kampanja trajno čuva prilog, šalje samo označenog i više ga ne predlaže', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();

@@ -37,6 +37,22 @@ function validEmail(value) {
   return strictEmailAddress(value);
 }
 
+function rawMailAddresses(value) {
+  const matches = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  return [...new Set(matches.map(validEmail).filter(Boolean))];
+}
+
+function assertRecipientMatchesRawMail(account, recipientEmail) {
+  const rawAddresses = rawMailAddresses(account?.raw_mail);
+  if (rawAddresses.length === 1 && rawAddresses[0] !== recipientEmail) {
+    throw httpError(
+      409,
+      `Glavni email za slanje (${recipientEmail}) razlikuje se od emaila u izvornim podacima (${rawAddresses[0]}). Sačuvajte ispravan glavni email prije slanja.`,
+      'QUICK_SEND_EMAIL_MISMATCH'
+    );
+  }
+}
+
 function parseJson(value, fallback) {
   try { return value ? JSON.parse(value) : fallback; } catch (error) { return fallback; }
 }
@@ -1367,6 +1383,7 @@ async function claimImmediateAccountMail(db, brand, accountId, actor, now) {
     if (!recipientEmail) {
       throw httpError(409, 'Komitent nema ispravnu glavnu email adresu.', 'QUICK_SEND_EMAIL_REQUIRED');
     }
+    assertRecipientMatchesRawMail(account, recipientEmail);
     const ccEmails = strictQueueCcEmails(account.cc_emails_json, recipientEmail);
 
     const existing = await trx('crm_mail_queue')
