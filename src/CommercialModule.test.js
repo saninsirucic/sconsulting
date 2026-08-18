@@ -11,6 +11,7 @@ jest.mock('./commercial/api', () => ({
     createRecord: jest.fn(),
     updateRecord: jest.fn(),
     transferRecord: jest.fn(),
+    sendRecordLetter: jest.fn(),
     deleteRecord: jest.fn(),
     getDailyList: jest.fn(),
     createDailyList: jest.fn(),
@@ -43,6 +44,7 @@ const record = {
   total_amount: 300,
   profit_amount: 210,
   raw_mail: 'prodaja@primjer.ba',
+  email: 'prodaja@primjer.ba',
   raw_contact: '+387 61 000 000',
   comment: 'Nazvati u petak',
   location: 'Sarajevo',
@@ -65,6 +67,13 @@ beforeEach(() => {
     account: record,
     from_brand: { code: 'SAN_PEST', name: 'SAN Pest' },
     to_brand: { code: 'VISIOCAST', name: 'Visiocast' },
+  });
+  commercialApi.sendRecordLetter.mockResolvedValue({
+    success: true,
+    sent: true,
+    account_id: record.id,
+    recipient: record.email,
+    sent_at: '2026-08-18T17:51:00.000Z',
   });
   commercialApi.deleteRecord.mockResolvedValue({ success: true });
   commercialApi.getDailyList.mockResolvedValue({ items: [] });
@@ -455,6 +464,19 @@ test('uređuje Visiocast zapis', async () => {
   fireEvent.change(screen.getByLabelText(/Naziv komitenta/), { target: { value: 'Izmijenjeni kupac' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
   await waitFor(() => expect(commercialApi.updateRecord).toHaveBeenCalledWith('record-1', expect.objectContaining({ company_name: 'Izmijenjeni kupac' })));
+});
+
+test('jednim dugmetom odmah šalje sačuvani dopis i osvježava CRM komentar', async () => {
+  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Pošalji dopis za Primjer d.o.o.' })[0]);
+
+  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('na prodaja@primjer.ba'));
+  await waitFor(() => expect(commercialApi.sendRecordLetter).toHaveBeenCalledWith('record-1'));
+  await waitFor(() => expect(commercialApi.getRecords.mock.calls.length).toBeGreaterThan(1));
+  confirmSpy.mockRestore();
 });
 
 test('prebacuje komitenta iz SAN Pesta u Visiocast uz potvrdu ciljne baze', async () => {

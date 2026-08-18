@@ -19,6 +19,10 @@ export const commercialApi = {
     method: 'POST',
     body: { target_brand_code: targetBrandCode },
   }),
+  sendRecordLetter: (id) => apiRequest(`${base}/records/${encodeURIComponent(id)}/send-letter`, {
+    method: 'POST',
+    body: { confirm: true },
+  }),
   deleteRecord: (id) => apiRequest(`${base}/records/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`),
   createDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`, { method: 'POST' }),

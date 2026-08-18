@@ -74,3 +74,12 @@ test('zakazuje odobrene mailove jednim sigurnosno potvrđenim pozivom', async ()
     confirm: true,
   });
 });
+
+test('odmah šalje sačuvani dopis iz CRM reda uz sigurnosnu potvrdu', async () => {
+  await commercialApi.sendRecordLetter('account/aba');
+
+  const [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/records/account%2Faba/send-letter');
+  expect(options.method).toBe('POST');
+  expect(JSON.parse(options.body)).toEqual({ confirm: true });
+});

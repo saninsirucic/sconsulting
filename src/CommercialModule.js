@@ -794,6 +794,20 @@ function formattedContactDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('bs-BA');
 }
 
+function structuredRecordEmail(record) {
+  const email = String(recordValue(record, 'email') || '').trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email) ? email : '';
+}
+
+function recordLetterBlockedReason(record) {
+  if (!structuredRecordEmail(record)) return 'Komitent nema ispravnu glavnu email adresu.';
+  const status = String(recordValue(record, 'status', 'crm_status') || '').toUpperCase();
+  if (status === 'EMAIL_SENT') return 'Dopis je već evidentiran kao poslan.';
+  if (status === 'REJECTED') return 'Odbijenom komitentu nije moguće poslati dopis.';
+  if (status === 'WON') return 'Ugovorenom komitentu nije moguće poslati početni dopis.';
+  return '';
+}
+
 function RecordDetailsGrid({ record }) {
   const details = [
     ['Mail', recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email')],
@@ -814,7 +828,7 @@ function RecordDetailsGrid({ record }) {
   );
 }
 
-function RecordCard({ record, onEdit, onTransfer, onRemove }) {
+function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -822,6 +836,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove }) {
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const email = recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email');
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
+  const letterBlockedReason = recordLetterBlockedReason(record);
 
   return (
     <Box border="1px solid" borderColor="gray.200" borderRadius="xl" bg="white" p={3} boxShadow="sm">
@@ -851,7 +866,24 @@ function RecordCard({ record, onEdit, onTransfer, onRemove }) {
         <Text mt={2} fontSize="xs" fontWeight="semibold" color="orange.700">Sljedeći kontakt: {formattedContactDate(nextContact)}</Text>
       )}
 
-      <Button w="full" minH="40px" mt={3} size="sm" variant="ghost" colorScheme="orange" rightIcon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle}>
+      <Button
+        aria-label={`Pošalji dopis za ${company}`}
+        title={letterBlockedReason || 'Odmah pošalji sačuvani dopis i evidentiraj vrijeme u CRM-u'}
+        w="full"
+        minH="44px"
+        mt={3}
+        size="sm"
+        leftIcon={<FaPaperPlane />}
+        colorScheme="green"
+        isDisabled={Boolean(letterBlockedReason)}
+        isLoading={isSendingLetter}
+        loadingText="Šaljem dopis"
+        onClick={() => onSendLetter(record)}
+      >
+        Pošalji dopis odmah
+      </Button>
+
+      <Button w="full" minH="40px" mt={2} size="sm" variant="ghost" colorScheme="orange" rightIcon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle}>
         {details.isOpen ? 'Sakrij detalje' : 'Detalji komitenta'}
       </Button>
       <Collapse in={details.isOpen} animateOpacity>
@@ -867,7 +899,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove }) {
   );
 }
 
-function CompactRecordRow({ record, onEdit, onTransfer, onRemove }) {
+function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -876,6 +908,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove }) {
   const contact = recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone');
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
+  const letterBlockedReason = recordLetterBlockedReason(record);
 
   return (
     <React.Fragment>
@@ -904,6 +937,17 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove }) {
         <Td py={3}>
           <HStack spacing={1} justify="flex-end">
             <IconButton aria-label={details.isOpen ? 'Sakrij detalje komitenta' : 'Prikaži detalje komitenta'} title={details.isOpen ? 'Sakrij detalje' : 'Detalji'} size="sm" variant="ghost" colorScheme="orange" icon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle} />
+            <IconButton
+              aria-label={`Pošalji dopis za ${company}`}
+              title={letterBlockedReason || 'Odmah pošalji sačuvani dopis i upiši vrijeme u CRM'}
+              size="sm"
+              variant="ghost"
+              colorScheme="green"
+              icon={<FaPaperPlane />}
+              isDisabled={Boolean(letterBlockedReason)}
+              isLoading={isSendingLetter}
+              onClick={() => onSendLetter(record)}
+            />
             <IconButton aria-label="Uredi komitenta" title="Uredi" size="sm" variant="ghost" icon={<FaEdit />} onClick={() => onEdit(record)} />
             <IconButton aria-label="Prebaci komitenta" title="Prebaci u drugu bazu" size="sm" variant="ghost" colorScheme="orange" icon={<FaExchangeAlt />} onClick={() => onTransfer(record)} />
             <IconButton aria-label="Arhiviraj komitenta" title="Arhiviraj" size="sm" variant="ghost" colorScheme="red" icon={<FaTrash />} onClick={() => onRemove(record)} />
@@ -946,6 +990,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [error, setError] = useState('');
   const [dailyOpen, setDailyOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [sendingLetterId, setSendingLetterId] = useState('');
   const brandCode = brand.code || brand.slug;
 
   const load = useCallback(async () => {
@@ -989,6 +1034,39 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       changed();
     } catch (requestError) {
       toast({ title: requestError.message, status: 'error', position: 'top-right' });
+    }
+  };
+
+  const sendLetter = async (record) => {
+    const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Komitent';
+    const email = structuredRecordEmail(record);
+    const blockedReason = recordLetterBlockedReason(record);
+    if (blockedReason) {
+      toast({ title: blockedReason, status: 'warning', position: 'top-right' });
+      return;
+    }
+    const confirmed = window.confirm(
+      `Odmah poslati sačuvani dopis za ${brand.name} komitentu ${company} na ${email}?\n\nNakon uspješnog slanja CRM automatski upisuje datum i vrijeme.`
+    );
+    if (!confirmed) return;
+    setSendingLetterId(record.id);
+    try {
+      await commercialApi.sendRecordLetter(record.id);
+      toast({
+        title: `Dopis je poslan za ${company}.`,
+        description: `Poslano na ${email}. CRM komentar sa datumom i vremenom je upisan automatski.`,
+        status: 'success',
+        position: 'top-right',
+      });
+      changed();
+    } catch (requestError) {
+      toast({
+        title: requestError.message || 'Dopis trenutno nije moguće poslati.',
+        status: 'error',
+        position: 'top-right',
+      });
+    } finally {
+      setSendingLetterId('');
     }
   };
 
@@ -1065,12 +1143,32 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       ) : (
         <>
           <VStack display={{ base: 'flex', xl: 'none' }} align="stretch" spacing={3}>
-            {items.map((record) => <RecordCard key={record.id} record={record} onEdit={openEdit} onTransfer={openTransfer} onRemove={remove} />)}
+            {items.map((record) => (
+              <RecordCard
+                key={record.id}
+                record={record}
+                onEdit={openEdit}
+                onTransfer={openTransfer}
+                onRemove={remove}
+                onSendLetter={sendLetter}
+                isSendingLetter={sendingLetterId === record.id}
+              />
+            ))}
           </VStack>
           <Box display={{ base: 'none', xl: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" boxShadow="sm">
             <Table size="sm" sx={{ tableLayout: 'fixed' }}>
-            <Thead bg="orange.50"><Tr><Th w="22%">Komitent</Th><Th w="16%">Profil</Th><Th w="25%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">Sljedeći kontakt</Th><Th w="10%" textAlign="right">Akcije</Th></Tr></Thead>
-            <Tbody>{items.map((record) => <CompactRecordRow key={record.id} record={record} onEdit={openEdit} onTransfer={openTransfer} onRemove={remove} />)}</Tbody>
+            <Thead bg="orange.50"><Tr><Th w="21%">Komitent</Th><Th w="15%">Profil</Th><Th w="24%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">Sljedeći kontakt</Th><Th w="13%" textAlign="right">Akcije</Th></Tr></Thead>
+            <Tbody>{items.map((record) => (
+              <CompactRecordRow
+                key={record.id}
+                record={record}
+                onEdit={openEdit}
+                onTransfer={openTransfer}
+                onRemove={remove}
+                onSendLetter={sendLetter}
+                isSendingLetter={sendingLetterId === record.id}
+              />
+            ))}</Tbody>
             </Table>
           </Box>
         </>
