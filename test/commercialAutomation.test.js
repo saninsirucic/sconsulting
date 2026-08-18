@@ -122,6 +122,63 @@ test('dnevni red bira samo poznate validne CRM adrese i ne ponavlja komitente', 
   assert.equal(await db('crm_mail_queue').count({ count: '*' }).first().then((row) => Number(row.count)), 2);
 });
 
+test('strogo neispravan primarni To ne ulazi u pripremu ili import i nikad ne stiže do Outlooka', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  const invalidPrepared = await addAccount(db, brand, 'strict-7', {
+    email: 'a..b@firma.ba', source_row_number: 1
+  });
+  const valid = await addAccount(db, brand, 'strict-8', {
+    email: 'validan@firma.ba', source_row_number: 2
+  });
+  const invalidImported = await addAccount(db, brand, 'strict-9', {
+    email: '.kontakt@firma.ba', source_row_number: 3
+  });
+  const assignment = await addAssignment(db, commercial, brand, invalidImported, 'strict-9', {
+    status: 'APPROVED'
+  });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 2
+  });
+  const date = '2026-08-18';
+
+  const prepared = await prepareAutomationQueue(db, brand, commercial, { date });
+  assert.deepEqual(prepared.queue.map((row) => row.account_id), [valid.id]);
+  assert.equal(prepared.queue.some((row) => row.account_id === invalidPrepared.id), false);
+  const imported = await importApprovedDailyAssignments(db, brand, commercial, [assignment.id], {
+    date,
+    confirmed: true
+  });
+  assert.equal(imported.import.eligible_count, 0);
+  assert.equal(imported.import.skipped_counts.invalid_email, 1);
+  assert.equal(imported.queue.some((row) => row.account_id === invalidImported.id), false);
+
+  await reviewAutomationCandidates(db, brand, [valid.id], 'APPROVED', { date });
+  await db('crm_mail_queue').where({ account_id: valid.id, queue_date: date }).update({
+    recipient_email: 'a..b@firma.ba'
+  });
+  let outlookCalls = 0;
+  const outcome = await sendSelectedMails(db, brand, [valid.id], {
+    confirmed: true,
+    actor: commercial,
+    now: new Date('2026-08-18T08:00:00.000Z'),
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send() {
+        outlookCalls += 1;
+        return { success: true, accepted: true };
+      }
+    }
+  });
+  assert.equal(outcome.sent_count, 0);
+  assert.equal(outcome.failed_count, 1);
+  assert.equal(outlookCalls, 0);
+});
+
 test('uspješno slanje odmah ažurira komentar, status, follow-up, aktivnost i dnevni zadatak', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();

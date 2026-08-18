@@ -33,8 +33,7 @@ function text(value, maximum = 200000) {
 }
 
 function validEmail(value) {
-  const email = String(value || '').trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 320 ? email : null;
+  return strictEmailAddress(value);
 }
 
 function parseJson(value, fallback) {
