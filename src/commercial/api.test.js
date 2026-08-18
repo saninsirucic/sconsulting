@@ -18,6 +18,7 @@ test('importuje samo potvrđene dnevne assignment ID-jeve uz sigurnosni confirm'
   expect(JSON.parse(options.body)).toEqual({
     assignment_ids: ['assignment-1', 'assignment-2'],
     confirm: true,
+    include_legacy_completed: true,
   });
 });
 

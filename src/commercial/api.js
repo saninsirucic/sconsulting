@@ -28,7 +28,7 @@ export const commercialApi = {
   prepareMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/prepare`, { method: 'POST' }),
   importDailyApprovedMailAutomation: (code, assignmentIds) => apiRequest(`${brandPath(code)}/mail-automation/import-daily-approved`, {
     method: 'POST',
-    body: { assignment_ids: assignmentIds, confirm: true },
+    body: { assignment_ids: assignmentIds, confirm: true, include_legacy_completed: true },
   }),
   decideMailAutomationCandidates: (code, accountIds, decision) => apiRequest(`${brandPath(code)}/mail-automation/candidates`, {
     method: 'PATCH',
