@@ -6,6 +6,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Collapse,
   Divider,
   Flex,
@@ -292,6 +293,19 @@ function dailyAssignmentAccountId(assignment) {
   return record.id || assignment.account_id || assignment.accountId || assignment.crm_account_id;
 }
 
+function dailyAssignmentId(assignment) {
+  return String(assignment.id || assignment.assignment_id || '').trim();
+}
+
+function isDailyBulkApprovable(assignment) {
+  const status = dailyAssignmentStatus(assignment);
+  const queueStatus = dailyMailQueueStatus(assignment);
+  return Boolean(dailyAssignmentId(assignment))
+    && Boolean(dailyAssignmentEmail(assignment))
+    && !['APPROVED', 'COMPLETED', 'OBRADJEN', 'DONE', 'SKIPPED', 'SENT', 'SENDING'].includes(status)
+    && !['SENT', 'SENDING', 'SKIPPED'].includes(queueStatus);
+}
+
 function hasSendableDailyMail(assignment) {
   const queueStatus = dailyMailQueueStatus(assignment);
   return Boolean(dailyAssignmentEmail(assignment))
@@ -315,7 +329,7 @@ function dailyMailQueueLabel(status) {
   return '';
 }
 
-function DailyAssignmentRow({ assignment, brandCode, onUpdated, onRecipientsSaved }) {
+function DailyAssignmentRow({ assignment, brandCode, onUpdated, onRecipientsSaved, isSelected, onSelectionChange }) {
   const record = dailyAssignmentRecord(assignment);
   const assignmentId = assignment.id || assignment.assignment_id;
   const [notes, setNotes] = useState(assignment.notes || assignment.assignment_notes || '');
@@ -324,6 +338,8 @@ function DailyAssignmentRow({ assignment, brandCode, onUpdated, onRecipientsSave
   const status = dailyAssignmentStatus(assignment);
   const approved = isDailyMailApproved(assignment);
   const legacyCompleted = isLegacyDailyCompleted(assignment);
+  const selectable = isDailyBulkApprovable(assignment);
+  const companyName = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
 
   const update = async (nextStatus) => {
     setWorking(nextStatus);
@@ -339,8 +355,17 @@ function DailyAssignmentRow({ assignment, brandCode, onUpdated, onRecipientsSave
   };
 
   return (
-    <Tr bg={approved ? 'green.50' : legacyCompleted ? 'blue.50' : status === 'SKIPPED' ? 'gray.50' : 'white'}>
-      <Td><Text fontWeight="semibold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text></Td>
+    <Tr bg={isSelected ? 'orange.50' : approved ? 'green.50' : legacyCompleted ? 'blue.50' : status === 'SKIPPED' ? 'gray.50' : 'white'}>
+      <Td w="48px" pr={0}>
+        <Checkbox
+          aria-label={`Označi ${companyName} za odobrenje`}
+          colorScheme="orange"
+          isChecked={Boolean(isSelected)}
+          isDisabled={!selectable}
+          onChange={(event) => onSelectionChange(event.target.checked)}
+        />
+      </Td>
+      <Td><Text fontWeight="semibold">{companyName}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text></Td>
       <Td>
         <Text overflowWrap="anywhere">{recordValue(record, 'email', 'raw_mail', 'mail') || '—'}</Text>
         {dailyAssignmentCcEmails(assignment).length > 0 && <Text mt={1} fontSize="xs" color="blue.600" overflowWrap="anywhere">CC: {dailyAssignmentCcEmails(assignment).join(', ')}</Text>}
@@ -370,7 +395,7 @@ function DailyAssignmentRow({ assignment, brandCode, onUpdated, onRecipientsSave
   );
 }
 
-function DailyAssignmentCard({ assignment, brandCode, onUpdated, onRecipientsSaved }) {
+function DailyAssignmentCard({ assignment, brandCode, onUpdated, onRecipientsSaved, isSelected, onSelectionChange }) {
   const record = dailyAssignmentRecord(assignment);
   const assignmentId = assignment.id || assignment.assignment_id;
   const [notes, setNotes] = useState(assignment.notes || assignment.assignment_notes || '');
@@ -379,6 +404,8 @@ function DailyAssignmentCard({ assignment, brandCode, onUpdated, onRecipientsSav
   const status = dailyAssignmentStatus(assignment);
   const approved = isDailyMailApproved(assignment);
   const legacyCompleted = isLegacyDailyCompleted(assignment);
+  const selectable = isDailyBulkApprovable(assignment);
+  const companyName = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
   const update = async (nextStatus) => {
     setWorking(nextStatus);
     try {
@@ -392,9 +419,20 @@ function DailyAssignmentCard({ assignment, brandCode, onUpdated, onRecipientsSav
     }
   };
   return (
-    <Box border="1px solid" borderColor={approved ? 'green.200' : legacyCompleted ? 'blue.200' : 'orange.100'} bg={approved ? 'green.50' : legacyCompleted ? 'blue.50' : 'white'} borderRadius="xl" p={4}>
+    <Box border="2px solid" borderColor={isSelected ? 'orange.400' : approved ? 'green.200' : legacyCompleted ? 'blue.200' : 'orange.100'} bg={isSelected ? 'orange.50' : approved ? 'green.50' : legacyCompleted ? 'blue.50' : 'white'} borderRadius="xl" p={4}>
       <Flex justify="space-between" gap={3} align="start">
-        <Box minW={0}><Text fontWeight="bold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text></Box>
+        <HStack align="start" spacing={3} minW={0}>
+          <Checkbox
+            mt={1}
+            size="lg"
+            aria-label={`Označi ${companyName} za odobrenje`}
+            colorScheme="orange"
+            isChecked={Boolean(isSelected)}
+            isDisabled={!selectable}
+            onChange={(event) => onSelectionChange(event.target.checked)}
+          />
+          <Box minW={0}><Text fontWeight="bold">{companyName}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text>{selectable && <Text mt={1} fontSize="xs" color={isSelected ? 'orange.700' : 'gray.500'}>{isSelected ? 'Označeno za odobrenje' : 'Dodirnite kućicu za odabir'}</Text>}</Box>
+        </HStack>
         <Badge flexShrink={0} colorScheme={approved ? 'green' : legacyCompleted ? 'blue' : status === 'SKIPPED' ? 'gray' : 'orange'}>{dailyApprovalLabel(status)}</Badge>
       </Flex>
       {dailyMailQueueLabel(dailyMailQueueStatus(assignment)) && <Badge mt={2} w="fit-content" colorScheme={dailyMailQueueStatus(assignment) === 'FAILED' ? 'red' : 'blue'}>{dailyMailQueueLabel(dailyMailQueueStatus(assignment))}</Badge>}
@@ -426,6 +464,8 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   const [sendProgress, setSendProgress] = useState(null);
   const [mailSummary, setMailSummary] = useState(null);
   const [sentAssignmentIds, setSentAssignmentIds] = useState(() => new Set());
+  const [selectedAssignmentIds, setSelectedAssignmentIds] = useState(() => new Set());
+  const [bulkApproving, setBulkApproving] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -452,6 +492,7 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     setSentAssignmentIds(new Set());
+    setSelectedAssignmentIds(new Set());
     setMailSummary(null);
   }, [brandCode]);
 
@@ -469,6 +510,57 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   };
 
   const items = Array.isArray(data) ? data : data?.items || data?.assignments || [];
+  const selectableAssignments = items.filter(isDailyBulkApprovable);
+  const selectableAssignmentIds = selectableAssignments.map(dailyAssignmentId);
+  const selectableAssignmentIdSet = new Set(selectableAssignmentIds);
+  const selectedCount = selectedAssignmentIds.size;
+  const allSelectableSelected = selectableAssignmentIds.length > 0 && selectableAssignmentIds.every((id) => selectedAssignmentIds.has(id));
+
+  useEffect(() => {
+    setSelectedAssignmentIds((current) => {
+      const next = new Set([...current].filter((id) => selectableAssignmentIdSet.has(id)));
+      if (next.size === current.size && [...next].every((id) => current.has(id))) return current;
+      return next;
+    });
+  // The selected set is intentionally reconciled only when refreshed list data changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const setAssignmentSelected = (assignmentId, checked) => {
+    setSelectedAssignmentIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(assignmentId);
+      else next.delete(assignmentId);
+      return next;
+    });
+  };
+
+  const approveSelected = async () => {
+    const assignmentIds = selectableAssignmentIds.filter((id) => selectedAssignmentIds.has(id));
+    if (!assignmentIds.length) return;
+    setBulkApproving(true);
+    setError('');
+    try {
+      const result = await commercialApi.approveDailyAssignments(brandCode, assignmentIds);
+      const updated = Number(result?.updated ?? assignmentIds.length);
+      const unchanged = Number(result?.unchanged ?? 0);
+      const rejected = Number(result?.rejected ?? Math.max(0, assignmentIds.length - updated - unchanged));
+      setSelectedAssignmentIds(new Set());
+      toast({
+        title: `Odobreno: ${Math.max(0, updated + unchanged)} od ${assignmentIds.length}.`,
+        description: rejected > 0 ? `Preskočeno: ${rejected} — podaci ili status su se u međuvremenu promijenili.` : 'Mailovi još nisu poslani. Za slanje koristite zasebno zeleno dugme.',
+        status: rejected > 0 ? 'warning' : 'success',
+        position: 'top-right',
+      });
+      await load();
+      onChanged();
+    } catch (requestError) {
+      setError(requestError.message || 'Označene komitente trenutno nije moguće odobriti.');
+    } finally {
+      setBulkApproving(false);
+    }
+  };
+
   const approved = items.filter(isDailyMailApproved);
   const legacyCompleted = items.filter(isLegacyDailyCompleted);
   const approvedCount = approved.length;
@@ -600,6 +692,27 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
             {approvedWithoutEmail > 0 && <Text mt={1} fontSize="xs" color="orange.700">Odobreno bez ispravne glavne email adrese: {approvedWithoutEmail} — automatski se preskače.</Text>}
           </Box>
         )}
+        {items.length > 0 && (
+          <Flex mb={4} p={{ base: 3, md: 4 }} border="1px solid" borderColor="orange.200" bg="white" borderRadius="xl" align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }} gap={3}>
+            <HStack spacing={3} flexWrap="wrap">
+              <Checkbox
+                minH="40px"
+                colorScheme="orange"
+                isChecked={allSelectableSelected}
+                isIndeterminate={selectedCount > 0 && !allSelectableSelected}
+                isDisabled={selectableAssignmentIds.length === 0 || bulkApproving}
+                onChange={(event) => setSelectedAssignmentIds(event.target.checked ? new Set(selectableAssignmentIds) : new Set())}
+              >
+                Označi sve dostupne ({selectableAssignmentIds.length})
+              </Checkbox>
+              <Badge colorScheme={selectedCount ? 'orange' : 'gray'} px={3} py={1}>Označeno: {selectedCount}</Badge>
+            </HStack>
+            <Flex gap={2} direction={{ base: 'column', sm: 'row' }} w={{ base: 'full', md: 'auto' }}>
+              <Button minH="44px" w={{ base: 'full', sm: 'auto' }} variant="ghost" isDisabled={selectedCount === 0 || bulkApproving} onClick={() => setSelectedAssignmentIds(new Set())}>Poništi odabir</Button>
+              <Button minH="44px" w={{ base: 'full', sm: 'auto' }} leftIcon={<FaCheck />} colorScheme="orange" isDisabled={selectedCount === 0 || bulkApproving} isLoading={bulkApproving} loadingText="Odobravam" onClick={approveSelected}>Odobri označene ({selectedCount})</Button>
+            </Flex>
+          </Flex>
+        )}
         {legacyCompleted.length > 0 && (
           <Box mb={4} p={3} border="1px solid" borderColor="blue.200" bg="blue.50" borderRadius="lg">
             <Flex align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }} gap={3}>
@@ -638,10 +751,16 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
         ) : (
           <>
             <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
-              {items.map((assignment) => <DailyAssignmentCard key={assignment.id || assignment.assignment_id} assignment={assignment} brandCode={brandCode} onUpdated={() => { load(); onChanged(); }} onRecipientsSaved={() => load()} />)}
+              {items.map((assignment) => {
+                const assignmentId = dailyAssignmentId(assignment);
+                return <DailyAssignmentCard key={assignmentId} assignment={assignment} brandCode={brandCode} isSelected={selectedAssignmentIds.has(assignmentId)} onSelectionChange={(checked) => setAssignmentSelected(assignmentId, checked)} onUpdated={() => { load(); onChanged(); }} onRecipientsSaved={() => load()} />;
+              })}
             </VStack>
             <Box display={{ base: 'none', md: 'block' }} overflowX="auto" bg="white" borderRadius="lg" border="1px solid" borderColor="orange.100">
-              <Table size="sm" minW="980px"><Thead bg="orange.100"><Tr><Th>Komitent</Th><Th>Primaoci</Th><Th>Status</Th><Th>Napomena</Th><Th>Akcije</Th></Tr></Thead><Tbody>{items.map((assignment) => <DailyAssignmentRow key={assignment.id || assignment.assignment_id} assignment={assignment} brandCode={brandCode} onUpdated={() => { load(); onChanged(); }} onRecipientsSaved={() => load()} />)}</Tbody></Table>
+              <Table size="sm" minW="1020px"><Thead bg="orange.100"><Tr><Th aria-label="Odabir" w="48px" pr={0} /><Th>Komitent</Th><Th>Primaoci</Th><Th>Status</Th><Th>Napomena</Th><Th>Akcije</Th></Tr></Thead><Tbody>{items.map((assignment) => {
+                const assignmentId = dailyAssignmentId(assignment);
+                return <DailyAssignmentRow key={assignmentId} assignment={assignment} brandCode={brandCode} isSelected={selectedAssignmentIds.has(assignmentId)} onSelectionChange={(checked) => setAssignmentSelected(assignmentId, checked)} onUpdated={() => { load(); onChanged(); }} onRecipientsSaved={() => load()} />;
+              })}</Tbody></Table>
             </Box>
           </>
         )}

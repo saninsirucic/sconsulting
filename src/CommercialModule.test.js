@@ -15,6 +15,7 @@ jest.mock('./commercial/api', () => ({
     getDailyList: jest.fn(),
     createDailyList: jest.fn(),
     updateDailyAssignment: jest.fn(),
+    approveDailyAssignments: jest.fn(),
     getMailAutomation: jest.fn(),
     updateMailAutomation: jest.fn(),
     prepareMailAutomation: jest.fn(),
@@ -67,6 +68,7 @@ beforeEach(() => {
   commercialApi.deleteRecord.mockResolvedValue({ success: true });
   commercialApi.getDailyList.mockResolvedValue({ items: [] });
   commercialApi.createDailyList.mockResolvedValue({ items: [] });
+  commercialApi.approveDailyAssignments.mockResolvedValue({ updated: 0, unchanged: 0, rejected: 0 });
   commercialApi.getMailAutomation.mockResolvedValue({
     settings: { enabled: false, paused: true, daily_limit: 30, subject: '', body_text: '' },
     counts: { PENDING: 0, APPROVED: 0, SENT: 0, FAILED: 0 },
@@ -279,6 +281,94 @@ test('donja lista omogućava odobrenje za mail bez gornjeg ponovnog označavanja
     'assignment-1',
     { status: 'APPROVED', notes: '' }
   ));
+});
+
+test('grupno odobrava samo ručno označeni podskup jednim API pozivom i zatim čisti odabir', async () => {
+  const initialItems = [
+    { id: 'assignment-1', assignment_status: 'PENDING', account: { id: 'account-1', company_name: 'Prvi kandidat', email: 'prvi@example.ba' } },
+    { id: 'assignment-2', assignment_status: 'PENDING', account: { id: 'account-2', company_name: 'Drugi kandidat', email: 'drugi@example.ba' } },
+    { id: 'assignment-3', assignment_status: 'PENDING', account: { id: 'account-3', company_name: 'Treći kandidat', email: 'treci@example.ba' } },
+  ];
+  commercialApi.getDailyList
+    .mockResolvedValueOnce({ items: initialItems })
+    .mockResolvedValue({ items: [
+      { ...initialItems[0], assignment_status: 'APPROVED' },
+      initialItems[1],
+      { ...initialItems[2], assignment_status: 'APPROVED' },
+    ] });
+  commercialApi.approveDailyAssignments.mockResolvedValue({ updated: 2, unchanged: 0, rejected: 0 });
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click((await screen.findAllByRole('checkbox', { name: 'Označi Prvi kandidat za odobrenje' }))[0]);
+  fireEvent.click((await screen.findAllByRole('checkbox', { name: 'Označi Treći kandidat za odobrenje' }))[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Odobri označene (2)' }));
+
+  await waitFor(() => expect(commercialApi.approveDailyAssignments).toHaveBeenCalledTimes(1));
+  expect(commercialApi.approveDailyAssignments).toHaveBeenCalledWith('VISIOCAST', ['assignment-1', 'assignment-3']);
+  await waitFor(() => expect(commercialApi.getDailyList).toHaveBeenCalledTimes(2));
+  expect(await screen.findByRole('button', { name: 'Odobri označene (0)' })).toBeDisabled();
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+}, 10000);
+
+test('Označi sve dostupne bira samo neposlane kandidate s ispravnim emailom', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'eligible-pending', assignment_status: 'PENDING', account: { company_name: 'Dostupan jedan', email: 'jedan@example.ba' } },
+    { id: 'eligible-new', assignment_status: 'NEW', account: { company_name: 'Dostupan dva', email: 'dva@example.ba' } },
+    { id: 'invalid-email', assignment_status: 'PENDING', account: { company_name: 'Bez maila', email: 'pogresan-mail' } },
+    { id: 'skipped', assignment_status: 'SKIPPED', account: { company_name: 'Preskočen', email: 'preskocen@example.ba' } },
+    { id: 'approved', assignment_status: 'APPROVED', account: { company_name: 'Već odobren', email: 'odobren@example.ba' } },
+    { id: 'legacy', assignment_status: 'COMPLETED', account: { company_name: 'Stari red', email: 'stari@example.ba' } },
+    { id: 'sent', assignment_status: 'PENDING', mail_queue_status: 'SENT', account: { company_name: 'Poslan', email: 'poslan@example.ba' } },
+    { id: 'sending', assignment_status: 'PENDING', mail_queue_status: 'SENDING', account: { company_name: 'Šalje se', email: 'salje@example.ba' } },
+    { id: 'queue-skipped', assignment_status: 'PENDING', mail_queue_status: 'SKIPPED', account: { company_name: 'Red preskočen', email: 'red@example.ba' } },
+  ] });
+  commercialApi.approveDailyAssignments.mockResolvedValue({ updated: 2, unchanged: 0, rejected: 0 });
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Označi sve dostupne (2)' }));
+  expect(screen.getByText('Označeno: 2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Odobri označene (2)' }));
+
+  await waitFor(() => expect(commercialApi.approveDailyAssignments).toHaveBeenCalledWith(
+    'VISIOCAST',
+    ['eligible-pending', 'eligible-new']
+  ));
+  expect(commercialApi.approveDailyAssignments).toHaveBeenCalledTimes(1);
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+});
+
+test('Poništi odabir ne odobrava niti šalje mailove', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'assignment-1', assignment_status: 'PENDING', account: { company_name: 'Kandidat', email: 'kandidat@example.ba' } },
+  ] });
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Označi sve dostupne (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Poništi odabir' }));
+
+  expect(screen.getByRole('button', { name: 'Odobri označene (0)' })).toBeDisabled();
+  expect(commercialApi.approveDailyAssignments).not.toHaveBeenCalled();
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+});
+
+test('greška grupnog odobrenja zadržava odabir i ne pokreće slanje', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'assignment-1', assignment_status: 'PENDING', account: { company_name: 'Kandidat', email: 'kandidat@example.ba' } },
+  ] });
+  commercialApi.approveDailyAssignments.mockRejectedValue(new Error('Grupno odobrenje trenutno nije dostupno.'));
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Označi sve dostupne (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Odobri označene (1)' }));
+
+  expect(await screen.findByText('Grupno odobrenje trenutno nije dostupno.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Odobri označene (1)' })).toBeEnabled();
+  expect(commercialApi.getDailyList).toHaveBeenCalledTimes(1);
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
 });
 
 test('uređuje i prikazuje CC primaoce direktno u donjoj listi', async () => {

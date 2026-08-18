@@ -50,3 +50,15 @@ test('sprema strogo polje CC adresa na kandidatu', async () => {
     cc_emails: ['nabavka@example.ba', 'direktor@example.ba'],
   });
 });
+
+test('grupno odobrava samo izričito označene dnevne assignment ID-jeve', async () => {
+  await commercialApi.approveDailyAssignments('FS_APP', ['assignment-2', 'assignment-7']);
+
+  const [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/brands/FS_APP/daily-assignments/approval');
+  expect(options.method).toBe('PATCH');
+  expect(JSON.parse(options.body)).toEqual({
+    assignment_ids: ['assignment-2', 'assignment-7'],
+    decision: 'APPROVED',
+  });
+});
