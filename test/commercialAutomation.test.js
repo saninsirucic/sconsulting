@@ -5,16 +5,19 @@ const crmMigration = require('../migrations/20260813120000_create_commercial_crm
 const automationMigration = require('../migrations/20260815120000_add_commercial_mail_automation');
 const manualCampaignMigration = require('../migrations/20260817130000_add_manual_commercial_mail_campaigns');
 const scheduleReportMigration = require('../migrations/20260818100000_add_commercial_mail_schedule_reports');
+const recipientCcMigration = require('../migrations/20260818130000_add_commercial_recipient_cc');
 const {
   getAutomationState,
+  importApprovedDailyAssignments,
   prepareAutomationQueue,
   reviewAutomationCandidates,
   runAutomationTick,
   sendNextAutomatedMail,
   sendSelectedMails,
+  updateCandidateRecipients,
   updateAutomationSettings
 } = require('../commercial/automation');
-const { businessDate } = require('../commercial/service');
+const { businessDate, readDailyAssignments } = require('../commercial/service');
 
 async function testDb(t) {
   const db = knex({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
@@ -23,6 +26,7 @@ async function testDb(t) {
   await automationMigration.up(db);
   await manualCampaignMigration.up(db);
   await scheduleReportMigration.up(db);
+  await recipientCcMigration.up(db);
   return db;
 }
 
@@ -44,6 +48,24 @@ async function addAccount(db, brand, suffix, overrides = {}) {
     ...overrides
   };
   await db('crm_accounts').insert(row);
+  return row;
+}
+
+async function addAssignment(db, user, brand, account, suffix, overrides = {}) {
+  const now = new Date();
+  const row = {
+    id: `assignment-${suffix}`,
+    user_id: user.id,
+    brand_id: brand.id,
+    account_id: account.id,
+    assignment_date: '2026-08-18',
+    sequence_number: Number(String(suffix).replace(/\D/g, '')) || 1,
+    status: 'PENDING',
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  };
+  await db('crm_daily_assignments').insert(row);
   return row;
 }
 
@@ -97,7 +119,11 @@ test('dnevni red bira samo poznate validne CRM adrese i ne ponavlja komitente', 
 test('uspješno slanje odmah ažurira komentar, status, follow-up, aktivnost i dnevni zadatak', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
-  const account = await addAccount(db, brand, '10', { email: 'kontakt@firma.ba', comment: 'Stara napomena' });
+  const account = await addAccount(db, brand, '10', {
+    email: 'kontakt@firma.ba',
+    cc_emails_json: JSON.stringify(['auto-copy@firma.ba']),
+    comment: 'Stara napomena'
+  });
   const date = businessDate();
   await updateAutomationSettings(db, brand, director, {
     subject: 'Prijedlog za {{KOMITENT}}',
@@ -138,6 +164,7 @@ test('uspješno slanje odmah ažurira komentar, status, follow-up, aktivnost i d
   assert.equal(result.sent, true);
   assert.equal(payloads.length, 1);
   assert.deepEqual(payloads[0].to, ['kontakt@firma.ba']);
+  assert.deepEqual(payloads[0].cc, ['auto-copy@firma.ba']);
   assert.equal(payloads[0].bodyType, 'text');
   const queue = await db('crm_mail_queue').where({ account_id: account.id }).first();
   const saved = await db('crm_accounts').where({ id: account.id }).first();
@@ -337,6 +364,171 @@ test('danas neodobren prijedlog nije trajno potisnut i može se pojaviti naredno
   assert.equal(nextDay.today.candidates.length, 1);
   assert.equal(nextDay.today.candidates[0].account_id, account.id);
   assert.equal(nextDay.today.candidates[0].status, 'PENDING');
+});
+
+test('uvoz uz eksplicitnu potvrdu uzima samo današnje COMPLETED i APPROVED zadatke korisnika', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  const first = await addAccount(db, brand, 'daily-80', {
+    email: 'daily80@firma.ba',
+    cc_emails_json: JSON.stringify(['cc80@firma.ba'])
+  });
+  const second = await addAccount(db, brand, 'daily-81', { email: 'daily81@firma.ba' });
+  const overLimit = await addAccount(db, brand, 'daily-82', { email: 'daily82@firma.ba' });
+  const pending = await addAccount(db, brand, 'daily-83', { email: 'daily83@firma.ba' });
+  const invalid = await addAccount(db, brand, 'daily-84', { email: 'nije-mail' });
+  const otherUser = await addAccount(db, brand, 'daily-85', { email: 'daily85@firma.ba' });
+  const assignments = [
+    await addAssignment(db, commercial, brand, first, '80', { status: 'COMPLETED' }),
+    await addAssignment(db, commercial, brand, second, '81', { status: 'APPROVED' }),
+    await addAssignment(db, commercial, brand, overLimit, '82', { status: 'COMPLETED' }),
+    await addAssignment(db, commercial, brand, pending, '83', { status: 'PENDING' }),
+    await addAssignment(db, commercial, brand, invalid, '84', { status: 'COMPLETED' }),
+    await addAssignment(db, { id: 'other-user' }, brand, otherUser, '85', { status: 'COMPLETED' })
+  ];
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App za {{KOMITENT}}',
+    body: 'Poštovani {{KOMITENT}}, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 2
+  });
+  const assignmentIds = assignments.map((assignment) => assignment.id);
+
+  await assert.rejects(
+    importApprovedDailyAssignments(db, brand, commercial, assignmentIds, { date: '2026-08-18' }),
+    (error) => error.status === 400 && error.code === 'SEND_CONFIRMATION_REQUIRED'
+  );
+  const state = await importApprovedDailyAssignments(db, brand, commercial, assignmentIds, {
+    date: '2026-08-18',
+    confirmed: true
+  });
+
+  assert.equal(state.import.requested_count, 6);
+  assert.equal(state.import.approved_count, 4);
+  assert.equal(state.import.eligible_count, 2);
+  assert.equal(state.import.imported_count, 2);
+  assert.deepEqual(state.import.eligible_account_ids, [first.id, second.id]);
+  assert.deepEqual(state.import.account_ids, [first.id, second.id]);
+  assert.equal(state.import.skipped_counts.not_approved_or_unavailable, 2);
+  assert.equal(state.import.skipped_counts.invalid_email, 1);
+  assert.equal(state.import.skipped_counts.daily_limit, 1);
+  assert.ok(state.queue.filter((row) => row.status === 'APPROVED').every((row) => [first.id, second.id].includes(row.account_id)));
+  assert.deepEqual(state.queue.find((row) => row.account_id === first.id).cc_emails, ['cc80@firma.ba']);
+
+  const daily = await readDailyAssignments(db, commercial, brand, '2026-08-18');
+  assert.equal(daily.items.find((item) => item.assignment_id === assignments[0].id).mail_queue_status, 'APPROVED');
+  assert.equal(daily.items.find((item) => item.assignment_id === assignments[3].id).mail_queue_status, null);
+});
+
+test('trajni CC se normalizuje, snapshotuje, resetuje odobrenje i koristi pri ručnom slanju', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  const account = await addAccount(db, brand, 'cc-90', { email: 'glavni@firma.ba' });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App za {{KOMITENT}}',
+    body: 'Poštovani {{KOMITENT}}, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 1
+  });
+  const date = '2026-08-18';
+  await prepareAutomationQueue(db, brand, commercial, { date });
+  await reviewAutomationCandidates(db, brand, [account.id], 'APPROVED', { date });
+
+  const edited = await updateCandidateRecipients(db, brand, account.id, commercial, {
+    cc_emails: ['COPY@firma.ba', 'copy@firma.ba', 'drugi@firma.ba']
+  }, { date });
+  const editedQueue = edited.queue.find((row) => row.account_id === account.id);
+  assert.deepEqual(edited.recipients.cc_emails, ['copy@firma.ba', 'drugi@firma.ba']);
+  assert.equal(editedQueue.status, 'PENDING');
+  assert.deepEqual(editedQueue.cc_emails, ['copy@firma.ba', 'drugi@firma.ba']);
+  const savedAccount = await db('crm_accounts').where({ id: account.id }).first();
+  assert.deepEqual(JSON.parse(savedAccount.cc_emails_json), ['copy@firma.ba', 'drugi@firma.ba']);
+  const activity = await db('crm_activities').where({
+    account_id: account.id,
+    activity_type: 'COMMERCIAL_RECIPIENTS_UPDATED'
+  }).first();
+  assert.equal(JSON.parse(activity.metadata_json).approvalReset, true);
+
+  await assert.rejects(
+    updateCandidateRecipients(db, brand, account.id, commercial, { cc_emails: ['glavni@firma.ba'] }, { date }),
+    (error) => error.status === 400 && error.code === 'INVALID_CAMPAIGN_CC'
+  );
+  await assert.rejects(
+    updateCandidateRecipients(db, brand, account.id, commercial, {
+      cc_emails: Array.from({ length: 11 }, (_, index) => `cc${index}@firma.ba`)
+    }, { date }),
+    (error) => error.status === 400 && error.code === 'INVALID_CAMPAIGN_CC'
+  );
+
+  await reviewAutomationCandidates(db, brand, [account.id], 'APPROVED', { date });
+  const payloads = [];
+  const result = await sendSelectedMails(db, brand, [account.id], {
+    confirmed: true,
+    actor: commercial,
+    now: new Date('2026-08-18T08:00:00.000Z'),
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send(payload) {
+        payloads.push(payload);
+        return { success: true, accepted: true, id: 'cc-message', conversationId: 'cc-conversation' };
+      }
+    }
+  });
+  assert.equal(result.sent_count, 1);
+  assert.deepEqual(payloads[0].to, ['glavni@firma.ba']);
+  assert.deepEqual(payloads[0].cc, ['copy@firma.ba', 'drugi@firma.ba']);
+  const sendActivity = await db('crm_activities').where({
+    account_id: account.id,
+    activity_type: 'COMMERCIAL_EMAIL_SENT'
+  }).first();
+  assert.deepEqual(JSON.parse(sendActivity.metadata_json).ccRecipients, ['copy@firma.ba', 'drugi@firma.ba']);
+});
+
+test('suppressed ili oštećen CC snapshot blokira slanje prije Outlook poziva', async (t) => {
+  const db = await testDb(t);
+  await db.schema.createTable('email_suppression_list', (table) => {
+    table.string('email_normalized');
+    table.string('email');
+  });
+  await db('email_suppression_list').insert({ email_normalized: 'zabrana@firma.ba', email: 'zabrana@firma.ba' });
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  const suppressedAccount = await addAccount(db, brand, 'cc-91', {
+    email: 'glavni91@firma.ba',
+    cc_emails_json: JSON.stringify(['zabrana@firma.ba'])
+  });
+  const corruptAccount = await addAccount(db, brand, 'cc-92', {
+    email: 'glavni92@firma.ba',
+    cc_emails_json: JSON.stringify(['ispravan@firma.ba'])
+  });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 2
+  });
+  const date = '2026-08-18';
+  await prepareAutomationQueue(db, brand, commercial, { date });
+  await reviewAutomationCandidates(db, brand, [suppressedAccount.id, corruptAccount.id], 'APPROVED', { date });
+  await db('crm_mail_queue').where({ account_id: corruptAccount.id, queue_date: date })
+    .update({ cc_emails_json: '{oštećeno' });
+  let sends = 0;
+  const outcome = await sendSelectedMails(db, brand, [suppressedAccount.id, corruptAccount.id], {
+    confirmed: true,
+    actor: commercial,
+    now: new Date('2026-08-18T08:00:00.000Z'),
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send() { sends += 1; return { success: true, accepted: true }; }
+    }
+  });
+  assert.equal(outcome.sent_count, 0);
+  assert.equal(outcome.failed_count, 2);
+  assert.equal(sends, 0);
+  assert.ok(outcome.results.some((item) => /listi zabrane/i.test(item.error)));
+  assert.ok(outcome.results.some((item) => /CC primaoci nisu ispravni/i.test(item.error)));
 });
 
 test('postavke odbijaju neispravan raspored, adresu izvještaja i nedovoljan kapacitet prozora', async (t) => {

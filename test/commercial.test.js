@@ -26,7 +26,8 @@ const {
   readDailyAssignments,
   resolveBrand,
   transferAccount,
-  updateAccount
+  updateAccount,
+  updateDailyAssignment
 } = require('../commercial/service');
 const { manageUser } = require('../scripts/manageUser');
 
@@ -340,6 +341,13 @@ test('dnevna lista je read-only na GET, POST rotacija je idempotentna i ne ponav
   assert.equal(dayOne.items.length, 30);
   assert.deepEqual(dayOneAgain.items.map((item) => item.id), dayOne.items.map((item) => item.id));
   assert.equal(dayOne.items.some((item) => ['REJECTED', 'WON'].includes(item.account.status)), false);
+  const firstAssignment = await db('crm_daily_assignments').where({ id: dayOne.items[0].assignment_id }).first();
+  const approved = await updateDailyAssignment(
+    db, firstAssignment, dayOne.items[0].account, user, { status: 'APPROVED' }
+  );
+  assert.equal(approved.status, 'APPROVED');
+  assert.equal((await db('crm_accounts').where({ id: dayOne.items[0].account.id }).first()).status,
+    dayOne.items[0].account.status);
 
   const dayOneAccounts = new Set(dayOne.items.map((item) => item.account.id));
   const dayTwo = await ensureDailyAssignments(db, user, brand, { date: '2026-08-14' });

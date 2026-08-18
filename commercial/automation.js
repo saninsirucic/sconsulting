@@ -11,6 +11,7 @@ const DEFAULT_WORKDAYS = [1, 2, 3, 4, 5];
 const MAX_DAILY_LIMIT = 30;
 const MIN_SEND_INTERVAL_MINUTES = 10;
 const MAX_SEND_INTERVAL_MINUTES = 60;
+const MAX_CC_RECIPIENTS = 10;
 const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 const DEFAULT_MAX_ATTACHMENT_BYTES = 2500000;
 
@@ -37,6 +38,50 @@ function validEmail(value) {
 
 function parseJson(value, fallback) {
   try { return value ? JSON.parse(value) : fallback; } catch (error) { return fallback; }
+}
+
+function storedCcEmails(value, toEmail) {
+  const source = Array.isArray(value) ? value : parseJson(value, []);
+  if (!Array.isArray(source)) return [];
+  const to = validEmail(toEmail);
+  return [...new Set(source.map(validEmail).filter((email) => email && email !== to))]
+    .slice(0, MAX_CC_RECIPIENTS);
+}
+
+function validatedCcEmails(value, toEmail) {
+  if (!Array.isArray(value)) {
+    throw httpError(400, 'CC adrese moraju biti poslane kao niz.', 'INVALID_CAMPAIGN_CC');
+  }
+  const normalized = value.map((item) => validEmail(item));
+  if (normalized.some((email) => !email)) {
+    throw httpError(400, 'Jedna ili više CC adresa nisu ispravne.', 'INVALID_CAMPAIGN_CC');
+  }
+  const to = validEmail(toEmail);
+  if (to && normalized.includes(to)) {
+    throw httpError(400, 'Glavna To adresa ne može istovremeno biti CC.', 'INVALID_CAMPAIGN_CC');
+  }
+  const unique = [...new Set(normalized)];
+  if (unique.length > MAX_CC_RECIPIENTS) {
+    throw httpError(400, `Dozvoljeno je najviše ${MAX_CC_RECIPIENTS} CC adresa.`, 'INVALID_CAMPAIGN_CC');
+  }
+  return unique;
+}
+
+function strictQueueCcEmails(value, toEmail) {
+  if (value === null || value === undefined || value === '') return [];
+  let source;
+  try { source = JSON.parse(value); } catch (error) {
+    throw httpError(409, 'Sačuvani CC primaoci nisu ispravni.', 'CAMPAIGN_CC_SNAPSHOT_INVALID');
+  }
+  if (!Array.isArray(source) || source.length > MAX_CC_RECIPIENTS) {
+    throw httpError(409, 'Sačuvani CC primaoci nisu ispravni.', 'CAMPAIGN_CC_SNAPSHOT_INVALID');
+  }
+  const normalized = source.map(validEmail);
+  const to = validEmail(toEmail);
+  if (normalized.some((email) => !email || email === to) || new Set(normalized).size !== normalized.length) {
+    throw httpError(409, 'Sačuvani CC primaoci nisu ispravni.', 'CAMPAIGN_CC_SNAPSHOT_INVALID');
+  }
+  return normalized;
 }
 
 function normalizeWorkdays(value) {
@@ -136,6 +181,7 @@ function serializeQueue(row) {
     sent_at: row.sent_at || null,
     last_error: row.last_error || '',
     attachment_id: row.attachment_id || null,
+    cc_emails: storedCcEmails(row.cc_emails_json, row.recipient_email),
     account_status: row.account_status || null,
     priority: row.priority || null,
     location: row.location || null,
@@ -383,6 +429,18 @@ async function suppressionSet(db) {
   return new Set(rows.map((row) => validEmail(row.email_normalized || row.email)).filter(Boolean));
 }
 
+function checkedQueueRecipients(queueItem, suppressed) {
+  const toEmail = validEmail(queueItem?.recipient_email);
+  if (!toEmail) {
+    throw httpError(409, 'Glavna adresa primaoca nije ispravna.', 'CAMPAIGN_RECIPIENT_INVALID');
+  }
+  const ccEmails = strictQueueCcEmails(queueItem.cc_emails_json, toEmail);
+  if (suppressed.has(toEmail) || ccEmails.some((email) => suppressed.has(email))) {
+    throw httpError(409, 'Jedna od adresa primalaca je na listi zabrane slanja.', 'CAMPAIGN_RECIPIENT_SUPPRESSED');
+  }
+  return { toEmail, ccEmails };
+}
+
 async function queueRows(db, brandId, date) {
   return db({ q: 'crm_mail_queue' })
     .join({ a: 'crm_accounts' }, 'a.id', 'q.account_id')
@@ -451,6 +509,7 @@ async function prepareAutomationQueue(db, brand, actor = { id: 'commercial-mail-
           queue_date: date,
           sequence_number: existing.length + index + 1,
           recipient_email: email,
+          cc_emails_json: JSON.stringify(storedCcEmails(account.cc_emails_json, email)),
           subject: renderTemplate(settings.subject, account),
           body_text: renderTemplate(settings.body_text, account),
           attachment_id: settings.attachment_id || null,
@@ -493,6 +552,7 @@ async function getAutomationState(db, brand, options = {}) {
     name: row.company_name,
     company_name: row.company_name,
     email: row.recipient_email,
+    cc_emails: row.cc_emails,
     status: row.status,
     account_status: row.account_status,
     priority: row.priority,
@@ -595,6 +655,247 @@ async function reviewAutomationCandidates(db, brand, accountIds, decision, optio
   return { ...state, review: result };
 }
 
+async function updateCandidateRecipients(db, brand, accountId, actor, input = {}, options = {}) {
+  const date = options.date || businessDate();
+  const account = await db('crm_accounts').where({ id: accountId, brand_id: brand.id })
+    .whereNull('archived_at').first();
+  if (!account) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
+  const toEmail = validEmail(account.email);
+  if (!toEmail) {
+    throw httpError(409, 'Komitent nema ispravnu glavnu e-mail adresu.', 'CAMPAIGN_RECIPIENT_INVALID');
+  }
+  const ccEmails = validatedCcEmails(input.cc_emails, toEmail);
+  const previousCcEmails = storedCcEmails(account.cc_emails_json, toEmail);
+  const now = new Date();
+  await db.transaction(async (trx) => {
+    const approvedQueue = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, account_id: account.id, queue_date: date, status: 'APPROVED' })
+      .first();
+    await trx('crm_accounts').where({ id: account.id, brand_id: brand.id }).update({
+      cc_emails_json: JSON.stringify(ccEmails),
+      updated_by: actor.id || null,
+      updated_at: now
+    });
+    await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, account_id: account.id, queue_date: date })
+      .whereIn('status', ['PENDING', 'FAILED', 'NOT_APPROVED'])
+      .update({ cc_emails_json: JSON.stringify(ccEmails), updated_at: now });
+    await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, account_id: account.id, queue_date: date, status: 'APPROVED' })
+      .update({
+        cc_emails_json: JSON.stringify(ccEmails),
+        status: 'PENDING',
+        claim_token: null,
+        claimed_at: null,
+        last_error: null,
+        updated_at: now
+      });
+    await trx('crm_activities').insert({
+      id: uuidv4(),
+      account_id: account.id,
+      brand_id: brand.id,
+      user_id: actor.id || null,
+      activity_type: 'COMMERCIAL_RECIPIENTS_UPDATED',
+      from_status: account.status,
+      to_status: account.status,
+      notes: 'Ažurirani CC primaoci komercijalnog maila.',
+      metadata_json: JSON.stringify({
+        oldCcEmails: previousCcEmails,
+        newCcEmails: ccEmails,
+        approvalReset: Boolean(approvedQueue)
+      }),
+      occurred_at: now,
+      created_at: now
+    });
+  });
+  const state = await getAutomationState(db, brand, { date });
+  return {
+    ...state,
+    recipients: { account_id: account.id, to_email: toEmail, cc_emails: ccEmails }
+  };
+}
+
+async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, options = {}) {
+  if (options.confirmed !== true) {
+    throw httpError(400, 'Potvrdite pripremu odobrenih komitenata sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
+  }
+  if (!Array.isArray(assignmentIds)) {
+    throw httpError(400, 'Pošaljite označene zapise iz današnje liste.', 'DAILY_ASSIGNMENT_SELECTION_REQUIRED');
+  }
+  const ids = [...new Set(assignmentIds.map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!ids.length) {
+    throw httpError(400, 'Označite najmanje jednog odobrenog komitenta.', 'DAILY_ASSIGNMENT_SELECTION_REQUIRED');
+  }
+  if (ids.length > MAX_DAILY_LIMIT) {
+    throw httpError(400, 'Odjednom možete uvesti najviše 30 odobrenih komitenata.', 'CAMPAIGN_SELECTION_TOO_LARGE');
+  }
+  const date = options.date || businessDate();
+  await ensureAutomationSetting(db, brand);
+  const imported = await db.transaction(async (trx) => {
+    const rawSettings = await trx('crm_mail_automation_settings')
+      .where({ brand_id: brand.id }).forUpdate().first();
+    const settings = serializeSettings(rawSettings);
+    if (!settings?.subject || !settings?.body_text) {
+      throw httpError(409, 'Prvo sačuvajte naslov i sadržaj maila.', 'AUTOMATION_TEMPLATE_REQUIRED');
+    }
+    const assignments = await trx({ d: 'crm_daily_assignments' })
+      .join({ a: 'crm_accounts' }, function joinApprovedAccount() {
+        this.on('a.id', '=', 'd.account_id').andOn('a.brand_id', '=', 'd.brand_id');
+      })
+      .where({
+        'd.user_id': actor.id,
+        'd.brand_id': brand.id,
+        'd.assignment_date': date
+      })
+      .whereIn('d.id', ids)
+      .whereIn('d.status', ['COMPLETED', 'APPROVED'])
+      .whereNull('a.archived_at')
+      .select(
+        'd.id as assignment_id', 'd.sequence_number as assignment_sequence',
+        'a.*'
+      )
+      .orderBy('d.sequence_number');
+
+    const [existingRows, historyRows, suppressed] = await Promise.all([
+      trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date }).orderBy('sequence_number'),
+      trx('crm_mail_queue').where({ brand_id: brand.id })
+        .whereIn('status', ['SENT', 'SENDING', 'SKIPPED'])
+        .select('account_id', 'recipient_email', 'queue_date', 'status'),
+      suppressionSet(trx)
+    ]);
+    const existingByAccount = new Map(existingRows.map((row) => [row.account_id, row]));
+    const todayEmailOwner = new Map(existingRows
+      .map((row) => [validEmail(row.recipient_email), row.account_id])
+      .filter(([email]) => email));
+    const historicalAccounts = new Set(historyRows
+      .filter((row) => row.queue_date !== date)
+      .map((row) => row.account_id));
+    const historicalEmails = new Set(historyRows
+      .filter((row) => row.queue_date !== date)
+      .map((row) => validEmail(row.recipient_email)).filter(Boolean));
+    let activeSlots = existingRows.filter((row) => ['APPROVED', 'SENT', 'SENDING', 'SKIPPED'].includes(row.status)).length;
+    let nextSequence = existingRows.reduce((maximum, row) => Math.max(maximum, Number(row.sequence_number) || 0), 0);
+    const selectedEmails = new Set();
+    const eligibleAccountIds = [];
+    const eligibleAssignmentIds = [];
+    let importedCount = 0;
+    let alreadyReadyCount = 0;
+    const skippedCounts = {
+      not_approved_or_unavailable: Math.max(0, ids.length - assignments.length),
+      invalid_account: 0,
+      invalid_email: 0,
+      suppressed: 0,
+      already_processed: 0,
+      duplicate_email: 0,
+      daily_limit: 0
+    };
+    const now = new Date();
+
+    for (const assignment of assignments) {
+      const email = validEmail(assignment.email);
+      const ccEmails = storedCcEmails(assignment.cc_emails_json, email);
+      const current = existingByAccount.get(assignment.id);
+      if (EXCLUDED_CANDIDATE_STATUSES.includes(assignment.status)) {
+        skippedCounts.invalid_account += 1;
+        continue;
+      }
+      if (!email) {
+        skippedCounts.invalid_email += 1;
+        continue;
+      }
+      if (suppressed.has(email) || ccEmails.some((ccEmail) => suppressed.has(ccEmail))) {
+        skippedCounts.suppressed += 1;
+        continue;
+      }
+      if (current && ['SENT', 'SENDING', 'SKIPPED'].includes(current.status)) {
+        skippedCounts.already_processed += 1;
+        continue;
+      }
+      if (historicalAccounts.has(assignment.id) || historicalEmails.has(email)) {
+        skippedCounts.already_processed += 1;
+        continue;
+      }
+      const emailOwner = todayEmailOwner.get(email);
+      if ((emailOwner && emailOwner !== assignment.id) || selectedEmails.has(email)) {
+        skippedCounts.duplicate_email += 1;
+        continue;
+      }
+      if (current?.status === 'APPROVED') {
+        await trx('crm_mail_queue').where({ id: current.id, status: 'APPROVED' }).update({
+          recipient_email: email,
+          cc_emails_json: JSON.stringify(ccEmails),
+          subject: renderTemplate(settings.subject, assignment),
+          body_text: renderTemplate(settings.body_text, assignment),
+          attachment_id: settings.attachment_id || null,
+          last_error: null,
+          updated_at: now
+        });
+        alreadyReadyCount += 1;
+      } else {
+        if (activeSlots >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) {
+          skippedCounts.daily_limit += 1;
+          continue;
+        }
+        const queueValues = {
+          recipient_email: email,
+          cc_emails_json: JSON.stringify(ccEmails),
+          subject: renderTemplate(settings.subject, assignment),
+          body_text: renderTemplate(settings.body_text, assignment),
+          attachment_id: settings.attachment_id || null,
+          status: 'APPROVED',
+          claim_token: null,
+          claimed_at: null,
+          last_error: null,
+          updated_at: now
+        };
+        if (current) {
+          await trx('crm_mail_queue').where({ id: current.id })
+            .whereIn('status', ['PENDING', 'FAILED', 'NOT_APPROVED'])
+            .update(queueValues);
+        } else {
+          nextSequence += 1;
+          await trx('crm_mail_queue').insert({
+            id: uuidv4(),
+            brand_id: brand.id,
+            account_id: assignment.id,
+            queue_date: date,
+            sequence_number: nextSequence,
+            ...queueValues,
+            attempts: 0,
+            created_by: String(actor.id || actor.username || 'commercial-mail-user').slice(0, 120),
+            created_at: now
+          });
+        }
+        activeSlots += 1;
+        importedCount += 1;
+      }
+      selectedEmails.add(email);
+      todayEmailOwner.set(email, assignment.id);
+      eligibleAccountIds.push(assignment.id);
+      eligibleAssignmentIds.push(assignment.assignment_id);
+    }
+
+    await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).update({
+      last_prepared_date: date,
+      updated_at: now
+    });
+    return {
+      requested_count: ids.length,
+      approved_count: assignments.length,
+      eligible_count: eligibleAccountIds.length,
+      imported_count: importedCount,
+      already_ready_count: alreadyReadyCount,
+      skipped_count: Math.max(0, ids.length - eligibleAccountIds.length),
+      skipped_counts: skippedCounts,
+      eligible_account_ids: eligibleAccountIds,
+      account_ids: eligibleAccountIds,
+      eligible_assignment_ids: eligibleAssignmentIds,
+      assignment_ids: eligibleAssignmentIds
+    };
+  });
+  return { ...(await getAutomationState(db, brand, { date })), import: imported };
+}
+
 async function pauseAutomation(db, brand, actor) {
   await ensureAutomationSetting(db, brand);
   await db('crm_mail_automation_settings').where({ brand_id: brand.id }).update({
@@ -622,6 +923,11 @@ async function claimNext(db, brand, now, { ignoreInterval = false } = {}) {
     const settings = serializeSettings(raw);
     if (!settings || !settings.enabled || settings.paused || !settings.auto_send) return null;
     if (!ignoreInterval && minutesSince(settings.last_sent_at, now) < settings.send_interval_minutes) return null;
+    const usedRow = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, queue_date: businessDate('Europe/Sarajevo', now) })
+      .whereIn('status', ['SENT', 'SENDING', 'SKIPPED'])
+      .count({ count: '*' }).first();
+    if (Number(usedRow?.count || 0) >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) return null;
     const item = await trx('crm_mail_queue').where({
       brand_id: brand.id,
       queue_date: businessDate('Europe/Sarajevo', now),
@@ -795,7 +1101,9 @@ async function recordSuccessfulSend(db, brand, claimed, result, actor, sender, s
     if (!account) throw httpError(404, 'Komitent više ne postoji.', 'ACCOUNT_NOT_FOUND');
     const nextContactAt = new Date(sentAt.getTime() + claimed.settings.follow_up_days * 86400000);
     const commentNote = `Mail poslan ${formatSarajevoDate(sentAt)} – ${brand.name}.`;
-    const auditNote = `${commentNote} Sa ${sender} na ${item.recipient_email}. Naslov: ${item.subject}.`;
+    const ccEmails = strictQueueCcEmails(item.cc_emails_json, item.recipient_email);
+    const ccNote = ccEmails.length ? ` CC: ${ccEmails.join(', ')}.` : '';
+    const auditNote = `${commentNote} Sa ${sender} na ${item.recipient_email}.${ccNote} Naslov: ${item.subject}.`;
     const comment = [String(account.comment || '').trim(), commentNote].filter(Boolean).join('\n');
     await trx('crm_mail_queue').where({ id: item.id }).update({
       status: 'SENT',
@@ -827,6 +1135,7 @@ async function recordSuccessfulSend(db, brand, claimed, result, actor, sender, s
         queueId: item.id,
         sender,
         recipient: item.recipient_email,
+        ccRecipients: ccEmails,
         subject: item.subject,
         attachmentId: item.attachment_id || null,
         mode: claimed.manual ? 'MANUAL_SELECTED' : 'AUTOMATED',
@@ -907,7 +1216,7 @@ async function claimSelectedQueueItem(db, brand, identifier, now) {
     }
     const dailyLimit = Math.min(MAX_DAILY_LIMIT, Number(settings.daily_limit) || MAX_DAILY_LIMIT);
     const usedRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
-      .whereIn('status', ['SENT', 'SENDING']).count({ count: '*' }).first();
+      .whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).count({ count: '*' }).first();
     if (Number(usedRow?.count || 0) >= dailyLimit) {
       throw httpError(409, `Dnevni limit od ${dailyLimit} mailova za ${brand.name} je dostignut.`, 'CAMPAIGN_DAILY_LIMIT_REACHED');
     }
@@ -968,12 +1277,11 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
     try {
       const now = new Date(nowProvider());
       claimed = await claimSelectedQueueItem(db, brand, identifier, now);
-      if (suppressed.has(validEmail(claimed.recipient_email))) {
-        throw httpError(409, 'Adresa je na listi zabrane slanja.', 'CAMPAIGN_RECIPIENT_SUPPRESSED');
-      }
+      const recipients = checkedQueueRecipients(claimed, suppressed);
       const attachment = await queueAttachment(db, claimed.attachment_id, brand.id);
       const result = await outlook.send({
-        to: [claimed.recipient_email],
+        to: [recipients.toEmail],
+        cc: recipients.ccEmails,
         subject: claimed.subject,
         body: claimed.body_text,
         bodyType: 'text',
@@ -986,6 +1294,7 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
         account_id: claimed.account_id,
         candidate_id: claimed.id,
         status: 'SENT',
+        cc_count: recipients.ccEmails.length,
         sent_at: sentAt
       });
     } catch (error) {
@@ -1023,9 +1332,11 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
   if (!claimed) return { sent: false, reason: 'Nema poruke spremne za slanje.' };
   let accepted = false;
   try {
+    const recipients = checkedQueueRecipients(claimed, await suppressionSet(db));
     const attachment = await queueAttachment(db, claimed.attachment_id, brand.id);
     const result = await outlook.send({
-      to: [claimed.recipient_email],
+      to: [recipients.toEmail],
+      cc: recipients.ccEmails,
       subject: claimed.subject,
       body: claimed.body_text,
       bodyType: 'text',
@@ -1034,7 +1345,14 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
     accepted = true;
     const sentAt = now;
     await recordSuccessfulSend(db, brand, claimed, result, actor, outlook.config.mailbox, sentAt);
-    return { sent: true, queueId: claimed.id, accountId: claimed.account_id, recipient: claimed.recipient_email, sentAt };
+    return {
+      sent: true,
+      queueId: claimed.id,
+      accountId: claimed.account_id,
+      recipient: claimed.recipient_email,
+      ccCount: recipients.ccEmails.length,
+      sentAt
+    };
   } catch (error) {
     if (accepted) await recordUnconfirmedAcceptedSend(db, brand, claimed, error, new Date());
     else await recordFailedSend(db, brand, claimed, error, new Date());
@@ -1098,6 +1416,7 @@ module.exports = {
   QUEUE_STATUSES,
   ensureAutomationSetting,
   getAutomationState,
+  importApprovedDailyAssignments,
   pauseAutomation,
   prepareAutomationQueue,
   reviewAutomationCandidates,
@@ -1105,6 +1424,7 @@ module.exports = {
   sendDailyReport,
   sendNextAutomatedMail,
   sendSelectedMails,
+  updateCandidateRecipients,
   updateAutomationSettings,
   validEmail
 };

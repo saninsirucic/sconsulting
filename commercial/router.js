@@ -2,11 +2,13 @@ const express = require('express');
 const { allowRoles } = require('../aiEmail/auth');
 const {
   getAutomationState,
+  importApprovedDailyAssignments,
   pauseAutomation,
   prepareAutomationQueue,
   reviewAutomationCandidates,
   sendNextAutomatedMail,
   sendSelectedMails,
+  updateCandidateRecipients,
   updateAutomationSettings
 } = require('./automation');
 const {
@@ -158,6 +160,27 @@ function createCommercialRouter({ db, outlookService }) {
       brand,
       body.account_ids || body.accountIds || body.candidate_ids || body.ids,
       body.decision
+    ));
+  }));
+  router.patch('/brands/:code/mail-automation/candidates/:accountId/recipients', asyncRoute(async (req, res) => {
+    const brand = await getBrand(req, true);
+    res.json(await updateCandidateRecipients(
+      db,
+      brand,
+      req.params.accountId,
+      req.user,
+      req.body || {}
+    ));
+  }));
+  router.post('/brands/:code/mail-automation/import-daily-approved', asyncRoute(async (req, res) => {
+    const brand = await getBrand(req, true);
+    const body = req.body || {};
+    res.json(await importApprovedDailyAssignments(
+      db,
+      brand,
+      req.user,
+      body.assignment_ids || body.assignmentIds,
+      { confirmed: body.confirm === true }
     ));
   }));
   router.post('/brands/:code/mail-automation/send-selected', asyncRoute(async (req, res) => {

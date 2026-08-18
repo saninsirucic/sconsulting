@@ -6,7 +6,7 @@ const CRM_STATUSES = new Set([
 ]);
 const CRM_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'LOW']);
 const ASSIGNMENT_STATUSES = new Set([
-  'PENDING', 'COMPLETED', 'SKIPPED', ...CRM_STATUSES
+  'PENDING', 'APPROVED', 'COMPLETED', 'SKIPPED', ...CRM_STATUSES
 ]);
 
 function httpError(status, message, code) {
@@ -157,6 +157,11 @@ function numberOrNull(value) {
 }
 
 function serializeAccount(row) {
+  const rawCcEmails = parseJson(row?.cc_emails_json, []);
+  const ccEmails = Array.isArray(rawCcEmails)
+    ? [...new Set(rawCcEmails.map((email) => String(email || '').trim().toLowerCase())
+      .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)))].slice(0, 10)
+    : [];
   return row ? {
     ...row,
     nr: row.source_row_number,
@@ -164,6 +169,8 @@ function serializeAccount(row) {
     unit_amount: numberOrNull(row.unit_amount),
     total_amount: numberOrNull(row.total_amount),
     profit_amount: numberOrNull(row.profit_amount),
+    cc_emails: ccEmails,
+    cc_emails_json: undefined,
     source_data: parseJson(row.source_data_json, {}),
     source_data_json: undefined
   } : null;
@@ -437,14 +444,25 @@ function businessDate(timezone = 'Europe/Sarajevo', now = new Date()) {
 }
 
 async function dailyListItems(db, userId, brandId, date) {
-  const rows = await db({ d: 'crm_daily_assignments' })
-    .join({ a: 'crm_accounts' }, 'a.id', 'd.account_id')
+  const hasMailQueue = await db.schema.hasTable('crm_mail_queue');
+  let query = db({ d: 'crm_daily_assignments' })
+    .join({ a: 'crm_accounts' }, 'a.id', 'd.account_id');
+  if (hasMailQueue) {
+    query = query.leftJoin({ q: 'crm_mail_queue' }, function joinDailyMailQueue() {
+      this.on('q.account_id', '=', 'd.account_id')
+        .andOn('q.brand_id', '=', 'd.brand_id')
+        .andOn('q.queue_date', '=', 'd.assignment_date');
+    });
+  }
+  const selectColumns = [
+    'd.id as assignment_id', 'd.assignment_date', 'd.sequence_number',
+    'd.status as assignment_status', 'd.notes as assignment_notes', 'd.completed_at',
+    'a.*'
+  ];
+  if (hasMailQueue) selectColumns.push('q.status as mail_queue_status');
+  const rows = await query
     .where({ 'd.user_id': userId, 'd.brand_id': brandId, 'd.assignment_date': date })
-    .select(
-      'd.id as assignment_id', 'd.assignment_date', 'd.sequence_number',
-      'd.status as assignment_status', 'd.notes as assignment_notes', 'd.completed_at',
-      'a.*'
-    ).orderBy('d.sequence_number');
+    .select(selectColumns).orderBy('d.sequence_number');
   return rows.map((row) => ({
     id: row.assignment_id,
     assignment_id: row.assignment_id,
@@ -453,10 +471,11 @@ async function dailyListItems(db, userId, brandId, date) {
     assignment_status: row.assignment_status,
     assignment_notes: row.assignment_notes,
     completed_at: row.completed_at,
+    mail_queue_status: row.mail_queue_status || null,
     account: serializeAccount(Object.fromEntries(
       Object.entries(row).filter(([key]) => ![
         'assignment_id', 'assignment_date', 'sequence_number', 'assignment_status',
-        'assignment_notes', 'completed_at'
+        'assignment_notes', 'completed_at', 'mail_queue_status'
       ].includes(key))
     ))
   }));
