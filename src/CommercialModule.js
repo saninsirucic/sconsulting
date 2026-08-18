@@ -125,6 +125,10 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
   const [form, setForm] = useState(() => normalizeRecordForForm(record));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const visibleFields = useMemo(() => {
+    if (normalizeBrandCode(brandCode) !== 'VISIOCAST') return EDIT_FIELDS;
+    return EDIT_FIELDS.filter((field) => !['unit_amount', 'total_amount', 'profit_amount'].includes(field.key));
+  }, [brandCode]);
 
   useEffect(() => {
     setForm(normalizeRecordForForm(record));
@@ -165,7 +169,7 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
         <ModalCloseButton minW="44px" minH="44px" />
         <ModalBody px={{ base: 4, md: 6 }}>
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-            {EDIT_FIELDS.map((field) => (
+            {visibleFields.map((field) => (
               <FormControl key={field.key} isRequired={field.required} gridColumn={{ md: field.wide ? 'span 2' : 'auto' }}>
                 <FormLabel fontSize="sm">{field.label}</FormLabel>
                 {field.type === 'textarea' ? (
@@ -934,6 +938,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
+  const [dimensionFilter, setDimensionFilter] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [sortOption, setSortOption] = useState('company_name:asc');
@@ -949,6 +954,10 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     try {
       const [sortBy, sortDirection] = sortOption.split(':');
       const params = { page, perPage, search, status, priority, sortBy, sortDirection };
+      const normalizedBrandCode = normalizeBrandCode(brandCode);
+      if (normalizedBrandCode === 'VISIOCAST' && dimensionFilter) params.location = dimensionFilter;
+      if (normalizedBrandCode === 'SAN_PEST' && dimensionFilter) params.country = dimensionFilter;
+      if (normalizedBrandCode === 'FS_APP' && dimensionFilter) params.record_type = dimensionFilter;
       const [dashboardResult, recordResult] = await Promise.all([
         commercialApi.getDashboard(brandCode),
         commercialApi.getRecords(brandCode, params),
@@ -960,7 +969,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     } finally {
       setLoading(false);
     }
-  }, [brandCode, page, perPage, priority, search, sortOption, status]);
+  }, [brandCode, dimensionFilter, page, perPage, priority, search, sortOption, status]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 300 : 0);
@@ -988,6 +997,11 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const total = data.pagination?.total ?? items.length;
   const availableStatuses = data.filters?.statuses || CRM_STATUSES;
   const availablePriorities = data.filters?.priorities || PRIORITIES;
+  const dimensionConfig = normalizeBrandCode(brandCode) === 'VISIOCAST'
+    ? { ariaLabel: 'Filter po gradu', placeholder: 'Svi gradovi', options: data.filters?.locations || [] }
+    : normalizeBrandCode(brandCode) === 'SAN_PEST'
+      ? { ariaLabel: 'Filter po državi', placeholder: 'Sve države', options: data.filters?.countries || [] }
+      : { ariaLabel: 'Filter po vrsti', placeholder: 'Sve vrste', options: data.filters?.recordTypes || [] };
   const rangeStart = total > 0 ? ((page - 1) * perPage) + 1 : 0;
   const rangeEnd = Math.min(page * perPage, total);
   const visiblePages = pageNumbers(page, Math.max(1, pages));
@@ -1017,6 +1031,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         </HStack>
         <Select maxW={{ xl: '210px' }} placeholder="Svi statusi" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>{availableStatuses.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
         <Select maxW={{ xl: '180px' }} placeholder="Svi prioriteti" value={priority} onChange={(event) => { setPriority(event.target.value); setPage(1); }}>{availablePriorities.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
+        <Select aria-label={dimensionConfig.ariaLabel} maxW={{ xl: '210px' }} placeholder={dimensionConfig.placeholder} value={dimensionFilter} onChange={(event) => { setDimensionFilter(event.target.value); setPage(1); }}>
+          {dimensionConfig.options.map((value) => <option key={value} value={value}>{value}</option>)}
+        </Select>
         <Button w={{ base: 'full', xl: 'auto' }} minH="44px" leftIcon={<FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} onClick={openNew}>Novi komitent</Button>
       </Flex>
 

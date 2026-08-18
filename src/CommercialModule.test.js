@@ -136,6 +136,9 @@ test('kreira Visiocast komitenta kroz modal', async () => {
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
   fireEvent.click(screen.getByRole('button', { name: 'Novi komitent' }));
+  expect(screen.queryByLabelText('Iznos')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Ukupno')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Profit')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText(/Naziv komitenta/), { target: { value: 'Novi kupac' } });
   fireEvent.change(screen.getByLabelText('Sljedeći kontakt'), { target: { value: '2026-08-14T10:30' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
@@ -146,6 +149,40 @@ test('kreira Visiocast komitenta kroz modal', async () => {
     next_contact_at: new Date('2026-08-14T10:30').toISOString(),
   })));
 });
+
+test('nudi poseban filter grada, države i vrste za svaku bazu', async () => {
+  commercialApi.getBrands.mockResolvedValue({ items: [
+    { code: 'VISIOCAST', name: 'Visiocast', record_count: 1 },
+    { code: 'SAN_PEST', name: 'SAN Pest', record_count: 1 },
+    { code: 'FS_APP', name: 'FS App', record_count: 1 },
+  ] });
+  commercialApi.getRecords.mockImplementation(async (brandCode) => ({
+    items: [record],
+    pagination: { total: 1, pages: 1 },
+    filters: brandCode === 'VISIOCAST'
+      ? { locations: ['Sarajevo', 'Travnik'] }
+      : brandCode === 'SAN_PEST'
+        ? { countries: ['Hrvatska', 'Srbija'] }
+        : { recordTypes: ['Hotel', 'Restoran'] },
+  }));
+  renderModule();
+
+  const cityFilter = await screen.findByRole('combobox', { name: 'Filter po gradu' });
+  fireEvent.change(cityFilter, { target: { value: 'Travnik' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({ location: 'Travnik' })));
+
+  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
+  const countryFilter = await screen.findByRole('combobox', { name: 'Filter po državi' });
+  await screen.findByRole('option', { name: 'Srbija' });
+  fireEvent.change(countryFilter, { target: { value: 'Srbija' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('SAN_PEST', expect.objectContaining({ country: 'Srbija' })));
+
+  fireEvent.click(screen.getByRole('tab', { name: /FS App/ }));
+  const typeFilter = await screen.findByRole('combobox', { name: 'Filter po vrsti' });
+  await screen.findByRole('option', { name: 'Restoran' });
+  fireEvent.change(typeFilter, { target: { value: 'Restoran' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('FS_APP', expect.objectContaining({ record_type: 'Restoran' })));
+}, 15000);
 
 test('prikazuje samo brendove koje je backend dodijelio korisniku', async () => {
   commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'VISIOCAST', name: 'Visiocast', record_count: 1 }] });
