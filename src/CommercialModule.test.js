@@ -466,6 +466,23 @@ test('uređuje Visiocast zapis', async () => {
   await waitFor(() => expect(commercialApi.updateRecord).toHaveBeenCalledWith('record-1', expect.objectContaining({ company_name: 'Izmijenjeni kupac' })));
 });
 
+test('promjena jedinog maila u izvornim podacima usklađuje glavni email za slanje', async () => {
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Uredi komitenta' })[0]);
+  expect(screen.getByLabelText('Glavni email za slanje')).toHaveValue('prodaja@primjer.ba');
+  fireEvent.change(screen.getByLabelText('Izvorni mail podaci (arhiva)'), {
+    target: { value: 'novi.kontakt@primjer.ba' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
+
+  await waitFor(() => expect(commercialApi.updateRecord).toHaveBeenCalledWith('record-1', expect.objectContaining({
+    email: 'novi.kontakt@primjer.ba',
+    raw_mail: 'novi.kontakt@primjer.ba',
+  })));
+});
+
 test('jednim dugmetom odmah šalje sačuvani dopis i osvježava CRM komentar', async () => {
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
   renderModule();

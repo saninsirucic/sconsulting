@@ -78,6 +78,13 @@ import {
 
 const orange = '#f68b1f';
 const green = '#1dba5b';
+const EMAIL_IN_TEXT_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+function singleEmailInText(value) {
+  const emails = [...new Set((String(value || '').match(EMAIL_IN_TEXT_PATTERN) || [])
+    .map((email) => email.toLowerCase()))];
+  return emails.length === 1 ? emails[0] : '';
+}
 
 function ErrorAlert({ message, onRetry }) {
   return (
@@ -113,6 +120,7 @@ function normalizeRecordForForm(record) {
   return {
     ...record,
     company_name: recordValue(record, 'company_name', 'companyName', 'name', 'komitent'),
+    email: recordValue(record, 'email'),
     status: recordValue(record, 'status', 'crm_status') || 'NEW',
     next_contact_at: localNextContact,
     raw_mail: recordValue(record, 'raw_mail', 'rawMail', 'mail'),
@@ -141,6 +149,14 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
     setError('');
     try {
       const payload = { ...form };
+      const originalRawMail = String(recordValue(record, 'raw_mail', 'rawMail', 'mail') || '').trim();
+      const currentRawMail = String(payload.raw_mail || '').trim();
+      const originalEmail = String(recordValue(record, 'email') || '').trim().toLowerCase();
+      const currentEmail = String(payload.email || '').trim().toLowerCase();
+      const rawMailEmail = singleEmailInText(currentRawMail);
+      if (rawMailEmail && (!currentEmail || (currentRawMail !== originalRawMail && currentEmail === originalEmail))) {
+        payload.email = rawMailEmail;
+      }
       payload.next_contact_at = payload.next_contact_at
         ? new Date(payload.next_contact_at).toISOString()
         : null;
@@ -810,7 +826,8 @@ function recordLetterBlockedReason(record) {
 
 function RecordDetailsGrid({ record }) {
   const details = [
-    ['Mail', recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email')],
+    ['Glavni email za slanje', recordValue(record, 'email')],
+    ['Izvorni mail podaci', recordValue(record, 'raw_mail', 'rawMail', 'mail')],
     ['Kontakt', recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone')],
     ['Komentar', recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar')],
     ['CRM napomene', recordValue(record, 'notes')],
@@ -834,7 +851,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
-  const email = recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email');
+  const email = recordValue(record, 'email', 'raw_mail', 'rawMail', 'mail');
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
   const letterBlockedReason = recordLetterBlockedReason(record);
 
@@ -904,7 +921,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
-  const email = recordValue(record, 'raw_mail', 'rawMail', 'mail', 'email');
+  const email = recordValue(record, 'email', 'raw_mail', 'rawMail', 'mail');
   const contact = recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone');
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
