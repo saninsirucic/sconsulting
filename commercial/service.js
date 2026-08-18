@@ -326,38 +326,72 @@ async function transferAccount(db, account, targetBrand, user) {
   if (!targetBrand || targetBrand.id === account.brand_id) {
     throw httpError(400, 'Odaberite drugu ciljnu bazu.', 'SAME_BRAND_TRANSFER');
   }
-
-  const sourceBrand = await db('crm_brands').where({ id: account.brand_id }).first();
-  if (!sourceBrand) throw httpError(404, 'Izvorna baza komitenta nije pronađena.', 'BRAND_NOT_FOUND');
-  const duplicateSource = await db('crm_accounts').where({
-    brand_id: targetBrand.id,
-    source_key: account.source_key
-  }).whereNot({ id: account.id }).first();
-  if (duplicateSource) {
-    throw httpError(409, 'U ciljnoj bazi već postoji ovaj izvorni zapis.', 'TRANSFER_SOURCE_CONFLICT');
-  }
-
+  const hasMailQueue = await db.schema.hasTable('crm_mail_queue');
+  const hasAutomationSettings = hasMailQueue
+    && await db.schema.hasTable('crm_mail_automation_settings');
   const now = new Date();
+  let sourceBrand;
   await db.transaction(async (trx) => {
-    await trx('crm_daily_assignments')
-      .where({ account_id: account.id, status: 'PENDING' })
-      .delete();
-    if (await trx.schema.hasTable('crm_mail_queue')) {
-      await trx('crm_mail_queue').where({ account_id: account.id })
-        .whereIn('status', ['PENDING', 'APPROVED', 'FAILED'])
-        .delete();
+    if (hasAutomationSettings) {
+      const brandIds = [...new Set([account.brand_id, targetBrand.id])].sort();
+      await trx('crm_mail_automation_settings').whereIn('brand_id', brandIds)
+        .orderBy('brand_id').forUpdate();
     }
-    await trx('crm_accounts').where({ id: account.id }).update({
+    const lockedAccount = await trx('crm_accounts').where({ id: account.id }).forUpdate().first();
+    if (!lockedAccount) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
+    if (lockedAccount.archived_at) throw httpError(409, 'Arhivirani komitent se ne može prebaciti.');
+    if (lockedAccount.brand_id !== account.brand_id) {
+      throw httpError(409, 'Komitent je u međuvremenu prebačen. Osvježite prikaz.', 'ACCOUNT_TRANSFER_STALE');
+    }
+    sourceBrand = await trx('crm_brands').where({ id: lockedAccount.brand_id }).first();
+    if (!sourceBrand) throw httpError(404, 'Izvorna baza komitenta nije pronađena.', 'BRAND_NOT_FOUND');
+    const duplicateSource = await trx('crm_accounts').where({
+      brand_id: targetBrand.id,
+      source_key: lockedAccount.source_key
+    }).whereNot({ id: lockedAccount.id }).forUpdate().first();
+    if (duplicateSource) {
+      throw httpError(409, 'U ciljnoj bazi već postoji ovaj izvorni zapis.', 'TRANSFER_SOURCE_CONFLICT');
+    }
+    let mailRows = [];
+    if (hasMailQueue) {
+      mailRows = await trx('crm_mail_queue').where({
+        account_id: lockedAccount.id,
+        brand_id: sourceBrand.id
+      }).orderBy('id').forUpdate();
+      if (mailRows.some((row) => row.status === 'SENDING')) {
+        throw httpError(
+          409,
+          'Slanje maila ovom komitentu je u toku. Sačekajte završetak prije prebacivanja.',
+          'ACCOUNT_MAIL_SEND_IN_PROGRESS'
+        );
+      }
+    }
+    await trx('crm_daily_assignments')
+      .where({ account_id: lockedAccount.id, brand_id: sourceBrand.id, status: 'PENDING' })
+      .delete();
+    if (mailRows.length) {
+      const unsentIds = mailRows
+        .filter((row) => ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'].includes(row.status))
+        .map((row) => row.id);
+      if (unsentIds.length) await trx('crm_mail_queue').whereIn('id', unsentIds).delete();
+    }
+    const updated = await trx('crm_accounts').where({
+      id: lockedAccount.id,
+      brand_id: sourceBrand.id
+    }).update({
       brand_id: targetBrand.id,
       updated_by: user.id,
       updated_at: now
     });
+    if (!updated) {
+      throw httpError(409, 'Komitent je u međuvremenu promijenjen. Osvježite prikaz.', 'ACCOUNT_TRANSFER_STALE');
+    }
     await logActivity(trx, {
-      account: { ...account, brand_id: targetBrand.id },
+      account: { ...lockedAccount, brand_id: targetBrand.id },
       user,
       type: 'ACCOUNT_TRANSFERRED',
-      fromStatus: account.status,
-      toStatus: account.status,
+      fromStatus: lockedAccount.status,
+      toStatus: lockedAccount.status,
       notes: `Prebačeno iz ${sourceBrand.name} u ${targetBrand.name}.`,
       metadata: {
         fromBrandId: sourceBrand.id,
@@ -380,19 +414,39 @@ async function transferAccount(db, account, targetBrand, user) {
 
 async function archiveAccount(db, account, user) {
   if (account.archived_at) return { success: true, alreadyArchived: true };
+  const hasMailQueue = await db.schema.hasTable('crm_mail_queue');
+  const hasAutomationSettings = hasMailQueue
+    && await db.schema.hasTable('crm_mail_automation_settings');
   const now = new Date();
   await db.transaction(async (trx) => {
-    if (await trx.schema.hasTable('crm_mail_queue')) {
-      await trx('crm_mail_queue').where({ account_id: account.id })
-        .whereIn('status', ['PENDING', 'APPROVED', 'FAILED'])
-        .delete();
+    if (hasAutomationSettings) {
+      await trx('crm_mail_automation_settings')
+        .where({ brand_id: account.brand_id }).forUpdate().first();
     }
-    await trx('crm_accounts').where({ id: account.id }).update({
+    const lockedAccount = await trx('crm_accounts').where({ id: account.id }).forUpdate().first();
+    if (!lockedAccount) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
+    if (lockedAccount.archived_at) return;
+    if (hasMailQueue) {
+      const mailRows = await trx('crm_mail_queue').where({
+        account_id: lockedAccount.id,
+        brand_id: lockedAccount.brand_id
+      }).orderBy('id').forUpdate();
+      const unsentIds = mailRows
+        .filter((row) => ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'].includes(row.status))
+        .map((row) => row.id);
+      if (unsentIds.length) await trx('crm_mail_queue').whereIn('id', unsentIds).delete();
+    }
+    await trx('crm_accounts').where({ id: lockedAccount.id }).update({
       archived_at: now,
       updated_by: user.id,
       updated_at: now
     });
-    await logActivity(trx, { account, user, type: 'ACCOUNT_ARCHIVED', fromStatus: account.status });
+    await logActivity(trx, {
+      account: lockedAccount,
+      user,
+      type: 'ACCOUNT_ARCHIVED',
+      fromStatus: lockedAccount.status
+    });
   });
   return { success: true };
 }

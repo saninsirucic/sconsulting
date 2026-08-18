@@ -17,7 +17,13 @@ const {
   updateCandidateRecipients,
   updateAutomationSettings
 } = require('../commercial/automation');
-const { businessDate, readDailyAssignments, updateDailyAssignment } = require('../commercial/service');
+const {
+  accountWithBrand,
+  businessDate,
+  readDailyAssignments,
+  transferAccount,
+  updateDailyAssignment
+} = require('../commercial/service');
 
 async function testDb(t) {
   const db = knex({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
@@ -693,6 +699,80 @@ test('auto slanje preskače arhivirane, završene i promijenjene komitente te š
     assert.match(row.last_error, /Potrebna je nova provjera/);
   }
   assert.equal(queueRows.find((candidate) => candidate.account_id === current.id).status, 'SENT');
+});
+
+test('transfer vraća 409 dok je mail SENDING pa se prihvaćeno slanje uredno evidentira', async (t) => {
+  const db = await testDb(t);
+  const sourceBrand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const targetBrand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();
+  const account = await addAccount(db, sourceBrand, 'transfer-100', { email: 'transfer100@firma.ba' });
+  await updateAutomationSettings(db, sourceBrand, director, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: true,
+    auto_send: true,
+    daily_limit: 1
+  });
+  const date = '2026-08-18';
+  await prepareAutomationQueue(db, sourceBrand, director, { date });
+  await reviewAutomationCandidates(db, sourceBrand, [account.id], 'APPROVED', { date });
+  let transferBlocked = false;
+
+  const sent = await sendNextAutomatedMail(db, sourceBrand, {
+    now: new Date('2026-08-18T08:00:00.000Z'),
+    ignoreInterval: true,
+    actor: director,
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send() {
+        const inFlight = await db('crm_mail_queue').where({ account_id: account.id }).first();
+        assert.equal(inFlight.status, 'SENDING');
+        await assert.rejects(
+          transferAccount(db, await accountWithBrand(db, account.id), targetBrand, director),
+          (error) => {
+            transferBlocked = true;
+            return error.status === 409 && error.code === 'ACCOUNT_MAIL_SEND_IN_PROGRESS';
+          }
+        );
+        return { success: true, accepted: true, id: 'transfer-message', conversationId: 'transfer-thread' };
+      }
+    }
+  });
+
+  assert.equal(transferBlocked, true);
+  assert.equal(sent.sent, true);
+  let savedAccount = await db('crm_accounts').where({ id: account.id }).first();
+  let savedQueue = await db('crm_mail_queue').where({ account_id: account.id }).first();
+  assert.equal(savedAccount.brand_id, sourceBrand.id);
+  assert.equal(savedAccount.status, 'EMAIL_SENT');
+  assert.equal(savedQueue.status, 'SENT');
+  assert.equal(savedQueue.provider_message_id, 'transfer-message');
+  await db('crm_mail_queue').insert({
+    id: 'transfer-unsent-row',
+    brand_id: sourceBrand.id,
+    account_id: account.id,
+    queue_date: '2026-08-19',
+    sequence_number: 1,
+    recipient_email: 'transfer100@firma.ba',
+    cc_emails_json: '[]',
+    subject: 'Nedovršeni red',
+    body_text: 'Ovaj red se ne smije prenijeti.',
+    status: 'PENDING',
+    attempts: 0,
+    created_at: new Date(),
+    updated_at: new Date()
+  });
+
+  const moved = await transferAccount(
+    db, await accountWithBrand(db, account.id), targetBrand, director
+  );
+  savedAccount = await db('crm_accounts').where({ id: account.id }).first();
+  savedQueue = await db('crm_mail_queue').where({ account_id: account.id, status: 'SENT' }).first();
+  assert.equal(moved.account.brand_id, targetBrand.id);
+  assert.equal(savedAccount.brand_id, targetBrand.id);
+  assert.equal(savedQueue.brand_id, sourceBrand.id);
+  assert.equal(savedQueue.status, 'SENT');
+  assert.equal(await db('crm_mail_queue').where({ id: 'transfer-unsent-row' }).first(), undefined);
 });
 
 test('trajni CC se normalizuje, snapshotuje, resetuje odobrenje i koristi pri ručnom slanju', async (t) => {
