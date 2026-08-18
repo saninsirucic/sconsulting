@@ -425,6 +425,48 @@ test('getAccount cita samo Inbox i ne zahtijeva users mailbox root', async () =>
   assert.doesNotMatch(graphCalls[0], new RegExp(`/users/${encodeURIComponent(FIXED_MAILBOX)}/?(?:\\?|$)`));
 });
 
+test('folderi se citaju bez naleta i jedan Graph 429 ne obara dostupni Inbox', async () => {
+  const graphCalls = [];
+  const graph = {
+    mailboxPath: mailboxUrl,
+    validateGraphUrl: (value) => validateGraphUrl(value, FIXED_MAILBOX),
+    async request(url) {
+      const key = String(url).match(/\/mailFolders\/([^?]+)/)?.[1];
+      graphCalls.push(key);
+      if (key === 'drafts') {
+        throw Object.assign(new Error('Microsoft Graph zahtjev nije uspio.'), {
+          status: 429,
+          code: 'OUTLOOK_GRAPH_ERROR'
+        });
+      }
+      return {
+        data: {
+          id: `${key}-id`,
+          displayName: key,
+          totalItemCount: key === 'inbox' ? 12 : 2,
+          unreadItemCount: key === 'inbox' ? 3 : 0
+        }
+      };
+    }
+  };
+  const service = createOutlookService({ config: configuredConfig(), graphClient: graph });
+
+  const [account, folders] = await Promise.all([service.getAccount(), service.listFolders()]);
+
+  assert.deepEqual(account.inbox, { totalCount: 12, unreadCount: 3 });
+  assert.equal(graphCalls.filter((key) => key === 'inbox').length, 1);
+  assert.deepEqual(graphCalls, ['inbox', 'sentitems', 'drafts', 'archive', 'junkemail', 'deleteditems']);
+  assert.equal(folders.partial, true);
+  assert.deepEqual(folders.unavailable, ['drafts']);
+  assert.deepEqual(folders.items.find((item) => item.key === 'drafts'), {
+    key: 'drafts',
+    name: 'Nacrti',
+    totalCount: 0,
+    unreadCount: 0,
+    unavailable: true
+  });
+});
+
 test('service send sanitizira HTML, kreira draft i odbija klijentski sender/mailbox', async () => {
   const graphCalls = [];
   const graph = {

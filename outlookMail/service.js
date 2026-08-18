@@ -319,6 +319,15 @@ function decodeCursor(cursor, secret, context, graphClient) {
 function createOutlookService(options = {}) {
   const config = options.config || createOutlookConfig(options.env);
   const graph = options.graphClient || createGraphClient({ ...options, config });
+  const now = options.now || Date.now;
+  const folderCache = new Map();
+  const folderRequests = new Map();
+
+  function folderCacheDuration(key) {
+    // Inbox mora ostati svjež zbog notifikacija. Ostali brojači se mijenjaju
+    // mnogo rjeđe i ne trebaju stvarati šest Graph poziva pri svakom otvaranju.
+    return key === 'inbox' ? 15000 : 60000;
+  }
 
   function status() {
     const state = !config.configured ? 'not_configured' : (config.writeEnabled ? 'ready' : 'read_only');
@@ -338,9 +347,23 @@ function createOutlookService(options = {}) {
 
   async function getFolder(folder) {
     const key = validateFolder(folder);
-    const params = new URLSearchParams({ '$select': 'id,displayName,totalItemCount,unreadItemCount' });
-    const { data } = await graph.request(graph.mailboxPath(`/mailFolders/${key}?${params}`));
-    return { key, name: data.displayName || FOLDERS[key], totalCount: Number(data.totalItemCount || 0), unreadCount: Number(data.unreadItemCount || 0) };
+    const cached = folderCache.get(key);
+    if (cached && cached.expiresAt > now()) return cached.item;
+    if (folderRequests.has(key)) return folderRequests.get(key);
+
+    const request = (async () => {
+      const params = new URLSearchParams({ '$select': 'id,displayName,totalItemCount,unreadItemCount' });
+      const { data } = await graph.request(graph.mailboxPath(`/mailFolders/${key}?${params}`));
+      const item = { key, name: data.displayName || FOLDERS[key], totalCount: Number(data.totalItemCount || 0), unreadCount: Number(data.unreadItemCount || 0) };
+      folderCache.set(key, { item, expiresAt: now() + folderCacheDuration(key) });
+      return item;
+    })();
+    folderRequests.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (folderRequests.get(key) === request) folderRequests.delete(key);
+    }
   }
 
   async function getAccount() {
@@ -351,8 +374,26 @@ function createOutlookService(options = {}) {
   }
 
   async function listFolders() {
-    const items = await Promise.all(Object.keys(FOLDERS).map(getFolder));
-    return { items };
+    const items = [];
+    const unavailable = [];
+    // Sekvencijalno čitanje izbjegava kratki nalet od šest paralelnih Graph
+    // zahtjeva. Jedan privremeno ograničen brojač ne smije oboriti cijeli Inbox.
+    for (const key of Object.keys(FOLDERS)) {
+      try {
+        items.push(await getFolder(key));
+      } catch (error) {
+        const stale = folderCache.get(key);
+        items.push(stale ? stale.item : {
+          key,
+          name: FOLDERS[key],
+          totalCount: 0,
+          unreadCount: 0,
+          unavailable: true
+        });
+        unavailable.push(key);
+      }
+    }
+    return { items, partial: unavailable.length > 0, unavailable };
   }
 
   async function listMessages(query = {}) {
