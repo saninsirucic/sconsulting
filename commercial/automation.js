@@ -1080,6 +1080,15 @@ function formatSarajevoDate(value) {
   return `${parts.day}.${parts.month}.${parts.year}.`;
 }
 
+function formatSarajevoDateTime(value) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Sarajevo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date(value)).map((part) => [part.type, part.value]));
+  return `${parts.day}.${parts.month}.${parts.year}. u ${parts.hour}:${parts.minute}`;
+}
+
 function formatBusinessDate(value) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? `${match[3]}.${match[2]}.${match[1]}.` : String(value || '');
@@ -1227,7 +1236,10 @@ async function recordSuccessfulSend(db, brand, claimed, result, actor, sender, s
     const account = await trx('crm_accounts').where({ id: item.account_id, brand_id: brand.id }).forUpdate().first();
     if (!account) throw httpError(404, 'Komitent više ne postoji.', 'ACCOUNT_NOT_FOUND');
     const nextContactAt = new Date(sentAt.getTime() + claimed.settings.follow_up_days * 86400000);
-    const commentNote = `Mail poslan ${formatSarajevoDate(sentAt)} – ${brand.name}.`;
+    const quickRecordSend = claimed.delivery_mode === 'QUICK_RECORD_BUTTON';
+    const commentNote = quickRecordSend
+      ? `Poslat dopis ${formatSarajevoDateTime(sentAt)}.`
+      : `Mail poslan ${formatSarajevoDate(sentAt)} – ${brand.name}.`;
     const ccEmails = strictQueueCcEmails(item.cc_emails_json, item.recipient_email);
     const ccNote = ccEmails.length ? ` CC: ${ccEmails.join(', ')}.` : '';
     const auditNote = `${commentNote} Sa ${sender} na ${item.recipient_email}.${ccNote} Naslov: ${item.subject}.`;
@@ -1265,7 +1277,7 @@ async function recordSuccessfulSend(db, brand, claimed, result, actor, sender, s
         ccRecipients: ccEmails,
         subject: item.subject,
         attachmentId: item.attachment_id || null,
-        mode: claimed.manual ? 'MANUAL_SELECTED' : 'AUTOMATED',
+        mode: quickRecordSend ? 'QUICK_RECORD_BUTTON' : (claimed.manual ? 'MANUAL_SELECTED' : 'AUTOMATED'),
         providerMessageId: result.id || null,
         providerConversationId: result.conversationId || null
       }),
@@ -1332,6 +1344,162 @@ async function recordUnconfirmedAcceptedSend(db, brand, claimed, error, now) {
       updated_at: now
     });
   });
+}
+
+async function claimImmediateAccountMail(db, brand, accountId, actor, now) {
+  const date = businessDate('Europe/Sarajevo', now);
+  await ensureAutomationSetting(db, brand);
+  return db.transaction(async (trx) => {
+    const rawSettings = await trx('crm_mail_automation_settings')
+      .where({ brand_id: brand.id }).forUpdate().first();
+    const settings = serializeSettings(rawSettings);
+    if (!settings?.subject || !settings?.body_text) {
+      throw httpError(409, 'Prvo sačuvajte naslov i sadržaj dopisa u mail kampanji iznad.', 'AUTOMATION_TEMPLATE_REQUIRED');
+    }
+
+    const account = await trx('crm_accounts')
+      .where({ id: accountId, brand_id: brand.id }).whereNull('archived_at').forUpdate().first();
+    if (!account) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
+    if (EXCLUDED_CANDIDATE_STATUSES.includes(account.status)) {
+      throw httpError(409, 'Ovom komitentu dopis nije moguće poslati zbog trenutnog CRM statusa.', 'QUICK_SEND_ACCOUNT_INELIGIBLE');
+    }
+    const recipientEmail = validEmail(account.email);
+    if (!recipientEmail) {
+      throw httpError(409, 'Komitent nema ispravnu glavnu email adresu.', 'QUICK_SEND_EMAIL_REQUIRED');
+    }
+    const ccEmails = strictQueueCcEmails(account.cc_emails_json, recipientEmail);
+
+    const existing = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, queue_date: date, account_id: account.id }).forUpdate().first();
+    if (existing?.status === 'SENT') {
+      throw httpError(409, 'Dopis je ovom komitentu već poslan danas.', 'QUICK_SEND_ALREADY_SENT');
+    }
+    if (existing?.status === 'SENDING') {
+      throw httpError(409, 'Slanje dopisa ovom komitentu je već u toku.', 'QUICK_SEND_IN_PROGRESS');
+    }
+    if (existing?.status === 'SCHEDULED') {
+      throw httpError(409, 'Dopis je ovom komitentu već zakazan za slanje.', 'QUICK_SEND_ALREADY_SCHEDULED');
+    }
+    if (existing?.status === 'SKIPPED') {
+      throw httpError(409, 'Prethodni ishod slanja nije potvrđen. Ne ponavljajte slanje bez provjere Outlooka.', 'QUICK_SEND_OUTCOME_UNCONFIRMED');
+    }
+
+    const duplicateRecipient = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, queue_date: date, recipient_email: recipientEmail })
+      .whereNot({ account_id: account.id })
+      .whereIn('status', ['PENDING', 'APPROVED', 'SCHEDULED', 'SENDING', 'SENT'])
+      .forUpdate().first();
+    if (duplicateRecipient) {
+      throw httpError(409, 'Ova email adresa je već u današnjem redu slanja.', 'QUICK_SEND_DUPLICATE_RECIPIENT');
+    }
+
+    const dailyLimit = Math.min(MAX_DAILY_LIMIT, Number(settings.daily_limit) || MAX_DAILY_LIMIT);
+    const usedRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
+      .whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).count({ count: '*' }).first();
+    if (Number(usedRow?.count || 0) >= dailyLimit) {
+      throw httpError(409, `Dnevni limit od ${dailyLimit} mailova za ${brand.name} je dostignut.`, 'CAMPAIGN_DAILY_LIMIT_REACHED');
+    }
+
+    const claimToken = uuidv4();
+    const queueData = {
+      recipient_email: recipientEmail,
+      cc_emails_json: JSON.stringify(ccEmails),
+      subject: renderTemplate(settings.subject, account),
+      body_text: renderTemplate(settings.body_text, account),
+      attachment_id: settings.attachment_id || null,
+      status: 'SENDING',
+      attempts: Number(existing?.attempts || 0) + 1,
+      claim_token: claimToken,
+      claimed_at: now,
+      sent_at: null,
+      provider_message_id: null,
+      provider_conversation_id: null,
+      last_error: null,
+      updated_at: now
+    };
+    let queueId;
+    let sequenceNumber;
+    if (existing) {
+      queueId = existing.id;
+      sequenceNumber = Number(existing.sequence_number);
+      await trx('crm_mail_queue').where({ id: existing.id, status: existing.status }).update(queueData);
+    } else {
+      const maxRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
+        .max({ maximum: 'sequence_number' }).first();
+      sequenceNumber = Number(maxRow?.maximum || 0) + 1;
+      queueId = uuidv4();
+      await trx('crm_mail_queue').insert({
+        id: queueId,
+        brand_id: brand.id,
+        account_id: account.id,
+        queue_date: date,
+        sequence_number: sequenceNumber,
+        ...queueData,
+        created_by: String(actor.id || actor.username || 'commercial-mail-user').slice(0, 120),
+        created_at: now
+      });
+    }
+    return {
+      id: queueId,
+      brand_id: brand.id,
+      account_id: account.id,
+      queue_date: date,
+      sequence_number: sequenceNumber,
+      ...queueData,
+      settings,
+      account,
+      manual: true,
+      delivery_mode: 'QUICK_RECORD_BUTTON'
+    };
+  });
+}
+
+async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
+  if (options.confirmed !== true) {
+    throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
+  }
+  const identifier = String(accountId || '').trim();
+  if (!identifier) throw httpError(400, 'Komitent je obavezan.', 'ACCOUNT_ID_REQUIRED');
+  const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
+  const outlook = options.outlookService || createOutlookService();
+  assertOutlookReady(outlook);
+  const nowProvider = typeof options.now === 'function' ? options.now : () => (options.now || new Date());
+  await markStaleClaims(db, brand.id, new Date(nowProvider()));
+  let claimed = null;
+  let accepted = false;
+  try {
+    claimed = await claimImmediateAccountMail(db, brand, identifier, actor, new Date(nowProvider()));
+    const recipients = checkedQueueRecipients(claimed, await suppressionSet(db));
+    const attachment = await queueAttachment(db, claimed.attachment_id, brand.id);
+    const result = await outlook.send({
+      to: [recipients.toEmail],
+      cc: recipients.ccEmails,
+      subject: claimed.subject,
+      body: claimed.body_text,
+      bodyType: 'text',
+      attachments: attachment ? [attachment] : []
+    });
+    accepted = true;
+    const sentAt = new Date(nowProvider());
+    await recordSuccessfulSend(db, brand, claimed, result, actor, outlook.config.mailbox, sentAt);
+    const account = await db('crm_accounts').where({ id: claimed.account_id }).first();
+    return {
+      success: true,
+      sent: true,
+      account_id: claimed.account_id,
+      recipient: recipients.toEmail,
+      cc_count: recipients.ccEmails.length,
+      sent_at: sentAt,
+      status: account?.status || 'EMAIL_SENT',
+      comment: account?.comment || ''
+    };
+  } catch (error) {
+    if (claimed) {
+      if (accepted) await recordUnconfirmedAcceptedSend(db, brand, claimed, error, new Date(nowProvider()));
+      else await recordFailedSend(db, brand, claimed, error, new Date(nowProvider()));
+    }
+    throw error;
+  }
 }
 
 async function scheduleSelectedMails(db, brand, accountIds, options = {}) {
@@ -1810,6 +1978,7 @@ module.exports = {
   sendDailyReport,
   sendNextAutomatedMail,
   sendNextScheduledMail,
+  sendImmediateAccountMail,
   sendSelectedMails,
   updateCandidateRecipients,
   updateAutomationSettings,

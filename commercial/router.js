@@ -7,6 +7,7 @@ const {
   prepareAutomationQueue,
   reviewAutomationCandidates,
   scheduleSelectedMails,
+  sendImmediateAccountMail,
   sendNextAutomatedMail,
   sendSelectedMails,
   updateCandidateRecipients,
@@ -126,6 +127,18 @@ function createCommercialRouter({ db, outlookService }) {
   router.put('/records/:id', asyncRoute(editRecord));
   router.patch('/records/:id', asyncRoute(editRecord));
   router.post('/records/:id/transfer', asyncRoute(transferRecord));
+  router.post('/records/:id/send-letter', asyncRoute(async (req, res) => {
+    if (!req.body || req.body.confirm !== true) {
+      throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
+    }
+    const account = await getAccount(req, true);
+    const brand = await resolveBrand(db, req.user, account.brand_code, { write: true });
+    res.json(await sendImmediateAccountMail(db, brand, account.id, {
+      actor: req.user,
+      confirmed: true,
+      outlookService
+    }));
+  }));
   router.delete('/records/:id', asyncRoute(removeRecord));
 
   router.get('/records/:id/activities', asyncRoute(async (req, res) => {

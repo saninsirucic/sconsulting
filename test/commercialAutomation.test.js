@@ -16,6 +16,7 @@ const {
   runAutomationJob,
   runAutomationTick,
   scheduleSelectedMails,
+  sendImmediateAccountMail,
   sendNextAutomatedMail,
   sendSelectedMails,
   updateCandidateRecipients,
@@ -475,6 +476,68 @@ test('uspješno slanje odmah ažurira komentar, status, follow-up, aktivnost i d
   assert.equal(activity.to_status, 'EMAIL_SENT');
   assert.equal(assignment.status, 'EMAIL_SENT');
   assert.match(assignment.notes, /Mail poslan/);
+});
+
+test('dugme u CRM redu odmah šalje sačuvani dopis i upisuje tačan datum i vrijeme u komentar', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'VISIOCAST' }).first();
+  const commercial = { id: 'quick-send-user', username: 'prodaja', role: 'komercijala' };
+  const account = await addAccount(db, brand, 'quick-20', {
+    company_name: 'ABA TRAVNIK',
+    email: 'info@aba.ba',
+    cc_emails_json: JSON.stringify(['direktor@aba.ba']),
+    comment: 'Nazvati i provjeriti kontakt'
+  });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'Visiocast za {{KOMITENT}}',
+    body: 'Poštovani {{KOMITENT}}, u prilogu Vam šaljemo dopis.'
+  });
+  const payloads = [];
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send(payload) {
+      payloads.push(payload);
+      return { success: true, accepted: true, id: 'quick-message', conversationId: 'quick-conversation' };
+    }
+  };
+  const sentAt = new Date('2026-08-18T17:51:00.000Z');
+
+  const result = await sendImmediateAccountMail(db, brand, account.id, {
+    confirmed: true,
+    actor: commercial,
+    outlookService,
+    now: sentAt
+  });
+
+  assert.equal(result.sent, true);
+  assert.equal(result.recipient, 'info@aba.ba');
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(payloads[0].to, ['info@aba.ba']);
+  assert.deepEqual(payloads[0].cc, ['direktor@aba.ba']);
+  assert.equal(payloads[0].subject, 'Visiocast za ABA TRAVNIK');
+  assert.match(payloads[0].body, /Poštovani ABA TRAVNIK/);
+  const saved = await db('crm_accounts').where({ id: account.id }).first();
+  const queue = await db('crm_mail_queue').where({ account_id: account.id }).first();
+  const activity = await db('crm_activities').where({
+    account_id: account.id,
+    activity_type: 'COMMERCIAL_EMAIL_SENT'
+  }).first();
+  assert.equal(saved.status, 'EMAIL_SENT');
+  assert.match(saved.comment, /Nazvati i provjeriti kontakt/);
+  assert.match(saved.comment, /Poslat dopis 18\.08\.2026\. u 19:51\./);
+  assert.equal(queue.status, 'SENT');
+  assert.equal(queue.provider_message_id, 'quick-message');
+  assert.equal(JSON.parse(activity.metadata_json).mode, 'QUICK_RECORD_BUTTON');
+
+  await assert.rejects(
+    sendImmediateAccountMail(db, brand, account.id, {
+      confirmed: false,
+      actor: commercial,
+      outlookService,
+      now: sentAt
+    }),
+    (error) => error.status === 400 && error.code === 'SEND_CONFIRMATION_REQUIRED'
+  );
 });
 
 test('ručna kampanja trajno čuva prilog, šalje samo označenog i više ga ne predlaže', async (t) => {
