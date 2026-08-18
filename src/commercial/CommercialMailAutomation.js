@@ -49,7 +49,7 @@ const EMPTY_AUTOMATION_FORM = {
   daily_limit: DAILY_LIMIT,
   send_window_start: '09:00',
   send_window_end: '15:00',
-  send_interval_minutes: 10,
+  send_interval_minutes: 5,
   workdays_only: true,
   report_enabled: true,
   report_time: '16:00',
@@ -60,6 +60,7 @@ const STATUS_LABELS = {
   PENDING: 'ČEKA ODLUKU',
   READY: 'ČEKA ODLUKU',
   APPROVED: 'ODOBRENO',
+  SCHEDULED: 'ZAKAZANO • SVAKIH 5 MIN',
   SENDING: 'Slanje u toku',
   FAILED: 'PONOVO ODOBRI',
 };
@@ -152,7 +153,7 @@ export function normalizeMailAutomationState(input) {
         payload.send_window_end ?? automation.send_window_end ?? automation.end_time,
         EMPTY_AUTOMATION_FORM.send_window_end
       ),
-      send_interval_minutes: Math.min(60, Math.max(10, toNumber(
+      send_interval_minutes: Math.min(60, Math.max(5, toNumber(
         payload.send_interval_minutes ?? automation.send_interval_minutes ?? automation.interval_minutes,
         EMPTY_AUTOMATION_FORM.send_interval_minutes
       ))),
@@ -226,6 +227,7 @@ function readFileAsBase64(file) {
 function candidateStatusColor(status) {
   if (status === 'FAILED') return 'red';
   if (status === 'SENDING') return 'orange';
+  if (status === 'SCHEDULED') return 'blue';
   if (status === 'APPROVED') return 'green';
   return 'yellow';
 }
@@ -314,7 +316,6 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [sendProgress, setSendProgress] = useState(null);
   const [sendSummary, setSendSummary] = useState(null);
 
   const applyState = useCallback((result, { syncForm = false, syncAutomation = syncForm } = {}) => {
@@ -353,7 +354,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
 
   const candidates = state.today.candidates;
   const selectableCandidates = useMemo(
-    () => candidates.filter((candidate) => candidate.status !== 'SENDING'),
+    () => candidates.filter((candidate) => !['SENDING', 'SCHEDULED'].includes(candidate.status)),
     [candidates]
   );
   const selectedCount = selectableCandidates.filter((candidate) => selectedIds.has(candidate.id)).length;
@@ -363,7 +364,9 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
   const selectedPendingCandidateIds = selectableCandidates
     .filter((candidate) => selectedIds.has(candidate.id) && !isCandidateApproved(candidate))
     .map((candidate) => candidate.account_id);
-  const pendingCount = candidates.filter((candidate) => !isCandidateApproved(candidate) && candidate.status !== 'SENDING').length;
+  const pendingCount = candidates.filter((candidate) => (
+    !isCandidateApproved(candidate) && !['SENDING', 'SCHEDULED'].includes(candidate.status)
+  )).length;
   const approvedCount = candidates.filter(isCandidateApproved).length;
   const selectedApprovedCandidates = selectableCandidates.filter(
     (candidate) => selectedIds.has(candidate.id) && isCandidateApproved(candidate)
@@ -441,8 +444,8 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
       setError('Vrijeme početka mora biti prije vremena završetka slanja.');
       return;
     }
-    if (!Number.isInteger(interval) || interval < 10 || interval > 60) {
-      setError('Razmak poruka mora biti između 10 i 60 minuta.');
+    if (!Number.isInteger(interval) || interval < 5 || interval > 60) {
+      setError('Razmak poruka mora biti između 5 i 60 minuta.');
       return;
     }
     if (((dailyLimit - 1) * interval) > (endMinutes - startMinutes)) {
@@ -582,57 +585,42 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
     if (!selectedCandidates.length) return;
 
     const confirmed = window.confirm(
-      `Poslati ${selectedCandidates.length} ${selectedCandidates.length === 1 ? 'stvarni mail' : 'stvarna maila'} za ${brandName} sa ${SENDER_EMAIL}? Nakon uspješnog slanja u komentar komitenta bit će upisan datum, a komitent se više neće nuditi za ovu kampanju.`
+      `Zakazati ${selectedCandidates.length} ${selectedCandidates.length === 1 ? 'odobreni mail' : 'odobrenih mailova'} za ${brandName} sa ${SENDER_EMAIL}? Server će poslati jednu poruku svakih 5 minuta; browser ne mora ostati otvoren.`
     );
     if (!confirmed) return;
 
     setBusy('send');
     setError('');
     setSendSummary(null);
-    setSendProgress({ current: 0, total: selectedCandidates.length });
     try {
-      let sentCount = 0;
-      let failedCount = 0;
-
-      for (let index = 0; index < selectedCandidates.length; index += 1) {
-        const candidate = selectedCandidates[index];
-        setSendProgress({ current: index + 1, total: selectedCandidates.length });
-        try {
-          const result = await commercialApi.sendSelectedMailAutomation(brandCode, [candidate.account_id]);
-          const resultItems = Array.isArray(result?.results) ? result.results : [];
-          const reportedFailure = toNumber(
-            result?.failed_count ?? result?.summary?.failed,
-            resultItems.filter((item) => String(item.status).toUpperCase() === 'FAILED').length
-          );
-          const explicitlyFailed = result?.success === false
-            || String(result?.status || '').toUpperCase() === 'FAILED'
-            || reportedFailure > 0;
-          if (explicitlyFailed) failedCount += 1;
-          else sentCount += 1;
-        } catch (requestError) {
-          failedCount += 1;
-        }
-      }
+      const result = await commercialApi.scheduleSelectedMailAutomation(
+        brandCode,
+        selectedCandidates.map((candidate) => candidate.account_id)
+      );
+      const schedule = result?.schedule || {};
+      const scheduledCount = toNumber(schedule.scheduled_count);
+      const alreadyScheduledCount = toNumber(schedule.already_scheduled_count);
+      const rejectedCount = toNumber(schedule.rejected_count);
 
       setSelectedIds(new Set());
-      await load({ syncForm: false, showSpinner: false });
+      if (result) applyState(result);
+      else await load({ syncForm: false, showSpinner: false });
       onChanged?.();
-      setSendSummary({ sent: sentCount, failed: failedCount });
+      setSendSummary({ scheduled: scheduledCount + alreadyScheduledCount, rejected: rejectedCount });
       toast({
-        title: failedCount ? `Poslano ${sentCount}, neuspjelo ${failedCount}.` : `Uspješno poslano: ${sentCount}.`,
-        description: failedCount
-          ? 'Neuspjele adrese ostale su na listi za ponovni pokušaj.'
-          : 'Komentari u CRM tabeli su automatski ažurirani.',
-        status: failedCount ? 'warning' : 'success',
+        title: `Zakazano: ${scheduledCount + alreadyScheduledCount}.`,
+        description: rejectedCount
+          ? `Preskočeno: ${rejectedCount}. Ostale poruke server šalje jednu po jednu svakih 5 minuta.`
+          : 'Server šalje jednu poruku svakih 5 minuta. Browser možete zatvoriti.',
+        status: rejectedCount ? 'warning' : 'success',
         duration: 6000,
         position: 'top-right',
       });
     } catch (requestError) {
-      setError(requestError.message || 'Označene mailove nije moguće poslati.');
+      setError(requestError.message || 'Označene mailove nije moguće zakazati.');
       await load({ syncForm: false, showSpinner: false });
       onChanged?.();
     } finally {
-      setSendProgress(null);
       setBusy('');
     }
   };
@@ -661,11 +649,10 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
             <VStack align="stretch" spacing={5}>
               {error && <Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>{error}</AlertDescription></Alert>}
               {sendSummary && (
-                <Alert status={sendSummary.failed ? 'warning' : 'success'} borderRadius="lg">
+                <Alert status={sendSummary.rejected ? 'warning' : 'success'} borderRadius="lg">
                   <AlertIcon />
                   <AlertDescription>
-                    Slanje završeno: poslano {sendSummary.sent}, neuspjelo {sendSummary.failed}.
-                    {sendSummary.failed ? ' Neuspjeli komitenti ostaju dostupni za ponovni pokušaj.' : ' CRM komentari su ažurirani.'}
+                    Zakazano {sendSummary.scheduled}, preskočeno {sendSummary.rejected}. Server šalje jednu poruku svakih 5 minuta.
                   </AlertDescription>
                 </Alert>
               )}
@@ -767,12 +754,12 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                         minH="44px"
                         type="number"
                         inputMode="numeric"
-                        min={10}
+                        min={5}
                         max={60}
                         value={automationForm.send_interval_minutes}
                         onChange={(event) => setAutomationForm((current) => ({ ...current, send_interval_minutes: event.target.value }))}
                       />
-                      <Text mt={1} fontSize="xs" color="gray.500">Od 10 do 60 minuta.</Text>
+                      <Text mt={1} fontSize="xs" color="gray.500">Od 5 do 60 minuta.</Text>
                     </FormControl>
                   </SimpleGrid>
 
@@ -1002,10 +989,10 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                             colorScheme="orange"
                             isDisabled={!canManage || selectedApprovedCount === 0 || !hasSavedTemplate || isDeciding}
                             isLoading={busy === 'send'}
-                            loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}...` : 'Slanje u toku'}
+                            loadingText="Zakazujem"
                             onClick={sendSelected}
                           >
-                            Pošalji odobrene sada ({selectedApprovedCount})
+                            Zakaži odobrene ({selectedApprovedCount})
                           </Button>
                         </Flex>
                       </Flex>
@@ -1020,7 +1007,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                         </Thead>
                         <Tbody>
                           {candidates.map((candidate) => {
-                            const disabled = candidate.status === 'SENDING';
+                            const disabled = ['SENDING', 'SCHEDULED'].includes(candidate.status);
                             const approved = isCandidateApproved(candidate);
                             const selected = selectedIds.has(candidate.id);
                             return (
@@ -1088,7 +1075,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
 
                     <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
                       {candidates.map((candidate) => {
-                        const disabled = candidate.status === 'SENDING';
+                        const disabled = ['SENDING', 'SCHEDULED'].includes(candidate.status);
                         const approved = isCandidateApproved(candidate);
                         const selected = selectedIds.has(candidate.id);
                         return (

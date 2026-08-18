@@ -11,6 +11,7 @@ jest.mock('./api', () => ({
     decideMailAutomationCandidates: jest.fn(),
     updateMailAutomationCandidateRecipients: jest.fn(),
     sendSelectedMailAutomation: jest.fn(),
+    scheduleSelectedMailAutomation: jest.fn(),
   },
 }));
 
@@ -22,7 +23,7 @@ const campaignState = {
   daily_limit: 30,
   send_window_start: '09:00',
   send_window_end: '15:00',
-  send_interval_minutes: 10,
+  send_interval_minutes: 5,
   workdays: [1, 2, 3, 4, 5],
   report_enabled: true,
   report_time: '16:00',
@@ -65,6 +66,10 @@ beforeEach(() => {
   commercialApi.decideMailAutomationCandidates.mockResolvedValue(campaignState);
   commercialApi.updateMailAutomationCandidateRecipients.mockResolvedValue(campaignState);
   commercialApi.sendSelectedMailAutomation.mockResolvedValue({ sent_count: 1, failed_count: 0 });
+  commercialApi.scheduleSelectedMailAutomation.mockResolvedValue({
+    ...campaignState,
+    schedule: { scheduled_count: 1, already_scheduled_count: 0, rejected_count: 0 },
+  });
 });
 
 test('normalizira novi i prethodni oblik odgovora te uklanja već poslane kandidate', () => {
@@ -122,7 +127,7 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
   expect(screen.getByLabelText('Komitenata dnevno')).toHaveValue(30);
   expect(screen.getByLabelText('Početak slanja')).toHaveValue('09:00');
   expect(screen.getByLabelText('Kraj slanja')).toHaveValue('15:00');
-  expect(screen.getByLabelText('Razmak poruka (min)')).toHaveAttribute('min', '10');
+  expect(screen.getByLabelText('Razmak poruka (min)')).toHaveAttribute('min', '5');
   expect(screen.getByRole('checkbox', { name: 'Samo radnim danima' })).toBeChecked();
   expect(screen.getByRole('checkbox', { name: 'Dnevni izvještaj' })).toBeChecked();
   expect(screen.getByLabelText('Vrijeme izvještaja')).toHaveValue('16:00');
@@ -137,7 +142,7 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
   expect(screen.getAllByText('a@example.ba').length).toBeGreaterThan(0);
   expect(screen.getAllByText('CC: nabavka@example.ba').length).toBeGreaterThan(0);
   expect(screen.getAllByRole('button', { name: /Uredi primaoce za/ }).length).toBeGreaterThanOrEqual(2);
-  expect(screen.getByRole('button', { name: 'Pošalji odobrene sada (0)' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Zakaži odobrene (0)' })).toBeDisabled();
   expect(screen.getAllByText('ČEKA ODLUKU').length).toBeGreaterThan(0);
   expect(screen.getAllByText('ODOBRENO').length).toBeGreaterThan(0);
   expect(screen.getByText(/Mail se ne šalje klikom na „Odobri“/)).toBeInTheDocument();
@@ -173,7 +178,7 @@ test('sprema kompletne parametre automatskog slanja bez diranja ručnog workflow
   expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
 });
 
-test('ne sprema neispravan period ili razmak kraći od deset minuta', async () => {
+test('ne sprema neispravan period ili razmak kraći od pet minuta', async () => {
   renderCampaign();
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
 
@@ -184,11 +189,11 @@ test('ne sprema neispravan period ili razmak kraći od deset minuta', async () =
 
   fireEvent.change(screen.getByLabelText('Početak slanja'), { target: { value: '09:00' } });
   fireEvent.change(screen.getByLabelText('Kraj slanja'), { target: { value: '15:00' } });
-  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '9' } });
+  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '4' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
-  expect(await screen.findByText('Razmak poruka mora biti između 10 i 60 minuta.')).toBeInTheDocument();
+  expect(await screen.findByText('Razmak poruka mora biti između 5 i 60 minuta.')).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '10' } });
+  fireEvent.change(screen.getByLabelText('Razmak poruka (min)'), { target: { value: '5' } });
   fireEvent.change(screen.getByLabelText('Vrijeme izvještaja'), { target: { value: '14:00' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj automatsko slanje' }));
   expect(await screen.findByText('Vrijeme izvještaja mora biti nakon završetka slanja.')).toBeInTheDocument();
@@ -297,7 +302,7 @@ test('neuspjelo slanje mora se ponovo odobriti prije novog pokušaja', async () 
 
   fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent Greška' })[0]);
   expect(screen.getAllByText('PONOVO ODOBRI').length).toBeGreaterThan(0);
-  expect(screen.getByRole('button', { name: 'Pošalji odobrene sada (0)' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Zakaži odobrene (0)' })).toBeDisabled();
   expect(screen.getAllByRole('button', { name: 'Odobri Komitent Greška' })[0]).toBeEnabled();
 });
 
@@ -322,7 +327,7 @@ test('grupno odobrava i ne odobrava označene bez automatskog slanja', async () 
   expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
 });
 
-test('šalje samo označene i odobrene račune nakon potvrde te osvježava CRM', async () => {
+test('zakazuje samo označene i odobrene račune nakon potvrde te osvježava CRM', async () => {
   const onChanged = jest.fn();
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
   renderCampaign({ onChanged });
@@ -330,27 +335,29 @@ test('šalje samo označene i odobrene račune nakon potvrde te osvježava CRM',
 
   fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent A' })[0]);
   fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent B' })[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Pošalji odobrene sada (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Zakaži odobrene (1)' }));
 
-  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['account-2']));
+  await waitFor(() => expect(commercialApi.scheduleSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['account-2']));
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
   expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('sales@s-consulting.ba'));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
-  expect(commercialApi.getMailAutomation).toHaveBeenCalledTimes(2);
+  expect(commercialApi.getMailAutomation).toHaveBeenCalledTimes(1);
   confirmSpy.mockRestore();
 });
 
-test('odustajanje u potvrdi ne šalje nijedan mail', async () => {
+test('odustajanje u potvrdi ne zakazuje nijedan mail', async () => {
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
   renderCampaign();
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
   fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent B' })[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Pošalji odobrene sada (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Zakaži odobrene (1)' }));
 
+  expect(commercialApi.scheduleSelectedMailAutomation).not.toHaveBeenCalled();
   expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
   confirmSpy.mockRestore();
 });
 
-test('više kandidata šalje pojedinačno, nastavlja poslije greške i prikazuje zbirni rezultat', async () => {
+test('više kandidata zakazuje jednim pozivom i prikazuje zbirni rezultat', async () => {
   const onChanged = jest.fn();
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
   const allApprovedState = {
@@ -361,19 +368,20 @@ test('više kandidata šalje pojedinačno, nastavlja poslije greške i prikazuje
     },
   };
   commercialApi.getMailAutomation.mockResolvedValue(allApprovedState);
-  commercialApi.sendSelectedMailAutomation
-    .mockRejectedValueOnce(new Error('Privremena greška'))
-    .mockResolvedValueOnce({ sent_count: 1, failed_count: 0 });
+  commercialApi.scheduleSelectedMailAutomation.mockResolvedValue({
+    ...allApprovedState,
+    schedule: { scheduled_count: 2, already_scheduled_count: 0, rejected_count: 0 },
+  });
   renderCampaign({ onChanged });
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Označi sve kandidate' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Pošalji odobrene sada (2)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Zakaži odobrene (2)' }));
 
-  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledTimes(2));
-  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(1, 'VISIOCAST', ['account-1']);
-  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(2, 'VISIOCAST', ['account-2']);
+  await waitFor(() => expect(commercialApi.scheduleSelectedMailAutomation).toHaveBeenCalledTimes(1));
+  expect(commercialApi.scheduleSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['account-1', 'account-2']);
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
   expect(confirmSpy).toHaveBeenCalledTimes(1);
-  expect(await screen.findByText(/Slanje završeno: poslano 1, neuspjelo 1/)).toBeInTheDocument();
+  expect(await screen.findByText(/Zakazano 2, preskočeno 0/)).toBeInTheDocument();
   expect(onChanged).toHaveBeenCalledTimes(1);
   confirmSpy.mockRestore();
 });

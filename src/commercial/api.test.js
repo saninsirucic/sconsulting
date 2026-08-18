@@ -62,3 +62,15 @@ test('grupno odobrava samo izričito označene dnevne assignment ID-jeve', async
     decision: 'APPROVED',
   });
 });
+
+test('zakazuje odobrene mailove jednim sigurnosno potvrđenim pozivom', async () => {
+  await commercialApi.scheduleSelectedMailAutomation('FS_APP', ['account-2', 'account-7']);
+
+  const [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/brands/FS_APP/mail-automation/schedule-selected');
+  expect(options.method).toBe('POST');
+  expect(JSON.parse(options.body)).toEqual({
+    account_ids: ['account-2', 'account-7'],
+    confirm: true,
+  });
+});

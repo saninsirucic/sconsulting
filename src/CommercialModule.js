@@ -303,13 +303,13 @@ function isDailyBulkApprovable(assignment) {
   return Boolean(dailyAssignmentId(assignment))
     && Boolean(dailyAssignmentEmail(assignment))
     && !['APPROVED', 'COMPLETED', 'OBRADJEN', 'DONE', 'SKIPPED', 'SENT', 'SENDING'].includes(status)
-    && !['SENT', 'SENDING', 'SKIPPED'].includes(queueStatus);
+    && !['SCHEDULED', 'SENT', 'SENDING', 'SKIPPED'].includes(queueStatus);
 }
 
 function hasSendableDailyMail(assignment) {
   const queueStatus = dailyMailQueueStatus(assignment);
   return Boolean(dailyAssignmentEmail(assignment))
-    && !['SENT', 'SENDING', 'SKIPPED', 'NOT_APPROVED'].includes(queueStatus);
+    && !['SCHEDULED', 'SENT', 'SENDING', 'SKIPPED', 'NOT_APPROVED'].includes(queueStatus);
 }
 
 function dailyApprovalLabel(status) {
@@ -323,6 +323,7 @@ function dailyApprovalLabel(status) {
 
 function dailyMailQueueLabel(status) {
   if (status === 'SENT') return 'MAIL POSLAN';
+  if (status === 'SCHEDULED') return 'ZAKAZANO • SVAKIH 5 MIN';
   if (status === 'SENDING') return 'SLANJE U TOKU';
   if (status === 'FAILED') return 'SLANJE NIJE USPJELO';
   if (status === 'APPROVED') return 'SPREMNO ZA SLANJE';
@@ -461,7 +462,6 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sendingMode, setSendingMode] = useState('');
-  const [sendProgress, setSendProgress] = useState(null);
   const [mailSummary, setMailSummary] = useState(null);
   const [sentAssignmentIds, setSentAssignmentIds] = useState(() => new Set());
   const [selectedAssignmentIds, setSelectedAssignmentIds] = useState(() => new Set());
@@ -582,8 +582,8 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
     if (!assignmentIds.length) return;
     const brandName = data?.brand?.name || brandCode;
     const confirmed = window.confirm(includeLegacyCompleted
-      ? `Ovih ${assignmentIds.length} ${assignmentIds.length === 1 ? 'stari zeleni red' : 'starih zelenih redova'} iz ranije verzije bit će samo za ovo slanje tretirano kao odobreno. Poslati mailove za ${brandName}?`
-      : `Poslati ${assignmentIds.length} ${assignmentIds.length === 1 ? 'odobreni mail' : 'odobrenih mailova'} za ${brandName}? Poslat će se isključivo komitenti sa statusom ODOBRENO i ispravnom glavnom email adresom.`
+      ? `Ovih ${assignmentIds.length} ${assignmentIds.length === 1 ? 'stari zeleni red' : 'starih zelenih redova'} bit će odobreno i zakazano. Server šalje jednu poruku svakih 5 minuta, a browser ne mora ostati otvoren. Nastaviti za ${brandName}?`
+      : `Zakazati ${assignmentIds.length} ${assignmentIds.length === 1 ? 'odobreni mail' : 'odobrenih mailova'} za ${brandName}? Server šalje jednu poruku svakih 5 minuta i samo komitentima sa statusom ODOBRENO.`
     );
     if (!confirmed) return;
 
@@ -605,9 +605,9 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
         : Math.max(0, assignmentIds.length - accountIds.length);
 
       if (!accountIds.length) {
-        setMailSummary({ sent: 0, failed: 0, skipped: Math.max(skipped, assignmentIds.length) });
+        setMailSummary({ scheduled: 0, rejected: 0, skipped: Math.max(skipped, assignmentIds.length) });
         toast({
-          title: 'Nema novih odobrenih mailova za slanje.',
+          title: 'Nema novih odobrenih mailova za zakazivanje.',
           description: 'Neodobreni, već poslani i komitenti bez ispravne email adrese su preskočeni.',
           status: 'info',
           position: 'top-right',
@@ -616,45 +616,29 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
         return;
       }
 
-      let sent = 0;
-      let failed = 0;
-      for (let index = 0; index < accountIds.length; index += 1) {
-        setSendProgress({ current: index + 1, total: accountIds.length });
-        try {
-          const result = await commercialApi.sendSelectedMailAutomation(brandCode, [accountIds[index]]);
-          const failedCount = Number(result?.failed_count ?? result?.summary?.failed ?? 0);
-          const resultFailed = result?.success === false
-            || String(result?.status || '').toUpperCase() === 'FAILED'
-            || failedCount > 0
-            || (Array.isArray(result?.results) && result.results.some((item) => String(item.status || '').toUpperCase() === 'FAILED'));
-          if (resultFailed) failed += 1;
-          else sent += 1;
-        } catch (requestError) {
-          failed += 1;
-        }
-      }
-
-      if (sent > 0 && failed === 0) {
-        setSentAssignmentIds((current) => new Set([...current, ...(importedAssignmentIds.length ? importedAssignmentIds : assignmentIds)]));
-      }
-      setMailSummary({ sent, failed, skipped });
+      const scheduleResult = await commercialApi.scheduleSelectedMailAutomation(brandCode, accountIds);
+      const schedule = scheduleResult?.schedule || {};
+      const scheduled = Number(schedule.scheduled_count || 0) + Number(schedule.already_scheduled_count || 0);
+      const rejected = Number(schedule.rejected_count || 0);
+      setSentAssignmentIds((current) => new Set([
+        ...current,
+        ...(importedAssignmentIds.length ? importedAssignmentIds : assignmentIds)
+      ]));
+      setMailSummary({ scheduled, rejected, skipped });
       toast({
-        title: failed ? `Poslano ${sent}, neuspjelo ${failed}.` : `Uspješno poslano: ${sent}.`,
-        description: skipped
-          ? `Automatski preskočeno: ${skipped}.`
-          : includeLegacyCompleted
-            ? 'Poslani su samo posebno potvrđeni redovi iz ranije verzije.'
-            : 'Poslani su samo komitenti sa statusom ODOBRENO.',
-        status: failed ? 'warning' : 'success',
+        title: `Zakazano: ${scheduled}.`,
+        description: rejected || skipped
+          ? `Preskočeno: ${rejected + skipped}. Ostale poruke server šalje svakih 5 minuta.`
+          : 'Server šalje jednu poruku svakih 5 minuta. Browser možete zatvoriti.',
+        status: rejected || skipped ? 'warning' : 'success',
         duration: 6000,
         position: 'top-right',
       });
       await load();
       onChanged();
     } catch (requestError) {
-      setError(requestError.message || 'Odobrene mailove trenutno nije moguće poslati.');
+      setError(requestError.message || 'Odobrene mailove trenutno nije moguće zakazati.');
     } finally {
-      setSendProgress(null);
       setSendingMode('');
     }
   };
@@ -676,10 +660,10 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
               colorScheme="green"
               isDisabled={readyAssignments.length === 0 || Boolean(sendingMode)}
               isLoading={sendingMode === 'approved'}
-              loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}` : 'Priprema'}
+              loadingText="Zakazujem"
               onClick={() => sendApproved(readyAssignments)}
             >
-              Pošalji odobrene ({readyAssignments.length})
+              Zakaži odobrene ({readyAssignments.length})
             </Button>
             <Button minH="44px" w={{ base: 'full', sm: 'auto' }} size="sm" leftIcon={items.length ? <FaRedo /> : <FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} isLoading={creating} onClick={create}>{items.length ? 'Dopuni listu' : 'Pripremi današnju listu'}</Button>
           </Flex>
@@ -687,7 +671,7 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
         {items.length > 0 && (
           <Box mb={4} p={3} border="1px solid" borderColor="green.200" bg="green.50" borderRadius="lg">
             <Text fontSize="sm" color="green.800">
-              Glavno dugme šalje isključivo komitente sa statusom <strong>ODOBRENO</strong>. Status „Ranije obrađeno“ se ovdje ne smatra odobrenjem za mail.
+              Glavno dugme zakazuje isključivo komitente sa statusom <strong>ODOBRENO</strong>. Server zatim šalje jednu poruku svakih 5 minuta. Status „Ranije obrađeno“ se ovdje ne smatra odobrenjem za mail.
             </Text>
             {approvedWithoutEmail > 0 && <Text mt={1} fontSize="xs" color="orange.700">Odobreno bez ispravne glavne email adrese: {approvedWithoutEmail} — automatski se preskače.</Text>}
           </Box>
@@ -718,7 +702,7 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
             <Flex align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }} gap={3}>
               <Box>
                 <Text fontWeight="semibold" color="blue.800">Ranije označeni redovi iz stare verzije: {legacyCompleted.length}</Text>
-                <Text mt={1} fontSize="sm" color="blue.700">Ovi redovi nisu automatski odobreni. Možete ih jednokratno i izričito potvrditi za slanje.</Text>
+                <Text mt={1} fontSize="sm" color="blue.700">Ovi redovi nisu automatski odobreni. Možete ih jednokratno i izričito potvrditi za zakazivanje.</Text>
                 {legacyWithoutEmail > 0 && <Text mt={1} fontSize="xs" color="orange.700">Bez ispravne glavne email adrese: {legacyWithoutEmail} — neće biti poslano.</Text>}
               </Box>
               <Button
@@ -729,19 +713,19 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
                 variant="outline"
                 isDisabled={legacyReadyAssignments.length === 0 || Boolean(sendingMode)}
                 isLoading={sendingMode === 'legacy'}
-                loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}` : 'Priprema'}
+                loadingText="Zakazujem"
                 onClick={() => sendApproved(legacyReadyAssignments, { includeLegacyCompleted: true })}
               >
-                Potvrdi i pošalji ranije označene ({legacyReadyAssignments.length})
+                Potvrdi i zakaži ranije označene ({legacyReadyAssignments.length})
               </Button>
             </Flex>
           </Box>
         )}
         {mailSummary && (
-          <Alert status={mailSummary.failed ? 'warning' : 'success'} borderRadius="lg" mb={4}>
+          <Alert status={mailSummary.rejected || mailSummary.skipped ? 'warning' : 'success'} borderRadius="lg" mb={4}>
             <AlertIcon />
             <AlertDescription>
-              Slanje završeno: poslano {mailSummary.sent}, neuspjelo {mailSummary.failed}, preskočeno {mailSummary.skipped}.
+              Zakazano {mailSummary.scheduled}, preskočeno {(mailSummary.rejected || 0) + (mailSummary.skipped || 0)}. Server šalje jednu poruku svakih 5 minuta.
             </AlertDescription>
           </Alert>
         )}

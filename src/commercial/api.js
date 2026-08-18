@@ -50,6 +50,10 @@ export const commercialApi = {
     method: 'POST',
     body: { account_ids: accountIds, confirm: true },
   }),
+  scheduleSelectedMailAutomation: (code, accountIds) => apiRequest(`${brandPath(code)}/mail-automation/schedule-selected`, {
+    method: 'POST',
+    body: { account_ids: accountIds, confirm: true },
+  }),
   pauseMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/pause`, { method: 'POST' }),
   sendNextMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/send-next`, { method: 'POST', body: { confirm: true } }),
 };
