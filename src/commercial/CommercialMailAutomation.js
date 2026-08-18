@@ -34,6 +34,7 @@ import {
 import { FaCheck, FaEnvelope, FaPaperPlane, FaPaperclip, FaRedo, FaSave, FaTimes, FaTrash } from 'react-icons/fa';
 import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL } from '../outlook/signature';
 import { commercialApi } from './api';
+import MailRecipientsEditor, { normalizeCcEmails } from './MailRecipientsEditor';
 
 const SENDER_EMAIL = 'sales@s-consulting.ba';
 const DAILY_LIMIT = 30;
@@ -116,6 +117,7 @@ function normalizeCandidate(item, index) {
     status,
     comment: item?.comment || account.comment || '',
     last_error: item?.last_error || item?.error || '',
+    cc_emails: normalizeCcEmails(item?.cc_emails || item?.ccEmails || account.cc_emails),
   };
 }
 
@@ -1029,6 +1031,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                                 <Td maxW="420px" py={4}>
                                   <Text fontWeight="bold" whiteSpace="normal" overflowWrap="anywhere">{candidate.name}</Text>
                                   <Text mt={1} fontSize="sm" color="gray.600" whiteSpace="normal" overflowWrap="anywhere">{candidate.email || 'Nema mail adrese'}</Text>
+                                  {candidate.cc_emails.length > 0 && <Text mt={1} fontSize="xs" color="blue.600" whiteSpace="normal" overflowWrap="anywhere">CC: {candidate.cc_emails.join(', ')}</Text>}
                                   {candidate.comment && <Text mt={1} fontSize="xs" color="gray.500" whiteSpace="normal" noOfLines={2}>{candidate.comment}</Text>}
                                 </Td>
                                 <Td py={4}>
@@ -1036,34 +1039,45 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                                   {candidate.last_error && <Text mt={2} fontSize="xs" color="red.600" whiteSpace="normal">{candidate.last_error}</Text>}
                                 </Td>
                                 <Td py={3}>
-                                  <HStack spacing={2}>
-                                    <Button
-                                      aria-label={`Odobri ${candidate.name}`}
-                                      minH="42px"
-                                      minW="108px"
-                                      leftIcon={<FaCheck />}
-                                      colorScheme="green"
-                                      variant={approved ? 'solid' : 'outline'}
-                                      isDisabled={disabled || approved || isDeciding}
-                                      isLoading={busy === `decision:APPROVED:${candidate.id}`}
-                                      onClick={() => decideCandidates([candidate.account_id], 'APPROVED', candidate.id)}
-                                    >
-                                      {approved ? 'Odobreno' : 'Odobri'}
-                                    </Button>
-                                    <Button
-                                      aria-label={`Ne odobri ${candidate.name}`}
-                                      minH="42px"
-                                      minW="112px"
-                                      leftIcon={<FaTimes />}
-                                      colorScheme="red"
-                                      variant="outline"
-                                      isDisabled={disabled || isDeciding}
-                                      isLoading={busy === `decision:REJECTED:${candidate.id}`}
-                                      onClick={() => decideCandidates([candidate.account_id], 'REJECTED', candidate.id)}
-                                    >
-                                      Ne odobri
-                                    </Button>
-                                  </HStack>
+                                  <VStack align="stretch" spacing={1}>
+                                    <HStack spacing={2}>
+                                      <Button
+                                        aria-label={`Odobri ${candidate.name}`}
+                                        minH="42px"
+                                        minW="108px"
+                                        leftIcon={<FaCheck />}
+                                        colorScheme="green"
+                                        variant={approved ? 'solid' : 'outline'}
+                                        isDisabled={disabled || approved || isDeciding}
+                                        isLoading={busy === `decision:APPROVED:${candidate.id}`}
+                                        onClick={() => decideCandidates([candidate.account_id], 'APPROVED', candidate.id)}
+                                      >
+                                        {approved ? 'Odobreno' : 'Odobri'}
+                                      </Button>
+                                      <Button
+                                        aria-label={`Ne odobri ${candidate.name}`}
+                                        minH="42px"
+                                        minW="112px"
+                                        leftIcon={<FaTimes />}
+                                        colorScheme="red"
+                                        variant="outline"
+                                        isDisabled={disabled || isDeciding}
+                                        isLoading={busy === `decision:REJECTED:${candidate.id}`}
+                                        onClick={() => decideCandidates([candidate.account_id], 'REJECTED', candidate.id)}
+                                      >
+                                        Ne odobri
+                                      </Button>
+                                    </HStack>
+                                    <MailRecipientsEditor
+                                      brandCode={brandCode}
+                                      accountId={candidate.account_id}
+                                      toEmail={candidate.email}
+                                      ccEmails={candidate.cc_emails}
+                                      requiresReapproval={candidate.status === 'APPROVED'}
+                                      onSaved={(result) => result ? applyState(result) : load({ syncForm: false, showSpinner: false })}
+                                      triggerProps={{ 'aria-label': `Uredi primaoce za ${candidate.name}`, size: 'sm', alignSelf: 'flex-start', px: 1 }}
+                                    />
+                                  </VStack>
                                 </Td>
                               </Tr>
                             );
@@ -1094,6 +1108,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                               <Badge flexShrink={0} colorScheme={candidateStatusColor(candidate.status)} px={2} py={1} borderRadius="md">{STATUS_LABELS[candidate.status] || candidate.status}</Badge>
                             </Flex>
                             <Text mt={3} fontSize="sm" color="gray.700" overflowWrap="anywhere">{candidate.email || 'Nema mail adrese'}</Text>
+                            {candidate.cc_emails.length > 0 && <Text mt={1} fontSize="xs" color="blue.600" overflowWrap="anywhere">CC: {candidate.cc_emails.join(', ')}</Text>}
                             {candidate.comment && <Text mt={2} fontSize="xs" color="gray.500">{candidate.comment}</Text>}
                             {candidate.last_error && <Text mt={2} fontSize="xs" color="red.600">{candidate.last_error}</Text>}
                             <SimpleGrid columns={2} spacing={2} mt={4}>
@@ -1122,6 +1137,15 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                                 Ne odobri
                               </Button>
                             </SimpleGrid>
+                            <MailRecipientsEditor
+                              brandCode={brandCode}
+                              accountId={candidate.account_id}
+                              toEmail={candidate.email}
+                              ccEmails={candidate.cc_emails}
+                              requiresReapproval={candidate.status === 'APPROVED'}
+                              onSaved={(result) => result ? applyState(result) : load({ syncForm: false, showSpinner: false })}
+                              triggerProps={{ 'aria-label': `Uredi primaoce za ${candidate.name}`, w: 'full', minH: '44px', mt: 2 }}
+                            />
                           </Box>
                         );
                       })}

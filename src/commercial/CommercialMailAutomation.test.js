@@ -9,6 +9,7 @@ jest.mock('./api', () => ({
     updateMailAutomation: jest.fn(),
     prepareMailAutomation: jest.fn(),
     decideMailAutomationCandidates: jest.fn(),
+    updateMailAutomationCandidateRecipients: jest.fn(),
     sendSelectedMailAutomation: jest.fn(),
   },
 }));
@@ -37,7 +38,7 @@ const campaignState = {
     sent_count: 2,
     failed_count: 0,
     candidates: [
-      { account_id: 'account-1', name: 'Komitent A', email: 'a@example.ba', status: 'PENDING' },
+      { account_id: 'account-1', name: 'Komitent A', email: 'a@example.ba', cc_emails: ['nabavka@example.ba'], status: 'PENDING' },
       { account_id: 'account-2', name: 'Komitent B', email: 'b@example.ba', status: 'APPROVED' },
     ],
   },
@@ -62,6 +63,7 @@ beforeEach(() => {
   commercialApi.updateMailAutomation.mockResolvedValue(campaignState);
   commercialApi.prepareMailAutomation.mockResolvedValue(campaignState);
   commercialApi.decideMailAutomationCandidates.mockResolvedValue(campaignState);
+  commercialApi.updateMailAutomationCandidateRecipients.mockResolvedValue(campaignState);
   commercialApi.sendSelectedMailAutomation.mockResolvedValue({ sent_count: 1, failed_count: 0 });
 });
 
@@ -133,6 +135,8 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
   expect(screen.getByText('ponuda.pdf')).toBeInTheDocument();
   expect(screen.getAllByText('Komitent A').length).toBeGreaterThan(0);
   expect(screen.getAllByText('a@example.ba').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('CC: nabavka@example.ba').length).toBeGreaterThan(0);
+  expect(screen.getAllByRole('button', { name: /Uredi primaoce za/ }).length).toBeGreaterThanOrEqual(2);
   expect(screen.getByRole('button', { name: 'Pošalji odobrene sada (0)' })).toBeDisabled();
   expect(screen.getAllByText('ČEKA ODLUKU').length).toBeGreaterThan(0);
   expect(screen.getAllByText('ODOBRENO').length).toBeGreaterThan(0);
@@ -230,6 +234,39 @@ test('odbija prilog veći od Microsoft Graph limita od 2,5 MB', async () => {
 
   expect(await screen.findByText('Prilog može imati najviše 2,5 MB.')).toBeInTheDocument();
   expect(commercialApi.updateMailAutomation).not.toHaveBeenCalled();
+});
+
+test('uređuje CC primaoce uz read-only Za, validaciju i bez slanja maila', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Uredi primaoce za Komitent B' })[0]);
+
+  expect(screen.getByRole('dialog', { name: 'Uredi primaoce maila' })).toBeInTheDocument();
+  expect(screen.getByLabelText('Glavni primalac')).toHaveValue('b@example.ba');
+  expect(screen.getByLabelText('Glavni primalac')).toHaveAttribute('readonly');
+  expect(screen.getByLabelText('CC adrese')).toHaveValue('');
+  expect(screen.getByText(/svi CC primaoci mogu vidjeti ostale adrese/)).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('CC adrese'), { target: { value: 'pogresna-adresa' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
+  expect(await screen.findByText('Neispravna CC adresa: pogresna-adresa')).toBeInTheDocument();
+  expect(commercialApi.updateMailAutomationCandidateRecipients).not.toHaveBeenCalled();
+
+  const tooMany = Array.from({ length: 11 }, (_, index) => `cc${index + 1}@firma.ba`).join(', ');
+  fireEvent.change(screen.getByLabelText('CC adrese'), { target: { value: tooMany } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
+  expect(await screen.findByText('Možete unijeti najviše 10 CC adresa.')).toBeInTheDocument();
+  expect(commercialApi.updateMailAutomationCandidateRecipients).not.toHaveBeenCalled();
+
+  fireEvent.change(screen.getByLabelText('CC adrese'), { target: { value: 'nabavka@firma.ba, direktor@firma.ba\nNABAVKA@FIRMA.BA' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
+  await waitFor(() => expect(commercialApi.updateMailAutomationCandidateRecipients).toHaveBeenCalledWith(
+    'VISIOCAST',
+    'account-2',
+    ['nabavka@firma.ba', 'direktor@firma.ba']
+  ));
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+  expect(await screen.findByText('Zbog promjene CC-a prijedlog treba ponovo odobriti.')).toBeInTheDocument();
 });
 
 test('pojedinačno odobrenje samo mijenja odluku i ne šalje mail', async () => {

@@ -55,6 +55,7 @@ import {
   FaChevronUp,
   FaEdit,
   FaExchangeAlt,
+  FaPaperPlane,
   FaPlus,
   FaRedo,
   FaSearch,
@@ -63,6 +64,7 @@ import {
 } from 'react-icons/fa';
 import { commercialApi } from './commercial/api';
 import CommercialMailAutomation from './commercial/CommercialMailAutomation';
+import MailRecipientsEditor, { normalizeCcEmails } from './commercial/MailRecipientsEditor';
 import {
   BRAND_DEFINITIONS,
   CRM_STATUSES,
@@ -254,19 +256,73 @@ function TransferRecordModal({ isOpen, onClose, record, currentBrand, brands, on
   );
 }
 
-function DailyAssignmentRow({ assignment, onUpdated }) {
-  const record = assignment.record || assignment.account || assignment.commercial_record || assignment;
+function dailyAssignmentRecord(assignment) {
+  return assignment.record || assignment.account || assignment.commercial_record || assignment;
+}
+
+function dailyAssignmentStatus(assignment) {
+  return String(assignment.assignment_status || assignment.status || 'PENDING').toUpperCase();
+}
+
+function isDailyMailApproved(assignment) {
+  return ['APPROVED', 'COMPLETED', 'OBRADJEN', 'DONE'].includes(dailyAssignmentStatus(assignment));
+}
+
+function dailyAssignmentEmail(assignment) {
+  const record = dailyAssignmentRecord(assignment);
+  const email = String(recordValue(record, 'email', 'raw_mail', 'mail') || '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email) ? email : '';
+}
+
+function dailyMailQueueStatus(assignment) {
+  return String(assignment.mail_queue_status || assignment.mail_status || assignment.campaign_status || '').toUpperCase();
+}
+
+function dailyAssignmentCcEmails(assignment) {
+  const record = dailyAssignmentRecord(assignment);
+  return normalizeCcEmails(assignment.cc_emails || assignment.ccEmails || record.cc_emails || record.ccEmails);
+}
+
+function dailyAssignmentAccountId(assignment) {
+  const record = dailyAssignmentRecord(assignment);
+  return record.id || assignment.account_id || assignment.accountId || assignment.crm_account_id;
+}
+
+function isDailyMailReady(assignment) {
+  const queueStatus = dailyMailQueueStatus(assignment);
+  return isDailyMailApproved(assignment)
+    && Boolean(dailyAssignmentEmail(assignment))
+    && !['SENT', 'SENDING', 'SKIPPED', 'NOT_APPROVED'].includes(queueStatus);
+}
+
+function dailyApprovalLabel(status) {
+  if (['APPROVED', 'COMPLETED', 'OBRADJEN', 'DONE'].includes(status)) return 'ODOBRENO';
+  if (status === 'SKIPPED') return 'PRESKOČENO';
+  return 'ČEKA ODLUKU';
+}
+
+function dailyMailQueueLabel(status) {
+  if (status === 'SENT') return 'MAIL POSLAN';
+  if (status === 'SENDING') return 'SLANJE U TOKU';
+  if (status === 'FAILED') return 'SLANJE NIJE USPJELO';
+  if (status === 'APPROVED') return 'SPREMNO ZA SLANJE';
+  return '';
+}
+
+function DailyAssignmentRow({ assignment, brandCode, onUpdated, onRecipientsSaved }) {
+  const record = dailyAssignmentRecord(assignment);
   const assignmentId = assignment.id || assignment.assignment_id;
   const [notes, setNotes] = useState(assignment.notes || assignment.assignment_notes || '');
   const [working, setWorking] = useState('');
   const toast = useToast();
-  const status = assignment.assignment_status || assignment.status || 'PENDING';
+  const status = dailyAssignmentStatus(assignment);
+  const approved = isDailyMailApproved(assignment);
 
   const update = async (nextStatus) => {
     setWorking(nextStatus);
     try {
       await commercialApi.updateDailyAssignment(assignmentId, { status: nextStatus, notes });
-      toast({ title: nextStatus === 'COMPLETED' ? 'Komitent je označen kao obrađen.' : 'Komitent je preskočen.', status: 'success', position: 'top-right' });
+      toast({ title: nextStatus === 'APPROVED' ? 'Komitent je odobren za mail.' : 'Komitent je preskočen.', status: 'success', position: 'top-right' });
       onUpdated();
     } catch (error) {
       toast({ title: error.message, status: 'error', position: 'top-right' });
@@ -276,33 +332,50 @@ function DailyAssignmentRow({ assignment, onUpdated }) {
   };
 
   return (
-    <Tr bg={status === 'COMPLETED' ? 'green.50' : status === 'SKIPPED' ? 'gray.50' : 'white'}>
+    <Tr bg={approved ? 'green.50' : status === 'SKIPPED' ? 'gray.50' : 'white'}>
       <Td><Text fontWeight="semibold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text></Td>
-      <Td>{recordValue(record, 'email', 'raw_mail', 'mail') || '—'}</Td>
-      <Td><Badge colorScheme={status === 'COMPLETED' ? 'green' : status === 'SKIPPED' ? 'gray' : 'orange'}>{displayStatus(status)}</Badge></Td>
+      <Td>
+        <Text overflowWrap="anywhere">{recordValue(record, 'email', 'raw_mail', 'mail') || '—'}</Text>
+        {dailyAssignmentCcEmails(assignment).length > 0 && <Text mt={1} fontSize="xs" color="blue.600" overflowWrap="anywhere">CC: {dailyAssignmentCcEmails(assignment).join(', ')}</Text>}
+      </Td>
+      <Td>
+        <Badge colorScheme={approved ? 'green' : status === 'SKIPPED' ? 'gray' : 'orange'}>{dailyApprovalLabel(status)}</Badge>
+        {dailyMailQueueLabel(dailyMailQueueStatus(assignment)) && <Badge display="block" mt={1} w="fit-content" colorScheme={dailyMailQueueStatus(assignment) === 'FAILED' ? 'red' : 'blue'}>{dailyMailQueueLabel(dailyMailQueueStatus(assignment))}</Badge>}
+      </Td>
       <Td minW="230px"><Input size="sm" aria-label="Napomena za dnevni kontakt" placeholder="Napomena" value={notes} onChange={(event) => setNotes(event.target.value)} /></Td>
       <Td>
-        <HStack>
-          <Button size="xs" leftIcon={<FaCheck />} colorScheme="green" isDisabled={status === 'COMPLETED'} isLoading={working === 'COMPLETED'} onClick={() => update('COMPLETED')}>Obrađeno</Button>
-          <Button size="xs" variant="outline" isDisabled={status === 'SKIPPED'} isLoading={working === 'SKIPPED'} onClick={() => update('SKIPPED')}>Preskoči</Button>
-        </HStack>
+        <VStack align="stretch" spacing={1}>
+          <HStack>
+            <Button size="sm" minH="40px" leftIcon={<FaCheck />} colorScheme="green" isDisabled={approved} isLoading={working === 'APPROVED'} onClick={() => update('APPROVED')}>{approved ? 'Odobreno' : 'Odobri za mail'}</Button>
+            <Button size="sm" minH="40px" variant="outline" isDisabled={status === 'SKIPPED'} isLoading={working === 'SKIPPED'} onClick={() => update('SKIPPED')}>Preskoči</Button>
+          </HStack>
+          <MailRecipientsEditor
+            brandCode={brandCode}
+            accountId={dailyAssignmentAccountId(assignment)}
+            toEmail={dailyAssignmentEmail(assignment)}
+            ccEmails={dailyAssignmentCcEmails(assignment)}
+            onSaved={onRecipientsSaved}
+            triggerProps={{ 'aria-label': `Uredi primaoce za ${recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'komitenta'}`, size: 'sm', alignSelf: 'flex-start', px: 1 }}
+          />
+        </VStack>
       </Td>
     </Tr>
   );
 }
 
-function DailyAssignmentCard({ assignment, onUpdated }) {
-  const record = assignment.record || assignment.account || assignment.commercial_record || assignment;
+function DailyAssignmentCard({ assignment, brandCode, onUpdated, onRecipientsSaved }) {
+  const record = dailyAssignmentRecord(assignment);
   const assignmentId = assignment.id || assignment.assignment_id;
   const [notes, setNotes] = useState(assignment.notes || assignment.assignment_notes || '');
   const [working, setWorking] = useState('');
   const toast = useToast();
-  const status = assignment.assignment_status || assignment.status || 'PENDING';
+  const status = dailyAssignmentStatus(assignment);
+  const approved = isDailyMailApproved(assignment);
   const update = async (nextStatus) => {
     setWorking(nextStatus);
     try {
       await commercialApi.updateDailyAssignment(assignmentId, { status: nextStatus, notes });
-      toast({ title: nextStatus === 'COMPLETED' ? 'Komitent je označen kao obrađen.' : 'Komitent je preskočen.', status: 'success', position: 'top-right' });
+      toast({ title: nextStatus === 'APPROVED' ? 'Komitent je odobren za mail.' : 'Komitent je preskočen.', status: 'success', position: 'top-right' });
       onUpdated();
     } catch (error) {
       toast({ title: error.message, status: 'error', position: 'top-right' });
@@ -311,15 +384,25 @@ function DailyAssignmentCard({ assignment, onUpdated }) {
     }
   };
   return (
-    <Box border="1px solid" borderColor={status === 'COMPLETED' ? 'green.200' : 'orange.100'} bg={status === 'COMPLETED' ? 'green.50' : 'white'} borderRadius="xl" p={4}>
+    <Box border="1px solid" borderColor={approved ? 'green.200' : 'orange.100'} bg={approved ? 'green.50' : 'white'} borderRadius="xl" p={4}>
       <Flex justify="space-between" gap={3} align="start">
         <Box minW={0}><Text fontWeight="bold">{recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva'}</Text><Text fontSize="xs" color="gray.500">{recordValue(record, 'city', 'address')}</Text></Box>
-        <Badge flexShrink={0} colorScheme={status === 'COMPLETED' ? 'green' : status === 'SKIPPED' ? 'gray' : 'orange'}>{displayStatus(status)}</Badge>
+        <Badge flexShrink={0} colorScheme={approved ? 'green' : status === 'SKIPPED' ? 'gray' : 'orange'}>{dailyApprovalLabel(status)}</Badge>
       </Flex>
+      {dailyMailQueueLabel(dailyMailQueueStatus(assignment)) && <Badge mt={2} w="fit-content" colorScheme={dailyMailQueueStatus(assignment) === 'FAILED' ? 'red' : 'blue'}>{dailyMailQueueLabel(dailyMailQueueStatus(assignment))}</Badge>}
       <Text mt={2} fontSize="sm" overflowWrap="anywhere">{recordValue(record, 'email', 'raw_mail', 'mail') || 'Nema kontakta'}</Text>
+      {dailyAssignmentCcEmails(assignment).length > 0 && <Text mt={1} fontSize="xs" color="blue.600" overflowWrap="anywhere">CC: {dailyAssignmentCcEmails(assignment).join(', ')}</Text>}
+      <MailRecipientsEditor
+        brandCode={brandCode}
+        accountId={dailyAssignmentAccountId(assignment)}
+        toEmail={dailyAssignmentEmail(assignment)}
+        ccEmails={dailyAssignmentCcEmails(assignment)}
+        onSaved={onRecipientsSaved}
+        triggerProps={{ 'aria-label': `Uredi primaoce za ${recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'komitenta'}`, w: 'full', minH: '44px', mt: 2 }}
+      />
       <Input mt={3} size="sm" aria-label="Napomena za dnevni kontakt" placeholder="Napomena" value={notes} onChange={(event) => setNotes(event.target.value)} />
       <SimpleGrid columns={2} spacing={2} mt={3}>
-        <Button minH="40px" size="sm" leftIcon={<FaCheck />} colorScheme="green" isDisabled={status === 'COMPLETED'} isLoading={working === 'COMPLETED'} onClick={() => update('COMPLETED')}>Obrađeno</Button>
+        <Button minH="44px" size="sm" leftIcon={<FaCheck />} colorScheme="green" isDisabled={approved} isLoading={working === 'APPROVED'} onClick={() => update('APPROVED')}>{approved ? 'Odobreno' : 'Odobri za mail'}</Button>
         <Button minH="40px" size="sm" variant="outline" isDisabled={status === 'SKIPPED'} isLoading={working === 'SKIPPED'} onClick={() => update('SKIPPED')}>Preskoči</Button>
       </SimpleGrid>
     </Box>
@@ -327,9 +410,14 @@ function DailyAssignmentCard({ assignment, onUpdated }) {
 }
 
 function DailyPanel({ brandCode, isOpen, onChanged }) {
+  const toast = useToast();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [sendingApproved, setSendingApproved] = useState(false);
+  const [sendProgress, setSendProgress] = useState(null);
+  const [mailSummary, setMailSummary] = useState(null);
+  const [sentAssignmentIds, setSentAssignmentIds] = useState(() => new Set());
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -354,6 +442,10 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   }, [brandCode, isOpen, onChanged]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setSentAssignmentIds(new Set());
+    setMailSummary(null);
+  }, [brandCode]);
 
   const create = async () => {
     setCreating(true);
@@ -369,7 +461,88 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   };
 
   const items = Array.isArray(data) ? data : data?.items || data?.assignments || [];
-  const completed = items.filter((item) => ['COMPLETED', 'OBRADJEN', 'DONE'].includes(item.assignment_status || item.status)).length;
+  const approved = items.filter(isDailyMailApproved);
+  const approvedCount = approved.length;
+  const approvedWithoutEmail = approved.filter((item) => !dailyAssignmentEmail(item)).length;
+  const readyAssignments = items.filter((item) => (
+    isDailyMailReady(item)
+    && !sentAssignmentIds.has(String(item.id || item.assignment_id))
+  ));
+
+  const sendApproved = async () => {
+    const assignmentIds = readyAssignments.map((item) => String(item.id || item.assignment_id));
+    if (!assignmentIds.length) return;
+    const brandName = data?.brand?.name || brandCode;
+    const confirmed = window.confirm(
+      `Poslati ${assignmentIds.length} ${assignmentIds.length === 1 ? 'odobreni mail' : 'odobrenih mailova'} za ${brandName}? Poslat će se samo već odobreni komitenti koji imaju ispravnu glavnu email adresu. Slanje kreće tek nakon ove potvrde.`
+    );
+    if (!confirmed) return;
+
+    setSendingApproved(true);
+    setMailSummary(null);
+    setError('');
+    try {
+      const importResult = await commercialApi.importDailyApprovedMailAutomation(brandCode, assignmentIds);
+      const importMeta = importResult?.import || importResult?.data?.import || {};
+      const accountIds = [...new Set(
+        (importMeta.eligible_account_ids || importMeta.account_ids || []).map((id) => String(id || '').trim()).filter(Boolean)
+      )];
+      const importedAssignmentIds = (importMeta.eligible_assignment_ids || importMeta.assignment_ids || []).map(String);
+      const skippedFromServer = Number(importMeta.skipped_count);
+      const skipped = Number.isFinite(skippedFromServer)
+        ? skippedFromServer
+        : Math.max(0, assignmentIds.length - accountIds.length);
+
+      if (!accountIds.length) {
+        setMailSummary({ sent: 0, failed: 0, skipped: Math.max(skipped, assignmentIds.length) });
+        toast({
+          title: 'Nema novih odobrenih mailova za slanje.',
+          description: 'Neodobreni, već poslani i komitenti bez ispravne email adrese su preskočeni.',
+          status: 'info',
+          position: 'top-right',
+        });
+        await load();
+        return;
+      }
+
+      let sent = 0;
+      let failed = 0;
+      for (let index = 0; index < accountIds.length; index += 1) {
+        setSendProgress({ current: index + 1, total: accountIds.length });
+        try {
+          const result = await commercialApi.sendSelectedMailAutomation(brandCode, [accountIds[index]]);
+          const failedCount = Number(result?.failed_count ?? result?.summary?.failed ?? 0);
+          const resultFailed = result?.success === false
+            || String(result?.status || '').toUpperCase() === 'FAILED'
+            || failedCount > 0
+            || (Array.isArray(result?.results) && result.results.some((item) => String(item.status || '').toUpperCase() === 'FAILED'));
+          if (resultFailed) failed += 1;
+          else sent += 1;
+        } catch (requestError) {
+          failed += 1;
+        }
+      }
+
+      if (sent > 0 && failed === 0) {
+        setSentAssignmentIds((current) => new Set([...current, ...(importedAssignmentIds.length ? importedAssignmentIds : assignmentIds)]));
+      }
+      setMailSummary({ sent, failed, skipped });
+      toast({
+        title: failed ? `Poslano ${sent}, neuspjelo ${failed}.` : `Uspješno poslano: ${sent}.`,
+        description: skipped ? `Automatski preskočeno: ${skipped}.` : 'Poslani su samo već odobreni komitenti.',
+        status: failed ? 'warning' : 'success',
+        duration: 6000,
+        position: 'top-right',
+      });
+      await load();
+      onChanged();
+    } catch (requestError) {
+      setError(requestError.message || 'Odobrene mailove trenutno nije moguće poslati.');
+    } finally {
+      setSendProgress(null);
+      setSendingApproved(false);
+    }
+  };
 
   return (
     <Collapse in={isOpen} animateOpacity>
@@ -379,21 +552,49 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
             <HStack><Icon as={FaCalendarCheck} color={orange} /><Heading size="sm">Današnjih 30 komitenata</Heading></HStack>
             <Text fontSize="sm" color="gray.600" mt={1}>Lista se automatski priprema svaki dan, pamti odabir i sutra predlaže druge komitente.</Text>
           </Box>
-          <HStack flexWrap="wrap">
-            {items.length > 0 && <Badge colorScheme="green" px={3} py={1}>{completed} / {items.length} obrađeno</Badge>}
-            <Button size="sm" leftIcon={items.length ? <FaRedo /> : <FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} isLoading={creating} onClick={create}>{items.length ? 'Dopuni listu' : 'Pripremi današnju listu'}</Button>
-          </HStack>
+          <Flex gap={2} direction={{ base: 'column', sm: 'row' }} flexWrap="wrap" w={{ base: 'full', md: 'auto' }}>
+            {items.length > 0 && <Badge alignSelf={{ base: 'flex-start', sm: 'center' }} colorScheme="green" px={3} py={1}>{approvedCount} / {items.length} odobreno</Badge>}
+            <Button
+              minH="44px"
+              w={{ base: 'full', sm: 'auto' }}
+              leftIcon={<FaPaperPlane />}
+              colorScheme="green"
+              isDisabled={readyAssignments.length === 0}
+              isLoading={sendingApproved}
+              loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}` : 'Priprema'}
+              onClick={sendApproved}
+            >
+              Pošalji odobrene ({readyAssignments.length})
+            </Button>
+            <Button minH="44px" w={{ base: 'full', sm: 'auto' }} size="sm" leftIcon={items.length ? <FaRedo /> : <FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} isLoading={creating} onClick={create}>{items.length ? 'Dopuni listu' : 'Pripremi današnju listu'}</Button>
+          </Flex>
         </Flex>
+        {items.length > 0 && (
+          <Box mb={4} p={3} border="1px solid" borderColor="green.200" bg="green.50" borderRadius="lg">
+            <Text fontSize="sm" color="green.800">
+              Jedan klik šalje samo komitente koji su već označeni kao <strong>ODOBRENO</strong>. Nema ponovnog označavanja u gornjoj kampanji; prije slanja uvijek se prikazuje završna potvrda.
+            </Text>
+            {approvedWithoutEmail > 0 && <Text mt={1} fontSize="xs" color="orange.700">Odobreno bez ispravne glavne email adrese: {approvedWithoutEmail} — automatski se preskače.</Text>}
+          </Box>
+        )}
+        {mailSummary && (
+          <Alert status={mailSummary.failed ? 'warning' : 'success'} borderRadius="lg" mb={4}>
+            <AlertIcon />
+            <AlertDescription>
+              Slanje završeno: poslano {mailSummary.sent}, neuspjelo {mailSummary.failed}, preskočeno {mailSummary.skipped}.
+            </AlertDescription>
+          </Alert>
+        )}
         {error && <ErrorAlert message={error} onRetry={load} />}
         {loading ? <Loading label="Učitavanje dnevne liste..." /> : items.length === 0 ? (
           <EmptyState title="Nema dostupnih komitenata za danas" text="Sistem je automatski pokušao pripremiti listu. Dodajte nove komitente ili provjerite da li su svi već raspoređeni." />
         ) : (
           <>
             <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
-              {items.map((assignment) => <DailyAssignmentCard key={assignment.id || assignment.assignment_id} assignment={assignment} onUpdated={() => { load(); onChanged(); }} />)}
+              {items.map((assignment) => <DailyAssignmentCard key={assignment.id || assignment.assignment_id} assignment={assignment} brandCode={brandCode} onUpdated={() => { load(); onChanged(); }} onRecipientsSaved={() => load()} />)}
             </VStack>
             <Box display={{ base: 'none', md: 'block' }} overflowX="auto" bg="white" borderRadius="lg" border="1px solid" borderColor="orange.100">
-              <Table size="sm" minW="850px"><Thead bg="orange.100"><Tr><Th>Komitent</Th><Th>Kontakt</Th><Th>Status</Th><Th>Napomena</Th><Th>Akcije</Th></Tr></Thead><Tbody>{items.map((assignment) => <DailyAssignmentRow key={assignment.id || assignment.assignment_id} assignment={assignment} onUpdated={() => { load(); onChanged(); }} />)}</Tbody></Table>
+              <Table size="sm" minW="980px"><Thead bg="orange.100"><Tr><Th>Komitent</Th><Th>Primaoci</Th><Th>Status</Th><Th>Napomena</Th><Th>Akcije</Th></Tr></Thead><Tbody>{items.map((assignment) => <DailyAssignmentRow key={assignment.id || assignment.assignment_id} assignment={assignment} brandCode={brandCode} onUpdated={() => { load(); onChanged(); }} onRecipientsSaved={() => load()} />)}</Tbody></Table>
             </Box>
           </>
         )}

@@ -18,6 +18,9 @@ jest.mock('./commercial/api', () => ({
     getMailAutomation: jest.fn(),
     updateMailAutomation: jest.fn(),
     prepareMailAutomation: jest.fn(),
+    importDailyApprovedMailAutomation: jest.fn(),
+    decideMailAutomationCandidates: jest.fn(),
+    updateMailAutomationCandidateRecipients: jest.fn(),
     sendSelectedMailAutomation: jest.fn(),
     pauseMailAutomation: jest.fn(),
     sendNextMailAutomation: jest.fn(),
@@ -71,6 +74,9 @@ beforeEach(() => {
   });
   commercialApi.updateMailAutomation.mockResolvedValue({ enabled: false, paused: true });
   commercialApi.prepareMailAutomation.mockResolvedValue({ settings: { enabled: false, paused: true }, counts: {}, queue: [] });
+  commercialApi.importDailyApprovedMailAutomation.mockResolvedValue({ import: { account_ids: [], assignment_ids: [], skipped_count: 0 } });
+  commercialApi.decideMailAutomationCandidates.mockResolvedValue({ settings: { enabled: false, paused: true }, counts: {}, queue: [] });
+  commercialApi.updateMailAutomationCandidateRecipients.mockResolvedValue({ settings: { enabled: false, paused: true }, counts: {}, queue: [] });
   commercialApi.sendSelectedMailAutomation.mockResolvedValue({ sent_count: 1, failed_count: 0 });
   commercialApi.pauseMailAutomation.mockResolvedValue({ settings: { enabled: true, paused: true }, counts: {}, queue: [] });
   commercialApi.sendNextMailAutomation.mockResolvedValue({ sent: true });
@@ -153,6 +159,124 @@ test('Današnjih 30 je početno skriveno i učitava se tek nakon otvaranja', asy
   fireEvent.click(toggle);
   await waitFor(() => expect(commercialApi.createDailyList).toHaveBeenCalledWith('VISIOCAST'));
   expect(screen.getByText(/Lista se automatski priprema svaki dan/)).toBeInTheDocument();
+});
+
+test('iz Današnjih 30 šalje samo već odobrene sa emailom nakon završne potvrde', async () => {
+  const dailyItems = [
+    { id: 'assignment-1', assignment_status: 'COMPLETED', account: { id: 'account-1', company_name: 'Ranije odobren', email: 'jedan@example.ba' } },
+    { id: 'assignment-2', assignment_status: 'APPROVED', account: { id: 'account-2', company_name: 'Novo odobren', email: 'dva@example.ba' } },
+    { id: 'assignment-3', assignment_status: 'PENDING', account: { id: 'account-3', company_name: 'Čeka odluku', email: 'tri@example.ba' } },
+    { id: 'assignment-4', assignment_status: 'SKIPPED', account: { id: 'account-4', company_name: 'Preskočen', email: 'cetiri@example.ba' } },
+    { id: 'assignment-5', assignment_status: 'COMPLETED', account: { id: 'account-5', company_name: 'Bez emaila', email: '' } },
+    { id: 'assignment-6', assignment_status: 'COMPLETED', mail_queue_status: 'SENT', account: { id: 'account-6', company_name: 'Već poslan', email: 'poslan@example.ba' } },
+  ];
+  commercialApi.getDailyList.mockResolvedValue({ brand: { name: 'Visiocast' }, items: dailyItems });
+  commercialApi.importDailyApprovedMailAutomation.mockResolvedValue({
+    import: {
+      eligible_account_ids: ['account-1', 'account-2'],
+      assignment_ids: ['assignment-1', 'assignment-2'],
+      skipped_count: 0,
+    },
+  });
+  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  const sendButton = await screen.findByRole('button', { name: 'Pošalji odobrene (2)' });
+  expect(screen.getByText(/Odobreno bez ispravne glavne email adrese: 1/)).toBeInTheDocument();
+  fireEvent.click(sendButton);
+
+  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Poslati 2 odobrenih mailova'));
+  await waitFor(() => expect(commercialApi.importDailyApprovedMailAutomation).toHaveBeenCalledWith(
+    'VISIOCAST',
+    ['assignment-1', 'assignment-2']
+  ));
+  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledTimes(2));
+  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(1, 'VISIOCAST', ['account-1']);
+  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(2, 'VISIOCAST', ['account-2']);
+  expect(await screen.findByText('Slanje završeno: poslano 2, neuspjelo 0, preskočeno 0.')).toBeInTheDocument();
+  confirmSpy.mockRestore();
+});
+
+test('odustajanje od slanja donje liste ne uvozi niti šalje mailove', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'assignment-1', assignment_status: 'COMPLETED', account: { id: 'account-1', company_name: 'Odobren', email: 'odobren@example.ba' } },
+  ] });
+  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Pošalji odobrene (1)' }));
+
+  expect(commercialApi.importDailyApprovedMailAutomation).not.toHaveBeenCalled();
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+  confirmSpy.mockRestore();
+});
+
+test('ne poziva slanje kada backend nakon importa ne vrati nijedan podoban račun', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'assignment-1', assignment_status: 'COMPLETED', account: { id: 'account-1', company_name: 'Već poslan', email: 'poslan@example.ba' } },
+  ] });
+  commercialApi.importDailyApprovedMailAutomation.mockResolvedValue({
+    import: { eligible_account_ids: [], eligible_assignment_ids: [], skipped_count: 1 },
+  });
+  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Pošalji odobrene (1)' }));
+
+  await waitFor(() => expect(commercialApi.importDailyApprovedMailAutomation).toHaveBeenCalled());
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+  expect(await screen.findByText('Slanje završeno: poslano 0, neuspjelo 0, preskočeno 1.')).toBeInTheDocument();
+  confirmSpy.mockRestore();
+});
+
+test('donja lista omogućava odobrenje za mail bez gornjeg ponovnog označavanja', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'assignment-1', assignment_status: 'PENDING', account: { id: 'account-1', company_name: 'Kandidat', email: 'kandidat@example.ba' } },
+  ] });
+  commercialApi.updateDailyAssignment.mockResolvedValue({ id: 'assignment-1', status: 'APPROVED' });
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Odobri za mail' }))[0]);
+
+  await waitFor(() => expect(commercialApi.updateDailyAssignment).toHaveBeenCalledWith(
+    'assignment-1',
+    { status: 'APPROVED', notes: '' }
+  ));
+});
+
+test('uređuje i prikazuje CC primaoce direktno u donjoj listi', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    {
+      id: 'assignment-1',
+      assignment_status: 'COMPLETED',
+      account: {
+        id: 'account-1',
+        company_name: 'AMKO Sarajevo',
+        email: 'nabavka@amko.ba',
+        cc_emails: ['direktor@amko.ba'],
+      },
+    },
+  ] });
+  commercialApi.updateMailAutomationCandidateRecipients.mockResolvedValue({ recipients: { cc_emails: ['kvalitet@amko.ba'] } });
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  expect((await screen.findAllByText('CC: direktor@amko.ba')).length).toBeGreaterThan(0);
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Uredi primaoce za AMKO Sarajevo' }))[0]);
+  expect(screen.getByLabelText('Glavni primalac')).toHaveValue('nabavka@amko.ba');
+  fireEvent.change(screen.getByLabelText('CC adrese'), { target: { value: 'kvalitet@amko.ba' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
+
+  await waitFor(() => expect(commercialApi.updateMailAutomationCandidateRecipients).toHaveBeenCalledWith(
+    'VISIOCAST',
+    'account-1',
+    ['kvalitet@amko.ba']
+  ));
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
 });
 
 test('uređuje Visiocast zapis', async () => {
