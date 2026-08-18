@@ -210,6 +210,16 @@ function minutesSince(value, now) {
   return Math.floor((now.getTime() - parsed.getTime()) / 60000);
 }
 
+function latestSentAt(settingsRows) {
+  let latest = null;
+  for (const row of settingsRows || []) {
+    const parsed = new Date(row.last_sent_at || 0);
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= 0) continue;
+    if (!latest || parsed > latest) latest = parsed;
+  }
+  return latest;
+}
+
 function renderTemplate(value, account) {
   return String(value || '')
     .replace(/\{\{\s*KOMITENT\s*\}\}/gi, account.company_name || '')
@@ -1016,10 +1026,11 @@ async function markStaleClaims(db, brandId, now) {
 
 async function claimNext(db, brand, now, { ignoreInterval = false } = {}) {
   return db.transaction(async (trx) => {
-    const raw = await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).forUpdate().first();
+    const allSettings = await trx('crm_mail_automation_settings').orderBy('brand_id').forUpdate();
+    const raw = allSettings.find((row) => row.brand_id === brand.id);
     const settings = serializeSettings(raw);
     if (!settings || !settings.enabled || settings.paused || !settings.auto_send) return null;
-    if (!ignoreInterval && minutesSince(settings.last_sent_at, now) < settings.send_interval_minutes) return null;
+    if (!ignoreInterval && minutesSince(latestSentAt(allSettings), now) < settings.send_interval_minutes) return null;
     const usedRow = await trx('crm_mail_queue')
       .where({ brand_id: brand.id, queue_date: businessDate('Europe/Sarajevo', now) })
       .whereIn('status', ['SENT', 'SENDING', 'SKIPPED'])
@@ -1429,11 +1440,11 @@ async function scheduleSelectedMails(db, brand, accountIds, options = {}) {
 
 async function claimNextScheduled(db, brand, now) {
   return db.transaction(async (trx) => {
-    const rawSettings = await trx('crm_mail_automation_settings')
-      .where({ brand_id: brand.id }).forUpdate().first();
+    const allSettings = await trx('crm_mail_automation_settings').orderBy('brand_id').forUpdate();
+    const rawSettings = allSettings.find((row) => row.brand_id === brand.id);
     const settings = serializeSettings(rawSettings);
     if (!settings?.subject || !settings?.body_text) return null;
-    if (minutesSince(settings.last_sent_at, now) < SCHEDULED_SEND_INTERVAL_MINUTES) return null;
+    if (minutesSince(latestSentAt(allSettings), now) < SCHEDULED_SEND_INTERVAL_MINUTES) return null;
     const date = businessDate('Europe/Sarajevo', now);
     const usedRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
       .whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).count({ count: '*' }).first();

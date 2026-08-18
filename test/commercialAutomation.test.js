@@ -1326,6 +1326,51 @@ test('odobreni mailovi se zakazuju bez trenutnog slanja i scheduler ih šalje u 
   assert.equal(await db('crm_mail_queue').where({ brand_id: brand.id, queue_date: date, status: 'SENT' }).count({ count: '*' }).first().then((row) => Number(row.count)), 2);
 });
 
+test('petominutni razmak vrijedi globalno i kada su mailovi zakazani u različitim programima', async (t) => {
+  const db = await testDb(t);
+  const fsBrand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const sanBrand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();
+  const fsAccount = await addAccount(db, fsBrand, 'global-fs', {
+    email: 'global-fs@firma.ba', priority: 'HIGH', source_row_number: -10
+  });
+  const sanAccount = await addAccount(db, sanBrand, 'global-san', {
+    email: 'global-san@firma.ba', priority: 'HIGH', source_row_number: -10
+  });
+  for (const brand of [fsBrand, sanBrand]) {
+    await updateAutomationSettings(db, brand, director, {
+      subject: 'Digitalno rješenje za {{KOMITENT}}',
+      body: 'Poštovani {{KOMITENT}}, predstavljamo naše rješenje.',
+      enabled: false,
+      auto_send: false,
+      daily_limit: 1,
+      send_interval_minutes: 5
+    });
+  }
+  const date = '2026-08-17';
+  for (const [brand, account] of [[fsBrand, fsAccount], [sanBrand, sanAccount]]) {
+    await prepareAutomationQueue(db, brand, director, { date });
+    await reviewAutomationCandidates(db, brand, [account.id], 'APPROVED', { date });
+    await scheduleSelectedMails(db, brand, [account.id], { confirmed: true, actor: director, date });
+  }
+  let sends = 0;
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send() {
+      sends += 1;
+      return { success: true, accepted: true, id: `global-${sends}`, conversationId: `global-c-${sends}` };
+    }
+  };
+
+  await runAutomationTick(db, { now: new Date('2026-08-17T08:00:00.000Z'), outlookService });
+  assert.equal(sends, 1);
+  assert.equal(await db('crm_mail_queue').where({ queue_date: date, status: 'SENT' }).count({ count: '*' }).first().then((row) => Number(row.count)), 1);
+  assert.equal(await db('crm_mail_queue').where({ queue_date: date, status: 'SCHEDULED' }).count({ count: '*' }).first().then((row) => Number(row.count)), 1);
+
+  await runAutomationTick(db, { now: new Date('2026-08-17T08:05:00.000Z'), outlookService });
+  assert.equal(sends, 2);
+  assert.equal(await db('crm_mail_queue').where({ queue_date: date, status: 'SENT' }).count({ count: '*' }).first().then((row) => Number(row.count)), 2);
+});
+
 test('scheduler pripremi red i u jednom ticku šalje najviše jedan mail po brendu', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
