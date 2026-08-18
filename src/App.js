@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AlertDescription,
@@ -23,6 +23,7 @@ import {
   MenuButton,
   MenuItem,
   MenuList,
+  useToast,
 } from "@chakra-ui/react";
 import {
   FaUsers,
@@ -48,6 +49,7 @@ import Sanitarne from "./Sanitarne";
 import AiMailModule from "./AiMailModule";
 import CommercialModule from "./CommercialModule";
 import OutlookModule from "./OutlookModule";
+import { outlookApi } from "./outlook/api";
 import logo from "./logo.png";
 import {
   apiFetch,
@@ -290,12 +292,70 @@ function Calendar() {
 }
 
 function App() {
+  const toast = useToast();
   const [session, setSession] = useState(() => readStoredSession());
   const user = session?.user;
   const [page, setPage] = useState(() => defaultPageForUser(readStoredSession()?.user));
   const [clients, setClients] = useState([]);
+  const [outlookUnreadCount, setOutlookUnreadCount] = useState(0);
+  const currentPageRef = useRef(page);
   const allowedMenuItems = useMemo(() => allowedMenuForUser(user), [user]);
   const compactCommercialNavigation = user?.role === "komercijala";
+
+  useEffect(() => {
+    currentPageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
+    if (!user || user.mustChangePassword || !allowedMenuItems.some((item) => item.key === "outlook")) {
+      setOutlookUnreadCount(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let checkInFlight = false;
+    let previousUnreadCount = null;
+    const checkInbox = async () => {
+      if (checkInFlight) return;
+      checkInFlight = true;
+      try {
+        const account = await outlookApi.getAccount();
+        if (cancelled) return;
+        const nextUnreadCount = Math.max(0, Number(account?.inbox?.unreadCount ?? account?.inbox?.unread_count) || 0);
+        setOutlookUnreadCount(nextUnreadCount);
+        if (previousUnreadCount !== null && nextUnreadCount > previousUnreadCount && currentPageRef.current === "commercial") {
+          const arrivedCount = nextUnreadCount - previousUnreadCount;
+          toast({
+            title: arrivedCount === 1 ? "Stigao je novi mail" : `Stigla su ${arrivedCount} nova maila`,
+            description: "Otvorite Outlook za pregled poruke.",
+            status: "info",
+            position: "top-right",
+            duration: 7000,
+            isClosable: true,
+          });
+        }
+        previousUnreadCount = nextUnreadCount;
+      } catch (error) {
+        // Outlook indikator ne smije prekidati rad u Komercijali ako je Graph privremeno nedostupan.
+      } finally {
+        checkInFlight = false;
+      }
+    };
+
+    checkInbox();
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") checkInbox();
+    };
+    const interval = window.setInterval(checkWhenVisible, 30000);
+    window.addEventListener("focus", checkInbox);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", checkInbox);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [allowedMenuItems, toast, user]);
 
   useEffect(() => {
     if (user?.role === "direktor" && !user.mustChangePassword) {
@@ -378,7 +438,12 @@ function App() {
               >
                 <Icon as={icon} boxSize="28px" />
               </Center>
-              <Text fontWeight="semibold" fontSize="md">{label}</Text>
+              <HStack spacing={2}>
+                <Text fontWeight="semibold" fontSize="md">{label}</Text>
+                {key === "outlook" && outlookUnreadCount > 0 && (
+                  <Badge aria-label={`${outlookUnreadCount} nepročitanih mailova`} colorScheme="red" borderRadius="full">{outlookUnreadCount}</Badge>
+                )}
+              </HStack>
             </Box>
           ))}
       </SimpleGrid>
@@ -435,7 +500,12 @@ function App() {
               <MenuList color="gray.800" maxH="70vh" overflowY="auto" zIndex={20}>
                 {allowedMenuItems.map((item) => (
                   <MenuItem key={item.key} icon={<Icon as={item.icon} />} minH="44px" fontWeight={page === item.key ? "bold" : "normal"} color={page === item.key ? greenColor : "gray.800"} onClick={() => setPage(item.key)}>
-                    {item.label}
+                    <HStack spacing={2}>
+                      <Text>{item.label}</Text>
+                      {item.key === "outlook" && outlookUnreadCount > 0 && (
+                        <Badge aria-label={`${outlookUnreadCount} nepročitanih mailova`} colorScheme="red" borderRadius="full">{outlookUnreadCount}</Badge>
+                      )}
+                    </HStack>
                   </MenuItem>
                 ))}
               </MenuList>
@@ -463,12 +533,14 @@ function App() {
             msOverflowStyle: "none",
           }}
         >
-          {page !== "home" &&
+          {(page !== "home" || user?.role === "direktor") &&
             allowedMenuItems
               .filter((item) => item.key !== "home")
+              .filter((item) => page !== "home" || ["commercial", "outlook"].includes(item.key))
               .map((item) => (
                 <Button
                   key={item.key}
+                  aria-label={item.label}
                   onClick={() => setPage(item.key)}
                   bg={page === item.key ? greenColor : "rgba(255,255,255,0.09)"}
                   color="#fff"
@@ -484,7 +556,12 @@ function App() {
                   minW={0}
                   _hover={{ bg: greenColor }}
                 >
-                  {item.label}
+                  <HStack spacing={2}>
+                    <Text>{item.label}</Text>
+                    {item.key === "outlook" && outlookUnreadCount > 0 && (
+                      <Badge aria-label={`${outlookUnreadCount} nepročitanih mailova`} colorScheme="red" borderRadius="full">{outlookUnreadCount}</Badge>
+                    )}
+                  </HStack>
                 </Button>
               ))}
           <HStack display={{ base: "none", md: "flex" }} flexShrink={0} spacing={2} px={{ base: 1, md: 2 }}>

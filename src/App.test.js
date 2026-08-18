@@ -1,16 +1,24 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { ChakraProvider } from '@chakra-ui/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from './App';
+import { outlookApi } from './outlook/api';
 
 jest.mock('./CommercialModule', () => () => <div>Komercijalni CRM ekran</div>);
 jest.mock('./OutlookModule', () => () => <div>Shared Outlook ekran</div>);
+jest.mock('./outlook/api', () => ({ outlookApi: { getAccount: jest.fn() } }));
+
+function renderApp() {
+  return render(<ChakraProvider><App /></ChakraProvider>);
+}
 
 beforeEach(() => {
   sessionStorage.clear();
-  global.fetch = jest.fn();
+  global.fetch = jest.fn().mockReturnValue(new Promise(() => {}));
+  outlookApi.getAccount.mockReturnValue(new Promise(() => {}));
 });
 
 test('prikazuje sigurnu prijavu prije internog dashboarda', () => {
-  render(<App />);
+  renderApp();
   expect(screen.getByText('Prijava')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Prijavi se' })).toBeInTheDocument();
 });
@@ -21,7 +29,7 @@ test('komercijalista ide direktno u CRM i ne vidi direktorove module', () => {
     user: { username: 'prodaja', displayName: 'Komercijalista', role: 'komercijala' },
   }));
 
-  render(<App />);
+  renderApp();
   expect(screen.getByText('Komercijalni CRM ekran')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Klijenti' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Fakture' })).not.toBeInTheDocument();
@@ -36,7 +44,7 @@ test('komercijalista može otvoriti shared Outlook bez poziva direktorovih API-j
     user: { username: 'prodaja', displayName: 'Komercijalista', role: 'komercijala' },
   }));
 
-  render(<App />);
+  renderApp();
   fireEvent.click(screen.getByRole('button', { name: 'Outlook' }));
   expect(screen.getByText('Shared Outlook ekran')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Klijenti' })).not.toBeInTheDocument();
@@ -48,12 +56,43 @@ test('direktor Sanin vidi Komercijalu kao prvu poslovnu cjelinu', () => {
     token: 'director-token',
     user: { id: 'env-sanin', username: 'sanin', role: 'direktor', mustChangePassword: false },
   }));
-  render(<App />);
+  renderApp();
   const buttons = screen.getAllByRole('button');
   const homeIndex = buttons.findIndex((button) => button.textContent.includes('Početna'));
   const commercialIndex = buttons.findIndex((button) => button.textContent.includes('Komercijala'));
   expect(commercialIndex).toBeGreaterThan(homeIndex);
-  expect(screen.getByRole('button', { name: 'Komercijala' })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Komercijala', hidden: true }).length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByRole('button', { name: 'Outlook', hidden: true }).length).toBeGreaterThanOrEqual(2);
+});
+
+test('prikazuje broj nepročitanih mailova na Outlook prečici', async () => {
+  outlookApi.getAccount.mockResolvedValue({ inbox: { unreadCount: 4 } });
+  sessionStorage.setItem('sconsulting-session', JSON.stringify({
+    token: 'commercial-token',
+    user: { username: 'prodaja', displayName: 'Komercijalista', role: 'komercijala' },
+  }));
+
+  renderApp();
+
+  expect((await screen.findAllByLabelText('4 nepročitanih mailova')).length).toBeGreaterThan(0);
+});
+
+test('obavještava o novom mailu dok je otvorena Komercijala', async () => {
+  outlookApi.getAccount
+    .mockResolvedValueOnce({ inbox: { unreadCount: 1 } })
+    .mockResolvedValue({ inbox: { unreadCount: 2 } });
+  sessionStorage.setItem('sconsulting-session', JSON.stringify({
+    token: 'commercial-token',
+    user: { username: 'prodaja', displayName: 'Komercijalista', role: 'komercijala' },
+  }));
+
+  renderApp();
+  await screen.findAllByLabelText('1 nepročitanih mailova');
+  expect(outlookApi.getAccount).toHaveBeenCalledTimes(1);
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+
+  expect(await screen.findByText('Stigao je novi mail')).toBeInTheDocument();
+  expect((await screen.findAllByLabelText('2 nepročitanih mailova')).length).toBeGreaterThan(0);
 });
 
 test('obavezna promjena lozinke blokira ostatak aplikacije', () => {
@@ -62,7 +101,7 @@ test('obavezna promjena lozinke blokira ostatak aplikacije', () => {
     user: { username: 'prodaja', role: 'komercijala', mustChangePassword: true },
   }));
 
-  render(<App />);
+  renderApp();
   expect(screen.getByText('Postavite novu lozinku')).toBeInTheDocument();
   expect(screen.queryByText('Komercijalni CRM ekran')).not.toBeInTheDocument();
   expect(screen.getByLabelText(/Trenutna lozinka/)).toBeInTheDocument();
@@ -79,7 +118,7 @@ test('promjena privremene lozinke otključava commercial profil', async () => {
     text: async () => JSON.stringify({ token: 'new-token', user: { username: 'prodaja', role: 'komercijala', mustChangePassword: false } }),
   });
 
-  render(<App />);
+  renderApp();
   fireEvent.change(screen.getByLabelText(/Trenutna lozinka/), { target: { value: 'Privremena1!' } });
   fireEvent.change(screen.getByLabelText(/^Nova lozinka/), { target: { value: 'NovaSigurna1!' } });
   fireEvent.change(screen.getByLabelText(/Potvrdite novu lozinku/), { target: { value: 'NovaSigurna1!' } });
