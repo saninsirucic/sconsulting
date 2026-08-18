@@ -18,6 +18,20 @@ test('importuje samo potvrđene dnevne assignment ID-jeve uz sigurnosni confirm'
   expect(JSON.parse(options.body)).toEqual({
     assignment_ids: ['assignment-1', 'assignment-2'],
     confirm: true,
+  });
+});
+
+test('legacy COMPLETED redove uključuje samo uz eksplicitnu opciju', async () => {
+  await commercialApi.importDailyApprovedMailAutomation(
+    'VISIOCAST',
+    ['legacy-assignment'],
+    { includeLegacyCompleted: true }
+  );
+
+  const [, options] = fetch.mock.calls[0];
+  expect(JSON.parse(options.body)).toEqual({
+    assignment_ids: ['legacy-assignment'],
+    confirm: true,
     include_legacy_completed: true,
   });
 });

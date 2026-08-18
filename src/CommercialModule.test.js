@@ -165,16 +165,13 @@ test('iz Današnjih 30 šalje samo već odobrene sa emailom nakon završne potvr
   const dailyItems = [
     { id: 'assignment-1', assignment_status: 'COMPLETED', account: { id: 'account-1', company_name: 'Ranije odobren', email: 'jedan@example.ba' } },
     { id: 'assignment-2', assignment_status: 'APPROVED', account: { id: 'account-2', company_name: 'Novo odobren', email: 'dva@example.ba' } },
-    { id: 'assignment-3', assignment_status: 'PENDING', account: { id: 'account-3', company_name: 'Čeka odluku', email: 'tri@example.ba' } },
-    { id: 'assignment-4', assignment_status: 'SKIPPED', account: { id: 'account-4', company_name: 'Preskočen', email: 'cetiri@example.ba' } },
-    { id: 'assignment-5', assignment_status: 'COMPLETED', account: { id: 'account-5', company_name: 'Bez emaila', email: '' } },
-    { id: 'assignment-6', assignment_status: 'COMPLETED', mail_queue_status: 'SENT', account: { id: 'account-6', company_name: 'Već poslan', email: 'poslan@example.ba' } },
+    { id: 'assignment-7', assignment_status: 'APPROVED', account: { id: 'account-7', company_name: 'Odobren bez emaila', email: '' } },
   ];
   commercialApi.getDailyList.mockResolvedValue({ brand: { name: 'Visiocast' }, items: dailyItems });
   commercialApi.importDailyApprovedMailAutomation.mockResolvedValue({
     import: {
-      eligible_account_ids: ['account-1', 'account-2'],
-      assignment_ids: ['assignment-1', 'assignment-2'],
+      eligible_account_ids: ['account-2'],
+      assignment_ids: ['assignment-2'],
       skipped_count: 0,
     },
   });
@@ -182,25 +179,26 @@ test('iz Današnjih 30 šalje samo već odobrene sa emailom nakon završne potvr
   renderModule();
 
   fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
-  const sendButton = await screen.findByRole('button', { name: 'Pošalji odobrene (2)' });
+  const sendButton = await screen.findByRole('button', { name: 'Pošalji odobrene (1)' });
+  expect(screen.getByRole('button', { name: 'Potvrdi i pošalji ranije označene (1)' })).toBeInTheDocument();
   expect(screen.getByText(/Odobreno bez ispravne glavne email adrese: 1/)).toBeInTheDocument();
+  expect(screen.getAllByText('RANIJE OBRAĐENO').length).toBeGreaterThan(0);
   fireEvent.click(sendButton);
 
-  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Poslati 2 odobrenih mailova'));
+  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Poslati 1 odobreni mail'));
   await waitFor(() => expect(commercialApi.importDailyApprovedMailAutomation).toHaveBeenCalledWith(
     'VISIOCAST',
-    ['assignment-1', 'assignment-2']
+    ['assignment-2']
   ));
-  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledTimes(2));
-  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(1, 'VISIOCAST', ['account-1']);
-  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(2, 'VISIOCAST', ['account-2']);
-  expect(await screen.findByText('Slanje završeno: poslano 2, neuspjelo 0, preskočeno 0.')).toBeInTheDocument();
+  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledTimes(1));
+  expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['account-2']);
+  expect(await screen.findByText('Slanje završeno: poslano 1, neuspjelo 0, preskočeno 0.')).toBeInTheDocument();
   confirmSpy.mockRestore();
 });
 
 test('odustajanje od slanja donje liste ne uvozi niti šalje mailove', async () => {
   commercialApi.getDailyList.mockResolvedValue({ items: [
-    { id: 'assignment-1', assignment_status: 'COMPLETED', account: { id: 'account-1', company_name: 'Odobren', email: 'odobren@example.ba' } },
+    { id: 'assignment-1', assignment_status: 'APPROVED', account: { id: 'account-1', company_name: 'Odobren', email: 'odobren@example.ba' } },
   ] });
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
   renderModule();
@@ -215,7 +213,7 @@ test('odustajanje od slanja donje liste ne uvozi niti šalje mailove', async () 
 
 test('ne poziva slanje kada backend nakon importa ne vrati nijedan podoban račun', async () => {
   commercialApi.getDailyList.mockResolvedValue({ items: [
-    { id: 'assignment-1', assignment_status: 'COMPLETED', account: { id: 'account-1', company_name: 'Već poslan', email: 'poslan@example.ba' } },
+    { id: 'assignment-1', assignment_status: 'APPROVED', account: { id: 'account-1', company_name: 'Već poslan', email: 'poslan@example.ba' } },
   ] });
   commercialApi.importDailyApprovedMailAutomation.mockResolvedValue({
     import: { eligible_account_ids: [], eligible_assignment_ids: [], skipped_count: 1 },
@@ -229,6 +227,41 @@ test('ne poziva slanje kada backend nakon importa ne vrati nijedan podoban raču
   await waitFor(() => expect(commercialApi.importDailyApprovedMailAutomation).toHaveBeenCalled());
   expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
   expect(await screen.findByText('Slanje završeno: poslano 0, neuspjelo 0, preskočeno 1.')).toBeInTheDocument();
+  confirmSpy.mockRestore();
+});
+
+test('stare COMPLETED redove šalje samo kroz zasebnu eksplicitnu legacy potvrdu', async () => {
+  commercialApi.getDailyList.mockResolvedValue({ items: [
+    { id: 'legacy-assignment', assignment_status: 'COMPLETED', account: { id: 'legacy-account', company_name: 'Stari zeleni red', email: 'stari@example.ba' } },
+    { id: 'processed-assignment', assignment_status: 'OBRADJEN', account: { id: 'processed-account', company_name: 'Obrađen red', email: 'obradjen@example.ba' } },
+    { id: 'done-assignment', assignment_status: 'DONE', account: { id: 'done-account', company_name: 'Završen red', email: 'zavrsen@example.ba' } },
+  ] });
+  commercialApi.importDailyApprovedMailAutomation.mockResolvedValue({
+    import: {
+      eligible_account_ids: ['legacy-account'],
+      eligible_assignment_ids: ['legacy-assignment'],
+      skipped_count: 0,
+    },
+  });
+  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  renderModule();
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
+  expect(await screen.findByRole('button', { name: 'Pošalji odobrene (0)' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Potvrdi i pošalji ranije označene (1)' })).toBeEnabled();
+  expect(screen.getAllByText('RANIJE OBRAĐENO').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('OBRAĐENO').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('ZAVRŠENO').length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Potvrdi i pošalji ranije označene (1)' }));
+
+  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Ovih 1 stari zeleni red'));
+  await waitFor(() => expect(commercialApi.importDailyApprovedMailAutomation).toHaveBeenCalledWith(
+    'VISIOCAST',
+    ['legacy-assignment'],
+    { includeLegacyCompleted: true }
+  ));
+  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['legacy-account']));
   confirmSpy.mockRestore();
 });
 
