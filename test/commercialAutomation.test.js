@@ -4,6 +4,7 @@ const knex = require('knex');
 const crmMigration = require('../migrations/20260813120000_create_commercial_crm');
 const automationMigration = require('../migrations/20260815120000_add_commercial_mail_automation');
 const manualCampaignMigration = require('../migrations/20260817130000_add_manual_commercial_mail_campaigns');
+const scheduleReportMigration = require('../migrations/20260818100000_add_commercial_mail_schedule_reports');
 const {
   getAutomationState,
   prepareAutomationQueue,
@@ -20,6 +21,7 @@ async function testDb(t) {
   await crmMigration.up(db);
   await automationMigration.up(db);
   await manualCampaignMigration.up(db);
+  await scheduleReportMigration.up(db);
   return db;
 }
 
@@ -58,6 +60,10 @@ test('migracija kreira tri ugašena agenta i unaprijed priprema SAN Pest sadrža
   assert.equal(sanPest.subject, automationMigration.SAN_PEST_SUBJECT);
   assert.match(sanPest.body_text, /SanPest Platform/);
   assert.equal(Number(sanPest.daily_limit), 30);
+  assert.equal(Boolean(sanPest.auto_send), false);
+  assert.equal(Boolean(sanPest.report_enabled), true);
+  assert.equal(sanPest.report_time, '16:00');
+  assert.equal(sanPest.report_recipient, 'info@s-consulting.ba');
 });
 
 test('dnevni red bira samo poznate validne CRM adrese i ne ponavlja komitente', async (t) => {
@@ -211,11 +217,15 @@ test('ručna kampanja trajno čuva prilog, šalje samo označenog i više ga ne 
   const state = await getAutomationState(db, brand, { date });
   assert.equal(state.today.sent_count, 1);
   assert.equal(state.today.candidates.length, 0);
-  const tomorrow = await prepareAutomationQueue(db, brand, commercial, { date: '2026-08-18' });
+  const tomorrowDate = new Date(`${date}T12:00:00.000Z`);
+  tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+  const tomorrow = await prepareAutomationQueue(db, brand, commercial, {
+    date: tomorrowDate.toISOString().slice(0, 10)
+  });
   assert.equal(tomorrow.queue.some((item) => item.account_id === account.id), false);
 });
 
-test('isti mail se može odvojeno kandidovati po brendu, a komercijalista ne može uključiti auto-send', async (t) => {
+test('isti mail se može odvojeno kandidovati po brendu, a komercijalista može urediti raspored svog brenda', async (t) => {
   const db = await testDb(t);
   const fsBrand = await db('crm_brands').where({ code: 'FS_APP' }).first();
   const sanBrand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();
@@ -229,11 +239,61 @@ test('isti mail se može odvojeno kandidovati po brendu, a komercijalista ne mo�
   const san = await prepareAutomationQueue(db, sanBrand, commercial, { date: '2026-08-17' });
   assert.equal(fs.today.candidates.length, 1);
   assert.equal(san.today.candidates.length, 1);
+  const settings = await updateAutomationSettings(db, fsBrand, commercial, {
+    subject: 'FS naslov',
+    body: 'FS sadržaj',
+    enabled: true,
+    auto_send: true,
+    daily_limit: 20,
+    workdays: [1, 2, 3, 4, 5],
+    send_window_start: '09:00',
+    send_window_end: '15:00',
+    send_interval_minutes: 10,
+    report_enabled: true,
+    report_time: '16:00',
+    report_recipient: 'info@s-consulting.ba'
+  });
+  assert.equal(settings.enabled, true);
+  assert.equal(settings.auto_send, true);
+  assert.equal(settings.daily_limit, 20);
+  assert.equal(settings.report_recipient, 'info@s-consulting.ba');
+  assert.deepEqual(settings.workdays, [1, 2, 3, 4, 5]);
+});
+
+test('postavke odbijaju neispravan raspored, adresu izvještaja i nedovoljan kapacitet prozora', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const base = { subject: 'FS naslov', body: 'FS sadržaj' };
+
   await assert.rejects(
-    updateAutomationSettings(db, fsBrand, commercial, {
-      subject: 'FS naslov', body: 'FS sadržaj', enabled: true, auto_send: true
+    updateAutomationSettings(db, brand, director, { ...base, send_interval_minutes: 2 }),
+    (error) => error.status === 400 && error.code === 'INVALID_AUTOMATION_SETTINGS'
+  );
+  await assert.rejects(
+    updateAutomationSettings(db, brand, director, { ...base, report_recipient: 'pogresna-adresa' }),
+    (error) => error.status === 400 && error.code === 'INVALID_AUTOMATION_SETTINGS'
+  );
+  await assert.rejects(
+    updateAutomationSettings(db, brand, director, {
+      ...base,
+      send_window_start: '15:00',
+      send_window_end: '09:00'
     }),
-    (error) => error.status === 403 && error.code === 'AUTOMATION_ADMIN_REQUIRED'
+    (error) => error.status === 400 && error.code === 'INVALID_AUTOMATION_SETTINGS'
+  );
+  await assert.rejects(
+    updateAutomationSettings(db, brand, director, {
+      ...base,
+      daily_limit: 30,
+      send_window_start: '09:00',
+      send_window_end: '12:00',
+      send_interval_minutes: 10
+    }),
+    (error) => error.status === 400 && error.code === 'AUTOMATION_WINDOW_CAPACITY_EXCEEDED'
+  );
+  await assert.rejects(
+    updateAutomationSettings(db, brand, director, { ...base, workdays: [] }),
+    (error) => error.status === 400 && error.code === 'INVALID_AUTOMATION_SETTINGS'
   );
 });
 
@@ -270,4 +330,80 @@ test('scheduler pripremi red i u jednom ticku šalje najviše jedan mail po bren
   const state = await getAutomationState(db, brand, { date: '2026-08-17' });
   assert.equal(state.counts.SENT, 1);
   assert.equal(state.counts.APPROVED, 1);
+});
+
+test('scheduler nakon termina šalje samo jedan dnevni izvještaj sa sažetkom', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  await addAccount(db, brand, '50', { email: 'pedeset@firma.ba' });
+  await addAccount(db, brand, '51', { email: 'pedesetjedan@firma.ba' });
+  await updateAutomationSettings(db, brand, director, {
+    subject: 'FS App prijedlog',
+    body: 'Pozdrav iz S Consultinga.',
+    enabled: true,
+    auto_send: true,
+    daily_limit: 2,
+    send_window_start: '09:00',
+    send_window_end: '15:00',
+    send_interval_minutes: 10,
+    report_enabled: true,
+    report_time: '16:00',
+    report_recipient: 'info@s-consulting.ba'
+  });
+  const payloads = [];
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send(payload) {
+      payloads.push(payload);
+      return { success: true, accepted: true, id: 'report-message', conversationId: 'report-conversation' };
+    }
+  };
+  const mondayAtFourSarajevo = new Date('2026-08-17T14:00:00.000Z');
+
+  const first = await runAutomationTick(db, { now: mondayAtFourSarajevo, outlookService });
+  const second = await runAutomationTick(db, { now: mondayAtFourSarajevo, outlookService });
+
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(payloads[0].to, ['info@s-consulting.ba']);
+  assert.match(payloads[0].subject, /FS App.*17\.08\.2026/);
+  assert.match(payloads[0].body, /Poslano: 0/);
+  assert.match(payloads[0].body, /Neuspjelo: 0/);
+  assert.match(payloads[0].body, /Preostalo: 2/);
+  assert.equal(first.results[0].report.sent, true);
+  assert.equal(second.results[0].report.sent, false);
+  const reports = await db('crm_mail_daily_reports').where({ brand_id: brand.id, report_date: '2026-08-17' });
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].status, 'SENT');
+  assert.equal(Number(reports[0].remaining_count), 2);
+});
+
+test('izvještaj se ne šalje dok automatsko slanje nije aktivno', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  await updateAutomationSettings(db, brand, director, {
+    subject: 'FS App prijedlog',
+    body: 'Pozdrav iz S Consultinga.',
+    enabled: true,
+    auto_send: false,
+    report_enabled: true,
+    report_time: '16:00',
+    report_recipient: 'info@s-consulting.ba'
+  });
+  let sends = 0;
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send() {
+      sends += 1;
+      return { success: true, accepted: true };
+    }
+  };
+
+  const result = await runAutomationTick(db, {
+    now: new Date('2026-08-17T14:00:00.000Z'),
+    outlookService
+  });
+
+  assert.equal(sends, 0);
+  assert.deepEqual(result.results, []);
+  assert.equal(await db('crm_mail_daily_reports').where({ brand_id: brand.id }).first(), undefined);
 });

@@ -166,7 +166,6 @@ function createCommercialRouter({ db, outlookService }) {
     ));
   }));
   router.post('/brands/:code/mail-automation/pause', asyncRoute(async (req, res) => {
-    requireDirector(req);
     const brand = await getBrand(req, true);
     res.json(await pauseAutomation(db, brand, req.user));
   }));

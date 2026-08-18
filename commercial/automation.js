@@ -7,6 +7,9 @@ const QUEUE_STATUSES = new Set(['PENDING', 'APPROVED', 'SENDING', 'SENT', 'FAILE
 const EXCLUDED_CANDIDATE_STATUSES = ['REJECTED', 'WON', 'EMAIL_SENT'];
 const DEFAULT_WORKDAYS = [1, 2, 3, 4, 5];
 const MAX_DAILY_LIMIT = 30;
+const MIN_SEND_INTERVAL_MINUTES = 10;
+const MAX_SEND_INTERVAL_MINUTES = 60;
+const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 const DEFAULT_MAX_ATTACHMENT_BYTES = 2500000;
 
 function bool(value, fallback = false) {
@@ -40,9 +43,47 @@ function normalizeWorkdays(value) {
   return days.length ? days : DEFAULT_WORKDAYS;
 }
 
-function clock(value, fallback) {
-  const normalized = String(value || '').trim();
-  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : fallback;
+function hasOwn(input, key) {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function validatedInteger(input, key, fallback, minimum, maximum, label) {
+  if (!hasOwn(input, key)) return fallback;
+  const parsed = Number(input[key]);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw httpError(
+      400,
+      `${label} mora biti cijeli broj od ${minimum} do ${maximum}.`,
+      'INVALID_AUTOMATION_SETTINGS'
+    );
+  }
+  return parsed;
+}
+
+function validatedClock(input, key, fallback, label) {
+  if (!hasOwn(input, key)) return fallback;
+  const normalized = String(input[key] || '').trim();
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized)) {
+    throw httpError(400, `${label} mora biti u formatu HH:MM.`, 'INVALID_AUTOMATION_SETTINGS');
+  }
+  return normalized;
+}
+
+function clockMinutes(value) {
+  const [hours, minutes] = String(value).split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function validatedWorkdays(input, fallback) {
+  if (!hasOwn(input, 'workdays')) return normalizeWorkdays(fallback);
+  if (!Array.isArray(input.workdays) || !input.workdays.length) {
+    throw httpError(400, 'Odaberite najmanje jedan radni dan.', 'INVALID_AUTOMATION_SETTINGS');
+  }
+  const values = input.workdays.map(Number);
+  if (values.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+    throw httpError(400, 'Radni dani moraju biti brojevi od 0 do 6.', 'INVALID_AUTOMATION_SETTINGS');
+  }
+  return [...new Set(values)].sort();
 }
 
 function serializeSettings(row) {
@@ -57,6 +98,11 @@ function serializeSettings(row) {
     send_window_start: row.send_window_start,
     send_window_end: row.send_window_end,
     send_interval_minutes: Number(row.send_interval_minutes) || 10,
+    report_enabled: row.report_enabled === undefined ? true : Boolean(row.report_enabled),
+    report_time: row.report_time || '16:00',
+    report_recipient: row.report_recipient || DEFAULT_REPORT_RECIPIENT,
+    last_report_at: row.last_report_at || null,
+    last_report_error: row.last_report_error || '',
     follow_up_days: Number(row.follow_up_days) || 7,
     subject: row.subject || '',
     body_text: row.body_text || '',
@@ -191,6 +237,9 @@ async function ensureAutomationSetting(db, brand) {
     send_window_start: '09:00',
     send_window_end: '15:00',
     send_interval_minutes: 10,
+    report_enabled: true,
+    report_time: '16:00',
+    report_recipient: DEFAULT_REPORT_RECIPIENT,
     follow_up_days: 7,
     created_at: now,
     updated_at: now
@@ -214,26 +263,56 @@ async function automationSettingRow(db, brandId) {
 
 async function updateAutomationSettings(db, brand, actor, input = {}) {
   const current = await ensureAutomationSetting(db, brand);
-  const subject = Object.prototype.hasOwnProperty.call(input, 'subject') ? text(input.subject, 255) : current.subject;
-  const bodyText = Object.prototype.hasOwnProperty.call(input, 'body')
+  const subject = hasOwn(input, 'subject') ? text(input.subject, 255) : current.subject;
+  const bodyText = hasOwn(input, 'body')
     ? text(input.body)
-    : (Object.prototype.hasOwnProperty.call(input, 'body_text') ? text(input.body_text) : current.body_text);
+    : (hasOwn(input, 'body_text') ? text(input.body_text) : current.body_text);
   if (subject && /[\r\n]/.test(subject)) throw httpError(400, 'Naslov maila ne smije sadržavati novi red.', 'INVALID_AUTOMATION_SUBJECT');
   if (!subject || !bodyText) {
     throw httpError(400, 'Naslov i sadržaj maila su obavezni.', 'AUTOMATION_TEMPLATE_REQUIRED');
   }
-  const automationFields = [
-    'enabled', 'paused', 'auto_send', 'workdays', 'send_window_start',
-    'send_window_end', 'send_interval_minutes', 'follow_up_days'
-  ];
-  if (String(actor.role || '').toLowerCase() !== 'direktor'
-    && automationFields.some((key) => Object.prototype.hasOwnProperty.call(input, key))) {
-    throw httpError(403, 'Komercijalista može mijenjati formu i prilog, ali ne automatsko slanje.', 'AUTOMATION_ADMIN_REQUIRED');
-  }
   const enabled = bool(input.enabled, Boolean(current.enabled));
-  const workdays = normalizeWorkdays(input.workdays ?? current.workdays_json);
+  const workdays = validatedWorkdays(input, current.workdays_json);
+  const sendWindowStart = validatedClock(
+    input, 'send_window_start', current.send_window_start || '09:00', 'Početak slanja'
+  );
+  const sendWindowEnd = validatedClock(
+    input, 'send_window_end', current.send_window_end || '15:00', 'Kraj slanja'
+  );
+  const reportTime = validatedClock(input, 'report_time', current.report_time || '16:00', 'Vrijeme izvještaja');
+  const dailyLimit = validatedInteger(
+    input, 'daily_limit', Number(current.daily_limit) || 30, 1, MAX_DAILY_LIMIT, 'Dnevni broj komitenata'
+  );
+  const sendIntervalMinutes = validatedInteger(
+    input,
+    'send_interval_minutes',
+    Number(current.send_interval_minutes) || 10,
+    MIN_SEND_INTERVAL_MINUTES,
+    MAX_SEND_INTERVAL_MINUTES,
+    'Razmak poruka'
+  );
+  if (sendWindowStart >= sendWindowEnd) {
+    throw httpError(400, 'Početak slanja mora biti prije kraja slanja.', 'INVALID_AUTOMATION_SETTINGS');
+  }
+  const windowMinutes = clockMinutes(sendWindowEnd) - clockMinutes(sendWindowStart);
+  if ((dailyLimit - 1) * sendIntervalMinutes > windowMinutes) {
+    throw httpError(
+      400,
+      `Termin slanja nema dovoljno vremena za ${dailyLimit} poruka uz razmak od ${sendIntervalMinutes} minuta.`,
+      'AUTOMATION_WINDOW_CAPACITY_EXCEEDED'
+    );
+  }
+  if (reportTime < sendWindowEnd) {
+    throw httpError(400, 'Vrijeme izvještaja mora biti nakon završetka slanja.', 'INVALID_AUTOMATION_SETTINGS');
+  }
+  const reportRecipient = hasOwn(input, 'report_recipient')
+    ? validEmail(input.report_recipient)
+    : (validEmail(current.report_recipient) || DEFAULT_REPORT_RECIPIENT);
+  if (!reportRecipient) {
+    throw httpError(400, 'Adresa primaoca izvještaja nije ispravna.', 'INVALID_AUTOMATION_SETTINGS');
+  }
   let attachment = null;
-  if (Object.prototype.hasOwnProperty.call(input, 'attachment') && input.attachment) {
+  if (hasOwn(input, 'attachment') && input.attachment) {
     attachment = normalizeAttachmentInput(input.attachment);
   }
   const removeAttachment = bool(input.remove_attachment, false);
@@ -242,16 +321,21 @@ async function updateAutomationSettings(db, brand, actor, input = {}) {
     enabled,
     paused: !enabled
       ? true
-      : (Object.prototype.hasOwnProperty.call(input, 'paused')
+      : (hasOwn(input, 'paused')
         ? bool(input.paused, false)
-        : (Object.prototype.hasOwnProperty.call(input, 'enabled') ? false : Boolean(current.paused))),
+        : (hasOwn(input, 'enabled') ? false : Boolean(current.paused))),
     auto_send: bool(input.auto_send, Boolean(current.auto_send)),
-    daily_limit: integer(input.daily_limit, Number(current.daily_limit) || 30, 1, 30),
+    daily_limit: dailyLimit,
     workdays_json: JSON.stringify(workdays),
-    send_window_start: clock(input.send_window_start, current.send_window_start || '09:00'),
-    send_window_end: clock(input.send_window_end, current.send_window_end || '15:00'),
-    send_interval_minutes: integer(input.send_interval_minutes, Number(current.send_interval_minutes) || 10, 10, 60),
-    follow_up_days: integer(input.follow_up_days, Number(current.follow_up_days) || 7, 1, 90),
+    send_window_start: sendWindowStart,
+    send_window_end: sendWindowEnd,
+    send_interval_minutes: sendIntervalMinutes,
+    report_enabled: bool(input.report_enabled, current.report_enabled === undefined ? true : Boolean(current.report_enabled)),
+    report_time: reportTime,
+    report_recipient: reportRecipient,
+    follow_up_days: validatedInteger(
+      input, 'follow_up_days', Number(current.follow_up_days) || 7, 1, 90, 'Follow-up period'
+    ),
     subject,
     body_text: bodyText,
     attachment_id: attachmentId,
@@ -393,6 +477,13 @@ async function getAutomationState(db, brand, options = {}) {
   await ensureAutomationSetting(db, brand);
   const settings = serializeSettings(await automationSettingRow(db, brand.id));
   const rows = (await queueRows(db, brand.id, date)).map(serializeQueue);
+  const dailyReport = await db('crm_mail_daily_reports')
+    .where({ brand_id: brand.id, report_date: date })
+    .select(
+      'status', 'recipient_email', 'prepared_count', 'sent_count',
+      'failed_count', 'remaining_count', 'sent_at', 'last_error'
+    )
+    .first();
   const counts = Object.fromEntries([...QUEUE_STATUSES].map((status) => [status, 0]));
   rows.forEach((row) => { counts[row.status] = (counts[row.status] || 0) + 1; });
   const sender = 'sales@s-consulting.ba';
@@ -435,7 +526,17 @@ async function getAutomationState(db, brand, options = {}) {
       sent_count: counts.SENT || 0,
       failed_count: counts.FAILED || 0,
       available_count: candidates.length,
-      daily_limit: Math.min(MAX_DAILY_LIMIT, settings.daily_limit)
+      daily_limit: Math.min(MAX_DAILY_LIMIT, settings.daily_limit),
+      report: dailyReport ? {
+        status: dailyReport.status,
+        recipient: dailyReport.recipient_email,
+        prepared_count: Number(dailyReport.prepared_count || 0),
+        sent_count: Number(dailyReport.sent_count || 0),
+        failed_count: Number(dailyReport.failed_count || 0),
+        remaining_count: Number(dailyReport.remaining_count || 0),
+        sent_at: dailyReport.sent_at || null,
+        last_error: dailyReport.last_error || ''
+      } : null
     },
     source_policy: 'ONLY_EXISTING_CRM_EMAILS'
   };
@@ -493,6 +594,126 @@ function formatSarajevoDate(value) {
     timeZone: 'Europe/Sarajevo', year: 'numeric', month: '2-digit', day: '2-digit'
   }).formatToParts(new Date(value)).map((part) => [part.type, part.value]));
   return `${parts.day}.${parts.month}.${parts.year}.`;
+}
+
+function formatBusinessDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}.${match[2]}.${match[1]}.` : String(value || '');
+}
+
+async function claimDailyReport(db, brand, settings, date, now) {
+  const recipient = validEmail(settings.report_recipient) || DEFAULT_REPORT_RECIPIENT;
+  return db.transaction(async (trx) => {
+    const grouped = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, queue_date: date })
+      .select('status')
+      .count({ count: '*' })
+      .groupBy('status');
+    const counts = Object.fromEntries(grouped.map((row) => [row.status, Number(row.count || 0)]));
+    const preparedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
+    const sentCount = counts.SENT || 0;
+    const failedCount = counts.FAILED || 0;
+    const remainingCount = (counts.PENDING || 0) + (counts.APPROVED || 0) + (counts.SENDING || 0);
+    const id = uuidv4();
+    const claimToken = uuidv4();
+    await trx('crm_mail_daily_reports').insert({
+      id,
+      brand_id: brand.id,
+      report_date: date,
+      recipient_email: recipient,
+      status: 'SENDING',
+      prepared_count: preparedCount,
+      sent_count: sentCount,
+      failed_count: failedCount,
+      remaining_count: remainingCount,
+      claim_token: claimToken,
+      claimed_at: now,
+      created_at: now,
+      updated_at: now
+    }).onConflict(['brand_id', 'report_date']).ignore();
+    const claimed = await trx('crm_mail_daily_reports').where({ brand_id: brand.id, report_date: date }).first();
+    return claimed?.claim_token === claimToken ? claimed : null;
+  });
+}
+
+function dailyReportMessage(brand, report) {
+  return {
+    subject: `[${brand.name}] Dnevni izvještaj komercijale – ${formatBusinessDate(report.report_date)}`,
+    body: [
+      'Poštovani,',
+      '',
+      `dnevni izvještaj automatske komercijale za program ${brand.name}, ${formatBusinessDate(report.report_date)}`,
+      '',
+      `Pripremljeno: ${Number(report.prepared_count || 0)}`,
+      `Poslano: ${Number(report.sent_count || 0)}`,
+      `Neuspjelo: ${Number(report.failed_count || 0)}`,
+      `Preostalo: ${Number(report.remaining_count || 0)}`,
+      '',
+      'Ovo je automatski generisan izvještaj S-Consulting komercijale.'
+    ].join('\n')
+  };
+}
+
+async function sendDailyReport(db, brand, settings, options = {}) {
+  const now = options.now || new Date();
+  const date = options.date || businessDate('Europe/Sarajevo', now);
+  const outlook = options.outlookService || createOutlookService();
+  assertOutlookReady(outlook);
+  const claimed = await claimDailyReport(db, brand, settings, date, now);
+  if (!claimed) return { sent: false, reason: 'Dnevni izvještaj je već obrađen.' };
+  const message = dailyReportMessage(brand, claimed);
+  let accepted = false;
+  try {
+    const result = await outlook.send({
+      to: [claimed.recipient_email],
+      subject: message.subject,
+      body: message.body,
+      bodyType: 'text',
+      attachments: []
+    });
+    accepted = true;
+    const updated = await db('crm_mail_daily_reports').where({
+      id: claimed.id,
+      claim_token: claimed.claim_token,
+      status: 'SENDING'
+    }).update({
+      status: 'SENT',
+      sent_at: now,
+      provider_message_id: result.id || null,
+      provider_conversation_id: result.conversationId || null,
+      last_error: null,
+      updated_at: now
+    });
+    if (!updated) throw httpError(409, 'Izgubljena je potvrda dnevnog izvještaja.', 'DAILY_REPORT_CLAIM_LOST');
+    await db('crm_mail_automation_settings').where({ brand_id: brand.id }).update({
+      last_report_at: now,
+      last_report_error: null,
+      updated_at: now
+    });
+    return {
+      sent: true,
+      recipient: claimed.recipient_email,
+      sent_count: Number(claimed.sent_count || 0),
+      failed_count: Number(claimed.failed_count || 0),
+      remaining_count: Number(claimed.remaining_count || 0)
+    };
+  } catch (error) {
+    if (!accepted) {
+      const messageText = String(error?.message || 'Slanje izvještaja nije uspjelo.').slice(0, 2000);
+      await db.transaction(async (trx) => {
+        await trx('crm_mail_daily_reports').where({
+          id: claimed.id,
+          claim_token: claimed.claim_token,
+          status: 'SENDING'
+        }).update({ status: 'FAILED', last_error: messageText, updated_at: now });
+        await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).update({
+          last_report_error: messageText,
+          updated_at: now
+        });
+      });
+    }
+    throw error;
+  }
 }
 
 async function queueAttachment(db, attachmentId, brandId) {
@@ -766,7 +987,7 @@ async function runAutomationTick(db, options = {}) {
   const date = businessDate('Europe/Sarajevo', now);
   const rows = await db({ s: 'crm_mail_automation_settings' })
     .join({ b: 'crm_brands' }, 'b.id', 's.brand_id')
-    .where({ 's.enabled': true, 's.paused': false, 'b.active': true })
+    .where({ 's.enabled': true, 's.paused': false, 's.auto_send': true, 'b.active': true })
     .select('b.*');
   const results = [];
   for (const brand of rows) {
@@ -779,12 +1000,30 @@ async function runAutomationTick(db, options = {}) {
       if (time >= state.settings.send_window_start && state.queue.length === 0) {
         state = await prepareAutomationQueue(db, brand, { id: 'commercial-mail-bot' }, { date });
       }
+      let sendResult;
       if (time < state.settings.send_window_start || time > state.settings.send_window_end) {
-        results.push({ brand: brand.code, sent: false, reason: 'Izvan termina slanja.', prepared: state.queue.length });
-        continue;
+        sendResult = { sent: false, reason: 'Izvan termina slanja.', prepared: state.queue.length };
+      } else {
+        try {
+          sendResult = await sendNextAutomatedMail(db, brand, { now, outlookService: outlook });
+        } catch (error) {
+          sendResult = { sent: false, error: String(error.message || error).slice(0, 500) };
+        }
       }
-      const result = await sendNextAutomatedMail(db, brand, { now, outlookService: outlook });
-      results.push({ brand: brand.code, ...result, recipient: result.recipient ? '[evidentirano]' : undefined });
+      let report = { sent: false, reason: 'Izvještaj još nije na rasporedu.' };
+      if (state.settings.report_enabled && time >= state.settings.report_time) {
+        try {
+          report = await sendDailyReport(db, brand, state.settings, { now, date, outlookService: outlook });
+        } catch (error) {
+          report = { sent: false, error: String(error.message || error).slice(0, 500) };
+        }
+      }
+      results.push({
+        brand: brand.code,
+        ...sendResult,
+        recipient: sendResult.recipient ? '[evidentirano]' : undefined,
+        report: { ...report, recipient: report.recipient ? '[evidentirano]' : undefined }
+      });
     } catch (error) {
       results.push({ brand: brand.code, sent: false, error: String(error.message || error).slice(0, 500) });
     }
@@ -800,6 +1039,7 @@ module.exports = {
   pauseAutomation,
   prepareAutomationQueue,
   runAutomationTick,
+  sendDailyReport,
   sendNextAutomatedMail,
   sendSelectedMails,
   updateAutomationSettings,
