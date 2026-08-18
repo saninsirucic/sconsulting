@@ -31,7 +31,7 @@ import {
   useToast,
   VStack,
 } from '@chakra-ui/react';
-import { FaEnvelope, FaPaperPlane, FaPaperclip, FaRedo, FaSave, FaTrash } from 'react-icons/fa';
+import { FaCheck, FaEnvelope, FaPaperPlane, FaPaperclip, FaRedo, FaSave, FaTimes, FaTrash } from 'react-icons/fa';
 import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL } from '../outlook/signature';
 import { commercialApi } from './api';
 
@@ -56,12 +56,14 @@ const EMPTY_AUTOMATION_FORM = {
 };
 
 const STATUS_LABELS = {
-  PENDING: 'Spreman za izbor',
-  READY: 'Spreman za izbor',
-  APPROVED: 'Spreman za slanje',
+  PENDING: 'ČEKA ODLUKU',
+  READY: 'ČEKA ODLUKU',
+  APPROVED: 'ODOBRENO',
   SENDING: 'Slanje u toku',
-  FAILED: 'Neuspjelo — pokušaj ponovo',
+  FAILED: 'PONOVO ODOBRI',
 };
+
+const HIDDEN_CANDIDATE_STATUSES = new Set(['SENT', 'SKIPPED', 'NOT_APPROVED', 'REJECTED']);
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -127,7 +129,7 @@ export function normalizeMailAutomationState(input) {
   const sourceCandidates = today.candidates || payload.candidates || payload.queue || [];
   const candidates = (Array.isArray(sourceCandidates) ? sourceCandidates : [])
     .map(normalizeCandidate)
-    .filter((item) => item && item.status !== 'SENT')
+    .filter((item) => item && !HIDDEN_CANDIDATE_STATUSES.has(item.status))
     .slice(0, DAILY_LIMIT);
 
   return {
@@ -222,8 +224,12 @@ function readFileAsBase64(file) {
 function candidateStatusColor(status) {
   if (status === 'FAILED') return 'red';
   if (status === 'SENDING') return 'orange';
-  if (status === 'APPROVED') return 'blue';
-  return 'gray';
+  if (status === 'APPROVED') return 'green';
+  return 'yellow';
+}
+
+function isCandidateApproved(candidate) {
+  return candidate?.status === 'APPROVED';
 }
 
 function AutomaticSignaturePreview() {
@@ -349,8 +355,21 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
     [candidates]
   );
   const selectedCount = selectableCandidates.filter((candidate) => selectedIds.has(candidate.id)).length;
+  const selectedCandidateIds = selectableCandidates
+    .filter((candidate) => selectedIds.has(candidate.id))
+    .map((candidate) => candidate.account_id);
+  const selectedPendingCandidateIds = selectableCandidates
+    .filter((candidate) => selectedIds.has(candidate.id) && !isCandidateApproved(candidate))
+    .map((candidate) => candidate.account_id);
+  const pendingCount = candidates.filter((candidate) => !isCandidateApproved(candidate) && candidate.status !== 'SENDING').length;
+  const approvedCount = candidates.filter(isCandidateApproved).length;
+  const selectedApprovedCandidates = selectableCandidates.filter(
+    (candidate) => selectedIds.has(candidate.id) && isCandidateApproved(candidate)
+  );
+  const selectedApprovedCount = selectedApprovedCandidates.length;
   const allSelected = selectableCandidates.length > 0 && selectedCount === selectableCandidates.length;
   const partlySelected = selectedCount > 0 && !allSelected;
+  const isDeciding = busy.startsWith('decision:');
   const hasSavedTemplate = Boolean(state.template.subject && state.template.body);
   const shownAttachment = draftAttachment || (!removeAttachment && state.template.attachment_name ? {
     name: state.template.attachment_name,
@@ -528,10 +547,36 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
     setBusy('');
   };
 
+  const decideCandidates = async (accountIds, decision, source = 'batch') => {
+    const ids = [...new Set(accountIds.map(String))]
+      .filter((id) => selectableCandidates.some((candidate) => candidate.account_id === id));
+    if (!canManage || !ids.length || !['APPROVED', 'REJECTED'].includes(decision)) return;
+
+    setBusy(`decision:${decision}:${source}`);
+    setError('');
+    try {
+      const result = await commercialApi.decideMailAutomationCandidates(brandCode, ids, decision);
+      if (result) applyState(result);
+      else await load({ syncForm: false, showSpinner: false });
+      toast({
+        title: decision === 'APPROVED'
+          ? `${ids.length} ${ids.length === 1 ? 'kandidat je odobren' : 'kandidata je odobreno'}.`
+          : `${ids.length} ${ids.length === 1 ? 'kandidat nije odobren' : 'kandidata nije odobreno'} za danas.`,
+        description: decision === 'APPROVED'
+          ? 'Spremno za raspored ili ručno slanje. Nijedan mail još nije poslan.'
+          : 'Uklonjeno samo iz današnjeg reda. Komitenti ostaju u CRM bazi.',
+        status: decision === 'APPROVED' ? 'success' : 'info',
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      setError(requestError.message || 'Odluku za označene kandidate nije moguće sačuvati.');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const sendSelected = async () => {
-    const selectedCandidates = selectableCandidates
-      .filter((candidate) => selectedIds.has(candidate.id))
-      .slice(0, DAILY_LIMIT);
+    const selectedCandidates = selectedApprovedCandidates.slice(0, DAILY_LIMIT);
     if (!selectedCandidates.length) return;
 
     const confirmed = window.confirm(
@@ -790,7 +835,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                     <AlertIcon />
                     <AlertDescription fontSize="sm">
                       {automationForm.enabled
-                        ? 'Automatizacija će koristiti samo sačuvanu formu i prilog ove aplikacije.'
+                        ? 'Automatizacija koristi sačuvanu formu i šalje isključivo kandidate koje si označio kao ODOBRENO.'
                         : 'Kada sačuvaš pauzirano stanje, odmah se zaustavljaju sva nova automatska slanja. Ručno slanje ispod ostaje dostupno.'}
                     </AlertDescription>
                   </Alert>
@@ -873,63 +918,217 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
 
               <Divider />
 
-              <Flex align={{ base: 'stretch', md: 'center' }} justify="space-between" gap={3} direction={{ base: 'column', md: 'row' }}>
-                <Box>
-                  <Heading size="sm">Kandidati za današnje slanje ({candidates.length}/{state.daily_limit})</Heading>
-                  <Text fontSize="sm" color="gray.600" mt={1}>Poslani komitenti se više ne prikazuju u ovoj kampanji.</Text>
-                </Box>
-                {canManage && (
-                  <Flex gap={2} direction={{ base: 'column', sm: 'row' }}>
-                    <Button minH="44px" leftIcon={<FaRedo />} variant="outline" isLoading={busy === 'prepare'} onClick={prepareCandidates}>Pripremi / dopuni do 30</Button>
-                    <Button minH="44px" variant="ghost" isLoading={busy === 'refresh'} onClick={refreshCandidates}>Osvježi</Button>
-                  </Flex>
-                )}
-              </Flex>
+              <Box as="section" aria-labelledby="candidate-review-heading">
+                <Flex align={{ base: 'stretch', md: 'center' }} justify="space-between" gap={3} direction={{ base: 'column', md: 'row' }}>
+                  <Box>
+                    <HStack flexWrap="wrap" spacing={2}>
+                      <Heading id="candidate-review-heading" size="sm">Brzi pregled kandidata</Heading>
+                      <Badge colorScheme="yellow" px={2} py={1} borderRadius="md">ČEKA ODLUKU {pendingCount}</Badge>
+                      <Badge colorScheme="green" px={2} py={1} borderRadius="md">ODOBRENO {approvedCount}</Badge>
+                    </HStack>
+                    <Text fontSize="sm" color="gray.600" mt={1}>
+                      Odobrenje samo priprema mail za raspored. Mail se ne šalje klikom na „Odobri“.
+                    </Text>
+                  </Box>
+                  {canManage && (
+                    <Flex gap={2} direction={{ base: 'column', sm: 'row' }}>
+                      <Button minH="44px" leftIcon={<FaRedo />} variant="outline" isLoading={busy === 'prepare'} onClick={prepareCandidates}>Pripremi / dopuni do 30</Button>
+                      <Button minH="44px" variant="ghost" isLoading={busy === 'refresh'} onClick={refreshCandidates}>Osvježi</Button>
+                    </Flex>
+                  )}
+                </Flex>
 
-              {candidates.length === 0 ? (
-                <Alert status="info" borderRadius="xl"><AlertIcon /><AlertDescription>Nema pripremljenih kandidata. Klikni „Pripremi / dopuni do 30“ za današnju listu poznatih mail adresa.</AlertDescription></Alert>
-              ) : (
-                <>
-                  <Flex p={3} bg="gray.50" border="1px solid" borderColor="gray.200" borderRadius="lg" align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }} gap={3}>
-                    <Checkbox aria-label="Označi sve kandidate" isChecked={allSelected} isIndeterminate={partlySelected} onChange={toggleAll}>Označi sve dostupne ({selectableCandidates.length})</Checkbox>
-                    <Button minH="44px" leftIcon={<FaPaperPlane />} colorScheme="orange" isDisabled={!canManage || selectedCount === 0 || !hasSavedTemplate} isLoading={busy === 'send'} loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}...` : 'Slanje u toku'} onClick={sendSelected}>Pošalji označene ({selectedCount})</Button>
-                  </Flex>
+                <Alert status="info" variant="left-accent" borderRadius="xl" mt={4}>
+                  <AlertIcon />
+                  <AlertDescription fontSize="sm">
+                    Označi više kandidata pa ih odobri jednim klikom. „Ne odobri“ uklanja samo današnji prijedlog — komitent ostaje u CRM bazi i može se predložiti drugi dan.
+                  </AlertDescription>
+                </Alert>
 
-                  {!hasSavedTemplate && <Alert status="warning" borderRadius="lg"><AlertIcon /><AlertDescription>Prvo sačuvaj naslov i sadržaj maila za {brandName}.</AlertDescription></Alert>}
+                {candidates.length === 0 ? (
+                  <Alert status="info" borderRadius="xl" mt={4}><AlertIcon /><AlertDescription>Nema pripremljenih kandidata. Klikni „Pripremi / dopuni do 30“ za današnju listu poznatih mail adresa.</AlertDescription></Alert>
+                ) : (
+                  <VStack align="stretch" spacing={4} mt={4}>
+                    <Box
+                      position={{ base: 'static', md: 'sticky' }}
+                      top="80px"
+                      zIndex={2}
+                      p={{ base: 4, md: 3 }}
+                      bg="white"
+                      border="1px solid"
+                      borderColor="blue.200"
+                      boxShadow="sm"
+                      borderRadius="xl"
+                    >
+                      <Flex align={{ base: 'stretch', lg: 'center' }} justify="space-between" direction={{ base: 'column', lg: 'row' }} gap={3}>
+                        <Checkbox
+                          aria-label="Označi sve kandidate"
+                          minH="44px"
+                          isChecked={allSelected}
+                          isIndeterminate={partlySelected}
+                          onChange={toggleAll}
+                        >
+                          <Text fontWeight="semibold">Označi sve ({selectableCandidates.length})</Text>
+                        </Checkbox>
+                        <Flex gap={2} direction={{ base: 'column', sm: 'row' }} flexWrap="wrap">
+                          <Button
+                            minH="46px"
+                            leftIcon={<FaCheck />}
+                            colorScheme="green"
+                            isDisabled={!canManage || selectedPendingCandidateIds.length === 0 || isDeciding}
+                            isLoading={busy === 'decision:APPROVED:batch'}
+                            loadingText="Odobravanje"
+                            onClick={() => decideCandidates(selectedPendingCandidateIds, 'APPROVED')}
+                          >
+                            Odobri označene ({selectedPendingCandidateIds.length})
+                          </Button>
+                          <Button
+                            minH="46px"
+                            leftIcon={<FaTimes />}
+                            colorScheme="red"
+                            variant="outline"
+                            isDisabled={!canManage || selectedCandidateIds.length === 0 || isDeciding}
+                            isLoading={busy === 'decision:REJECTED:batch'}
+                            loadingText="Spremanje"
+                            onClick={() => decideCandidates(selectedCandidateIds, 'REJECTED')}
+                          >
+                            Ne odobri označene ({selectedCount})
+                          </Button>
+                          <Button
+                            minH="46px"
+                            leftIcon={<FaPaperPlane />}
+                            colorScheme="orange"
+                            isDisabled={!canManage || selectedApprovedCount === 0 || !hasSavedTemplate || isDeciding}
+                            isLoading={busy === 'send'}
+                            loadingText={sendProgress ? `Šaljem ${sendProgress.current}/${sendProgress.total}...` : 'Slanje u toku'}
+                            onClick={sendSelected}
+                          >
+                            Pošalji odobrene sada ({selectedApprovedCount})
+                          </Button>
+                        </Flex>
+                      </Flex>
+                    </Box>
 
-                  <TableContainer display={{ base: 'none', md: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl">
-                    <Table size="sm">
-                      <Thead bg="orange.50"><Tr><Th w="48px">Izbor</Th><Th>Komitent</Th><Th>Mail adresa</Th><Th>Status</Th></Tr></Thead>
-                      <Tbody>
-                        {candidates.map((candidate) => {
-                          const disabled = candidate.status === 'SENDING';
-                          return (
-                            <Tr key={candidate.id}>
-                              <Td><Checkbox aria-label={`Odaberi ${candidate.name}`} isChecked={selectedIds.has(candidate.id)} isDisabled={disabled} onChange={() => toggleCandidate(candidate.id)} /></Td>
-                              <Td maxW="320px"><Text fontWeight="semibold" whiteSpace="normal" overflowWrap="anywhere">{candidate.name}</Text>{candidate.comment && <Text fontSize="xs" color="gray.500" whiteSpace="normal" noOfLines={2}>{candidate.comment}</Text>}</Td>
-                              <Td><Text whiteSpace="normal" overflowWrap="anywhere">{candidate.email || '—'}</Text></Td>
-                              <Td><Badge colorScheme={candidateStatusColor(candidate.status)}>{STATUS_LABELS[candidate.status] || candidate.status}</Badge>{candidate.last_error && <Text mt={1} fontSize="xs" color="red.600" whiteSpace="normal">{candidate.last_error}</Text>}</Td>
-                            </Tr>
-                          );
-                        })}
-                      </Tbody>
-                    </Table>
-                  </TableContainer>
+                    {!hasSavedTemplate && <Alert status="warning" borderRadius="lg"><AlertIcon /><AlertDescription>Prvo sačuvaj naslov i sadržaj maila za {brandName}.</AlertDescription></Alert>}
 
-                  <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
-                    {candidates.map((candidate) => {
-                      const disabled = candidate.status === 'SENDING';
-                      return (
-                        <Box key={candidate.id} border="1px solid" borderColor={selectedIds.has(candidate.id) ? 'orange.300' : 'gray.200'} borderRadius="xl" p={4} bg={selectedIds.has(candidate.id) ? 'orange.50' : 'white'}>
-                          <Checkbox aria-label={`Odaberi ${candidate.name}`} w="full" alignItems="start" isChecked={selectedIds.has(candidate.id)} isDisabled={disabled} onChange={() => toggleCandidate(candidate.id)}><Text fontWeight="bold" pr={2} overflowWrap="anywhere">{candidate.name}</Text></Checkbox>
-                          <Text mt={2} ml={6} fontSize="sm" color="gray.700" overflowWrap="anywhere">{candidate.email || 'Nema mail adrese'}</Text>
-                          <Flex mt={3} ml={6} align="start" gap={2} direction="column"><Badge colorScheme={candidateStatusColor(candidate.status)}>{STATUS_LABELS[candidate.status] || candidate.status}</Badge>{candidate.comment && <Text fontSize="xs" color="gray.500">{candidate.comment}</Text>}{candidate.last_error && <Text fontSize="xs" color="red.600">{candidate.last_error}</Text>}</Flex>
-                        </Box>
-                      );
-                    })}
+                    <TableContainer display={{ base: 'none', md: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl" overflowX="auto">
+                      <Table size="sm">
+                        <Thead bg="gray.50">
+                          <Tr><Th w="54px">Izbor</Th><Th>Komitent i mail</Th><Th>Odluka</Th><Th minW="260px">Brza odluka</Th></Tr>
+                        </Thead>
+                        <Tbody>
+                          {candidates.map((candidate) => {
+                            const disabled = candidate.status === 'SENDING';
+                            const approved = isCandidateApproved(candidate);
+                            const selected = selectedIds.has(candidate.id);
+                            return (
+                              <Tr key={candidate.id} bg={selected ? 'orange.50' : approved ? 'green.50' : 'white'} _hover={{ bg: selected ? 'orange.100' : approved ? 'green.100' : 'gray.50' }}>
+                                <Td>
+                                  <Checkbox aria-label={`Odaberi ${candidate.name}`} size="lg" isChecked={selected} isDisabled={disabled || isDeciding} onChange={() => toggleCandidate(candidate.id)} />
+                                </Td>
+                                <Td maxW="420px" py={4}>
+                                  <Text fontWeight="bold" whiteSpace="normal" overflowWrap="anywhere">{candidate.name}</Text>
+                                  <Text mt={1} fontSize="sm" color="gray.600" whiteSpace="normal" overflowWrap="anywhere">{candidate.email || 'Nema mail adrese'}</Text>
+                                  {candidate.comment && <Text mt={1} fontSize="xs" color="gray.500" whiteSpace="normal" noOfLines={2}>{candidate.comment}</Text>}
+                                </Td>
+                                <Td py={4}>
+                                  <Badge colorScheme={candidateStatusColor(candidate.status)} px={2} py={1} borderRadius="md">{STATUS_LABELS[candidate.status] || candidate.status}</Badge>
+                                  {candidate.last_error && <Text mt={2} fontSize="xs" color="red.600" whiteSpace="normal">{candidate.last_error}</Text>}
+                                </Td>
+                                <Td py={3}>
+                                  <HStack spacing={2}>
+                                    <Button
+                                      aria-label={`Odobri ${candidate.name}`}
+                                      minH="42px"
+                                      minW="108px"
+                                      leftIcon={<FaCheck />}
+                                      colorScheme="green"
+                                      variant={approved ? 'solid' : 'outline'}
+                                      isDisabled={disabled || approved || isDeciding}
+                                      isLoading={busy === `decision:APPROVED:${candidate.id}`}
+                                      onClick={() => decideCandidates([candidate.account_id], 'APPROVED', candidate.id)}
+                                    >
+                                      {approved ? 'Odobreno' : 'Odobri'}
+                                    </Button>
+                                    <Button
+                                      aria-label={`Ne odobri ${candidate.name}`}
+                                      minH="42px"
+                                      minW="112px"
+                                      leftIcon={<FaTimes />}
+                                      colorScheme="red"
+                                      variant="outline"
+                                      isDisabled={disabled || isDeciding}
+                                      isLoading={busy === `decision:REJECTED:${candidate.id}`}
+                                      onClick={() => decideCandidates([candidate.account_id], 'REJECTED', candidate.id)}
+                                    >
+                                      Ne odobri
+                                    </Button>
+                                  </HStack>
+                                </Td>
+                              </Tr>
+                            );
+                          })}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
+
+                    <VStack display={{ base: 'flex', md: 'none' }} align="stretch" spacing={3}>
+                      {candidates.map((candidate) => {
+                        const disabled = candidate.status === 'SENDING';
+                        const approved = isCandidateApproved(candidate);
+                        const selected = selectedIds.has(candidate.id);
+                        return (
+                          <Box
+                            key={candidate.id}
+                            border="1px solid"
+                            borderColor={selected ? 'orange.300' : approved ? 'green.300' : 'gray.200'}
+                            borderRadius="2xl"
+                            p={4}
+                            bg={selected ? 'orange.50' : approved ? 'green.50' : 'white'}
+                            boxShadow="sm"
+                          >
+                            <Flex align="flex-start" justify="space-between" gap={3}>
+                              <Checkbox aria-label={`Odaberi ${candidate.name}`} size="lg" isChecked={selected} isDisabled={disabled || isDeciding} onChange={() => toggleCandidate(candidate.id)}>
+                                <Text fontWeight="bold" pr={2} overflowWrap="anywhere">{candidate.name}</Text>
+                              </Checkbox>
+                              <Badge flexShrink={0} colorScheme={candidateStatusColor(candidate.status)} px={2} py={1} borderRadius="md">{STATUS_LABELS[candidate.status] || candidate.status}</Badge>
+                            </Flex>
+                            <Text mt={3} fontSize="sm" color="gray.700" overflowWrap="anywhere">{candidate.email || 'Nema mail adrese'}</Text>
+                            {candidate.comment && <Text mt={2} fontSize="xs" color="gray.500">{candidate.comment}</Text>}
+                            {candidate.last_error && <Text mt={2} fontSize="xs" color="red.600">{candidate.last_error}</Text>}
+                            <SimpleGrid columns={2} spacing={2} mt={4}>
+                              <Button
+                                aria-label={`Odobri ${candidate.name}`}
+                                minH="48px"
+                                leftIcon={<FaCheck />}
+                                colorScheme="green"
+                                variant={approved ? 'solid' : 'outline'}
+                                isDisabled={disabled || approved || isDeciding}
+                                isLoading={busy === `decision:APPROVED:${candidate.id}`}
+                                onClick={() => decideCandidates([candidate.account_id], 'APPROVED', candidate.id)}
+                              >
+                                {approved ? 'Odobreno' : 'Odobri'}
+                              </Button>
+                              <Button
+                                aria-label={`Ne odobri ${candidate.name}`}
+                                minH="48px"
+                                leftIcon={<FaTimes />}
+                                colorScheme="red"
+                                variant="outline"
+                                isDisabled={disabled || isDeciding}
+                                isLoading={busy === `decision:REJECTED:${candidate.id}`}
+                                onClick={() => decideCandidates([candidate.account_id], 'REJECTED', candidate.id)}
+                              >
+                                Ne odobri
+                              </Button>
+                            </SimpleGrid>
+                          </Box>
+                        );
+                      })}
+                    </VStack>
                   </VStack>
-                </>
-              )}
+                )}
+              </Box>
             </VStack>
           )}
         </Box>

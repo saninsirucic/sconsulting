@@ -26,6 +26,10 @@ export const commercialApi = {
   getMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation`),
   updateMailAutomation: (code, body) => apiRequest(`${brandPath(code)}/mail-automation`, { method: 'PUT', body }),
   prepareMailAutomation: (code) => apiRequest(`${brandPath(code)}/mail-automation/prepare`, { method: 'POST' }),
+  decideMailAutomationCandidates: (code, accountIds, decision) => apiRequest(`${brandPath(code)}/mail-automation/candidates`, {
+    method: 'PATCH',
+    body: { account_ids: accountIds, decision },
+  }),
   sendSelectedMailAutomation: (code, accountIds) => apiRequest(`${brandPath(code)}/mail-automation/send-selected`, {
     method: 'POST',
     body: { account_ids: accountIds, confirm: true },

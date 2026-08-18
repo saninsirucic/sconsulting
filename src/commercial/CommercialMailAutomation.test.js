@@ -8,6 +8,7 @@ jest.mock('./api', () => ({
     getMailAutomation: jest.fn(),
     updateMailAutomation: jest.fn(),
     prepareMailAutomation: jest.fn(),
+    decideMailAutomationCandidates: jest.fn(),
     sendSelectedMailAutomation: jest.fn(),
   },
 }));
@@ -37,7 +38,7 @@ const campaignState = {
     failed_count: 0,
     candidates: [
       { account_id: 'account-1', name: 'Komitent A', email: 'a@example.ba', status: 'PENDING' },
-      { account_id: 'account-2', name: 'Komitent B', email: 'b@example.ba', status: 'FAILED', last_error: 'Privremena greška' },
+      { account_id: 'account-2', name: 'Komitent B', email: 'b@example.ba', status: 'APPROVED' },
     ],
   },
 };
@@ -60,6 +61,7 @@ beforeEach(() => {
   commercialApi.getMailAutomation.mockResolvedValue(campaignState);
   commercialApi.updateMailAutomation.mockResolvedValue(campaignState);
   commercialApi.prepareMailAutomation.mockResolvedValue(campaignState);
+  commercialApi.decideMailAutomationCandidates.mockResolvedValue(campaignState);
   commercialApi.sendSelectedMailAutomation.mockResolvedValue({ sent_count: 1, failed_count: 0 });
 });
 
@@ -84,6 +86,7 @@ test('normalizira novi i prethodni oblik odgovora te uklanja već poslane kandid
     queue: [
       { id: 'queue-1', company_name: 'Aktivan', recipient_email: 'aktivan@example.ba', status: 'APPROVED' },
       { id: 'queue-2', company_name: 'Poslan', recipient_email: 'poslan@example.ba', status: 'SENT' },
+      { id: 'queue-3', company_name: 'Nije odobren', recipient_email: 'ne@example.ba', status: 'NOT_APPROVED' },
     ],
   });
 
@@ -130,7 +133,10 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
   expect(screen.getByText('ponuda.pdf')).toBeInTheDocument();
   expect(screen.getAllByText('Komitent A').length).toBeGreaterThan(0);
   expect(screen.getAllByText('a@example.ba').length).toBeGreaterThan(0);
-  expect(screen.getByRole('button', { name: 'Pošalji označene (0)' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Pošalji odobrene sada (0)' })).toBeDisabled();
+  expect(screen.getAllByText('ČEKA ODLUKU').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('ODOBRENO').length).toBeGreaterThan(0);
+  expect(screen.getByText(/Mail se ne šalje klikom na „Odobri“/)).toBeInTheDocument();
 });
 
 test('sprema kompletne parametre automatskog slanja bez diranja ručnog workflowa', async () => {
@@ -226,17 +232,70 @@ test('odbija prilog veći od Microsoft Graph limita od 2,5 MB', async () => {
   expect(commercialApi.updateMailAutomation).not.toHaveBeenCalled();
 });
 
-test('šalje samo označene račune nakon potvrde i zatim osvježava CRM', async () => {
+test('pojedinačno odobrenje samo mijenja odluku i ne šalje mail', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Odobri Komitent A' })[0]);
+
+  await waitFor(() => expect(commercialApi.decideMailAutomationCandidates).toHaveBeenCalledWith(
+    'VISIOCAST',
+    ['account-1'],
+    'APPROVED'
+  ));
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+});
+
+test('neuspjelo slanje mora se ponovo odobriti prije novog pokušaja', async () => {
+  const failedState = {
+    ...campaignState,
+    today: {
+      ...campaignState.today,
+      candidates: [{ account_id: 'account-failed', name: 'Komitent Greška', email: 'greska@example.ba', status: 'FAILED' }],
+    },
+  };
+  commercialApi.getMailAutomation.mockResolvedValue(failedState);
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+
+  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent Greška' })[0]);
+  expect(screen.getAllByText('PONOVO ODOBRI').length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: 'Pošalji odobrene sada (0)' })).toBeDisabled();
+  expect(screen.getAllByRole('button', { name: 'Odobri Komitent Greška' })[0]).toBeEnabled();
+});
+
+test('grupno odobrava i ne odobrava označene bez automatskog slanja', async () => {
+  renderCampaign();
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+
+  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent A' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Odobri označene (1)' }));
+  await waitFor(() => expect(commercialApi.decideMailAutomationCandidates).toHaveBeenLastCalledWith(
+    'VISIOCAST',
+    ['account-1'],
+    'APPROVED'
+  ));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ne odobri označene (1)' }));
+  await waitFor(() => expect(commercialApi.decideMailAutomationCandidates).toHaveBeenLastCalledWith(
+    'VISIOCAST',
+    ['account-1'],
+    'REJECTED'
+  ));
+  expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
+});
+
+test('šalje samo označene i odobrene račune nakon potvrde te osvježava CRM', async () => {
   const onChanged = jest.fn();
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
   renderCampaign({ onChanged });
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
 
-  const checkboxes = screen.getAllByRole('checkbox', { name: 'Odaberi Komitent A' });
-  fireEvent.click(checkboxes[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Pošalji označene (1)' }));
+  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent A' })[0]);
+  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent B' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Pošalji odobrene sada (1)' }));
 
-  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['account-1']));
+  await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledWith('VISIOCAST', ['account-2']));
   expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('sales@s-consulting.ba'));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
   expect(commercialApi.getMailAutomation).toHaveBeenCalledTimes(2);
@@ -247,8 +306,8 @@ test('odustajanje u potvrdi ne šalje nijedan mail', async () => {
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
   renderCampaign();
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
-  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent A' })[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Pošalji označene (1)' }));
+  fireEvent.click(screen.getAllByRole('checkbox', { name: 'Odaberi Komitent B' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Pošalji odobrene sada (1)' }));
 
   expect(commercialApi.sendSelectedMailAutomation).not.toHaveBeenCalled();
   confirmSpy.mockRestore();
@@ -257,13 +316,21 @@ test('odustajanje u potvrdi ne šalje nijedan mail', async () => {
 test('više kandidata šalje pojedinačno, nastavlja poslije greške i prikazuje zbirni rezultat', async () => {
   const onChanged = jest.fn();
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  const allApprovedState = {
+    ...campaignState,
+    today: {
+      ...campaignState.today,
+      candidates: campaignState.today.candidates.map((candidate) => ({ ...candidate, status: 'APPROVED' })),
+    },
+  };
+  commercialApi.getMailAutomation.mockResolvedValue(allApprovedState);
   commercialApi.sendSelectedMailAutomation
     .mockRejectedValueOnce(new Error('Privremena greška'))
     .mockResolvedValueOnce({ sent_count: 1, failed_count: 0 });
   renderCampaign({ onChanged });
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Označi sve kandidate' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Pošalji označene (2)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Pošalji odobrene sada (2)' }));
 
   await waitFor(() => expect(commercialApi.sendSelectedMailAutomation).toHaveBeenCalledTimes(2));
   expect(commercialApi.sendSelectedMailAutomation).toHaveBeenNthCalledWith(1, 'VISIOCAST', ['account-1']);
