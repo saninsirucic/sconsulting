@@ -371,7 +371,7 @@ async function transferAccount(db, account, targetBrand, user) {
       .delete();
     if (mailRows.length) {
       const unsentIds = mailRows
-        .filter((row) => ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'].includes(row.status))
+        .filter((row) => ['PENDING', 'APPROVED', 'SCHEDULED', 'FAILED', 'NOT_APPROVED'].includes(row.status))
         .map((row) => row.id);
       if (unsentIds.length) await trx('crm_mail_queue').whereIn('id', unsentIds).delete();
     }
@@ -432,7 +432,7 @@ async function archiveAccount(db, account, user) {
         brand_id: lockedAccount.brand_id
       }).orderBy('id').forUpdate();
       const unsentIds = mailRows
-        .filter((row) => ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'].includes(row.status))
+        .filter((row) => ['PENDING', 'APPROVED', 'SCHEDULED', 'FAILED', 'NOT_APPROVED'].includes(row.status))
         .map((row) => row.id);
       if (unsentIds.length) await trx('crm_mail_queue').whereIn('id', unsentIds).delete();
     }
@@ -623,7 +623,7 @@ async function updateDailyAssignment(db, assignment, account, user, body) {
           brand_id: assignment.brand_id,
           account_id: assignment.account_id,
           queue_date: assignment.assignment_date
-        }).whereIn('status', ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED'])
+        }).whereIn('status', ['PENDING', 'APPROVED', 'SCHEDULED', 'FAILED', 'NOT_APPROVED'])
           .select('id', 'status').forUpdate();
         const reactivatedCount = targetRows.filter((row) => row.status === 'NOT_APPROVED').length;
         if (reactivatedCount) {
@@ -661,7 +661,7 @@ async function updateDailyAssignment(db, assignment, account, user, body) {
         brand_id: assignment.brand_id,
         account_id: assignment.account_id,
         queue_date: assignment.assignment_date
-      }).whereIn('status', ['PENDING', 'APPROVED', 'FAILED', 'NOT_APPROVED']).update({
+      }).whereIn('status', ['PENDING', 'APPROVED', 'SCHEDULED', 'FAILED', 'NOT_APPROVED']).update({
         status: status === 'PENDING' ? 'PENDING' : 'NOT_APPROVED',
         claim_token: null,
         claimed_at: null,
@@ -760,10 +760,12 @@ async function approveDailyAssignments(db, user, brand, assignmentIds, decision,
         continue;
       }
       const queue = queueByAccount.get(account.id);
-      if (queue && ['SENDING', 'SENT', 'SKIPPED'].includes(queue.status)) {
+      if (queue && ['SCHEDULED', 'SENDING', 'SENT', 'SKIPPED'].includes(queue.status)) {
         const code = queue.status === 'SENDING'
           ? 'MAIL_SEND_IN_PROGRESS'
-          : (queue.status === 'SENT' ? 'MAIL_ALREADY_SENT' : 'MAIL_ALREADY_PROCESSED');
+          : (queue.status === 'SCHEDULED'
+            ? 'MAIL_ALREADY_SCHEDULED'
+            : (queue.status === 'SENT' ? 'MAIL_ALREADY_SENT' : 'MAIL_ALREADY_PROCESSED'));
         rejections.push({ assignment_id: id, code });
         continue;
       }

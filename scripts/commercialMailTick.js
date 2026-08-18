@@ -1,11 +1,11 @@
 require('dotenv').config();
 const knex = require('knex');
-const { runAutomationTick } = require('../commercial/automation');
+const { runAutomationJob } = require('../commercial/automation');
 
 const environment = process.env.DATABASE_URL ? 'production' : 'development';
 const db = knex(require('../knexfile')[environment]);
 
-runAutomationTick(db)
+runAutomationJob(db)
   .then((result) => {
     console.log(JSON.stringify(result));
   })

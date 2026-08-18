@@ -7,12 +7,15 @@ const automationMigration = require('../migrations/20260815120000_add_commercial
 const manualCampaignMigration = require('../migrations/20260817130000_add_manual_commercial_mail_campaigns');
 const scheduleReportMigration = require('../migrations/20260818100000_add_commercial_mail_schedule_reports');
 const recipientCcMigration = require('../migrations/20260818130000_add_commercial_recipient_cc');
+const fiveMinuteIntervalMigration = require('../migrations/20260818150000_set_commercial_mail_interval_five');
 const {
   getAutomationState,
   importApprovedDailyAssignments,
   prepareAutomationQueue,
   reviewAutomationCandidates,
+  runAutomationJob,
   runAutomationTick,
+  scheduleSelectedMails,
   sendNextAutomatedMail,
   sendSelectedMails,
   updateCandidateRecipients,
@@ -36,6 +39,7 @@ async function testDb(t) {
   await manualCampaignMigration.up(db);
   await scheduleReportMigration.up(db);
   await recipientCcMigration.up(db);
+  await fiveMinuteIntervalMigration.up(db);
   return db;
 }
 
@@ -111,6 +115,7 @@ test('migracija kreira tri ugašena agenta i unaprijed priprema SAN Pest sadrža
   assert.equal(sanPest.subject, automationMigration.SAN_PEST_SUBJECT);
   assert.match(sanPest.body_text, /SanPest Platform/);
   assert.equal(Number(sanPest.daily_limit), 30);
+  assert.equal(Number(sanPest.send_interval_minutes), 5);
   assert.equal(Boolean(sanPest.auto_send), false);
   assert.equal(Boolean(sanPest.report_enabled), true);
   assert.equal(sanPest.report_time, '16:00');
@@ -1250,6 +1255,75 @@ test('postavke odbijaju neispravan raspored, adresu izvještaja i nedovoljan kap
     updateAutomationSettings(db, brand, director, { ...base, workdays: [] }),
     (error) => error.status === 400 && error.code === 'INVALID_AUTOMATION_SETTINGS'
   );
+});
+
+test('odobreni mailovi se zakazuju bez trenutnog slanja i scheduler ih šalje u razmaku od pet minuta', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  await addAccount(db, brand, 'spaced-1', {
+    email: 'spaced1@firma.ba', priority: 'HIGH', source_row_number: -2
+  });
+  await addAccount(db, brand, 'spaced-2', {
+    email: 'spaced2@firma.ba', priority: 'HIGH', source_row_number: -1
+  });
+  await updateAutomationSettings(db, brand, director, {
+    subject: 'FS App prijedlog za {{KOMITENT}}',
+    body: 'Poštovani {{KOMITENT}}, predstavljamo FS App.',
+    enabled: false,
+    auto_send: false,
+    daily_limit: 2,
+    send_interval_minutes: 5
+  });
+  const date = '2026-08-17';
+  const prepared = await prepareAutomationQueue(db, brand, director, { date });
+  const accountIds = prepared.today.candidates.slice(0, 2).map((candidate) => candidate.account_id);
+  assert.equal(accountIds.length, 2);
+  await reviewAutomationCandidates(db, brand, accountIds, 'APPROVED', { date });
+
+  const events = [];
+  let sendNumber = 0;
+  const outlookService = {
+    config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+    async send() {
+      sendNumber += 1;
+      events.push(`send-${sendNumber}`);
+      return {
+        success: true,
+        accepted: true,
+        id: `scheduled-message-${sendNumber}`,
+        conversationId: `scheduled-conversation-${sendNumber}`
+      };
+    }
+  };
+  const scheduled = await scheduleSelectedMails(db, brand, accountIds, {
+    confirmed: true,
+    actor: director,
+    date,
+    now: new Date('2026-08-17T07:59:00.000Z')
+  });
+  assert.equal(scheduled.schedule.scheduled_count, 2);
+  assert.equal(sendNumber, 0);
+  assert.deepEqual(
+    (await db('crm_mail_queue').where({ brand_id: brand.id, queue_date: date }).orderBy('sequence_number'))
+      .map((row) => row.status),
+    ['SCHEDULED', 'SCHEDULED']
+  );
+
+  const times = [
+    new Date('2026-08-17T08:00:00.000Z'),
+    new Date('2026-08-17T08:05:00.000Z')
+  ];
+  const result = await runAutomationJob(db, {
+    outlookService,
+    nowProvider: () => times.shift(),
+    sleep: async (milliseconds) => events.push(`sleep-${milliseconds}`)
+  });
+
+  assert.deepEqual(events, ['send-1', 'sleep-300000', 'send-2']);
+  assert.equal(result.first.scheduled[0].sent, true);
+  assert.equal(result.follow_up.scheduled[0].sent, true);
+  assert.equal(sendNumber, 2);
+  assert.equal(await db('crm_mail_queue').where({ brand_id: brand.id, queue_date: date, status: 'SENT' }).count({ count: '*' }).first().then((row) => Number(row.count)), 2);
 });
 
 test('scheduler pripremi red i u jednom ticku šalje najviše jedan mail po brendu', async (t) => {

@@ -6,6 +6,7 @@ const {
   pauseAutomation,
   prepareAutomationQueue,
   reviewAutomationCandidates,
+  scheduleSelectedMails,
   sendNextAutomatedMail,
   sendSelectedMails,
   updateCandidateRecipients,
@@ -211,6 +212,21 @@ function createCommercialRouter({ db, outlookService }) {
         actor: req.user,
         confirmed: req.body.confirm === true,
         outlookService
+      }
+    ));
+  }));
+  router.post('/brands/:code/mail-automation/schedule-selected', asyncRoute(async (req, res) => {
+    if (!req.body || req.body.confirm !== true) {
+      throw httpError(400, 'Potvrdite zakazivanje sa confirm: true.', 'SCHEDULE_CONFIRMATION_REQUIRED');
+    }
+    const brand = await getBrand(req, true);
+    res.json(await scheduleSelectedMails(
+      db,
+      brand,
+      req.body.account_ids || req.body.accountIds || req.body.ids,
+      {
+        actor: req.user,
+        confirmed: true
       }
     ));
   }));

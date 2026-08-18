@@ -5,13 +5,14 @@ const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
 
 const QUEUE_STATUSES = new Set([
-  'PENDING', 'APPROVED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
+  'PENDING', 'APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
 ]);
 const EXCLUDED_CANDIDATE_STATUSES = ['REJECTED', 'WON', 'EMAIL_SENT'];
 const DEFAULT_WORKDAYS = [1, 2, 3, 4, 5];
 const MAX_DAILY_LIMIT = 30;
-const MIN_SEND_INTERVAL_MINUTES = 10;
+const MIN_SEND_INTERVAL_MINUTES = 5;
 const MAX_SEND_INTERVAL_MINUTES = 60;
+const SCHEDULED_SEND_INTERVAL_MINUTES = 5;
 const MAX_CC_RECIPIENTS = 10;
 const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 const DEFAULT_MAX_ATTACHMENT_BYTES = 2500000;
@@ -144,7 +145,7 @@ function serializeSettings(row) {
     workdays: normalizeWorkdays(row.workdays_json),
     send_window_start: row.send_window_start,
     send_window_end: row.send_window_end,
-    send_interval_minutes: Number(row.send_interval_minutes) || 10,
+    send_interval_minutes: Number(row.send_interval_minutes) || SCHEDULED_SEND_INTERVAL_MINUTES,
     report_enabled: row.report_enabled === undefined ? true : Boolean(row.report_enabled),
     report_time: row.report_time || '16:00',
     report_recipient: row.report_recipient || DEFAULT_REPORT_RECIPIENT,
@@ -284,7 +285,7 @@ async function ensureAutomationSetting(db, brand) {
     workdays_json: JSON.stringify(DEFAULT_WORKDAYS),
     send_window_start: '09:00',
     send_window_end: '15:00',
-    send_interval_minutes: 10,
+    send_interval_minutes: SCHEDULED_SEND_INTERVAL_MINUTES,
     report_enabled: true,
     report_time: '16:00',
     report_recipient: DEFAULT_REPORT_RECIPIENT,
@@ -345,7 +346,7 @@ async function updateAutomationSettings(db, brand, actor, input = {}) {
     const sendIntervalMinutes = validatedInteger(
       input,
       'send_interval_minutes',
-      Number(current.send_interval_minutes) || 10,
+      Number(current.send_interval_minutes) || SCHEDULED_SEND_INTERVAL_MINUTES,
       MIN_SEND_INTERVAL_MINUTES,
       MAX_SEND_INTERVAL_MINUTES,
       'Razmak poruka'
@@ -497,7 +498,7 @@ async function prepareAutomationQueue(db, brand, actor = { id: 'commercial-mail-
     const needed = Math.max(0, settings.daily_limit - activeCount);
     if (needed > 0) {
       const [history, usedToday, suppressed] = await Promise.all([
-        trx('crm_mail_queue').where({ brand_id: brand.id }).whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).select('account_id', 'recipient_email'),
+        trx('crm_mail_queue').where({ brand_id: brand.id }).whereIn('status', ['SCHEDULED', 'SENT', 'SENDING', 'SKIPPED']).select('account_id', 'recipient_email'),
         trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date }).whereNotIn('status', ['SKIPPED']).select('recipient_email'),
         suppressionSet(trx)
       ]);
@@ -832,7 +833,7 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
     const [existingRows, historyRows, suppressed] = await Promise.all([
       trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date }).orderBy('sequence_number'),
       trx('crm_mail_queue').where({ brand_id: brand.id })
-        .whereIn('status', ['SENT', 'SENDING', 'SKIPPED'])
+        .whereIn('status', ['SCHEDULED', 'SENT', 'SENDING', 'SKIPPED'])
         .select('account_id', 'recipient_email', 'queue_date', 'status'),
       suppressionSet(trx)
     ]);
@@ -881,7 +882,7 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
         skippedCounts.invalid_account += 1;
         continue;
       }
-      if (current && ['SENT', 'SENDING', 'SKIPPED'].includes(current.status)) {
+      if (current && ['SCHEDULED', 'SENT', 'SENDING', 'SKIPPED'].includes(current.status)) {
         skippedCounts.already_processed += 1;
         continue;
       }
@@ -1087,7 +1088,8 @@ async function claimDailyReport(db, brand, settings, date, now) {
       .reduce((sum, [, count]) => sum + count, 0);
     const sentCount = counts.SENT || 0;
     const failedCount = counts.FAILED || 0;
-    const remainingCount = (counts.PENDING || 0) + (counts.APPROVED || 0) + (counts.SENDING || 0);
+    const remainingCount = (counts.PENDING || 0) + (counts.APPROVED || 0)
+      + (counts.SCHEDULED || 0) + (counts.SENDING || 0);
     const id = uuidv4();
     const claimToken = uuidv4();
     await trx('crm_mail_daily_reports').insert({
@@ -1321,6 +1323,156 @@ async function recordUnconfirmedAcceptedSend(db, brand, claimed, error, now) {
   });
 }
 
+async function scheduleSelectedMails(db, brand, accountIds, options = {}) {
+  if (options.confirmed !== true) {
+    throw httpError(400, 'Potvrdite zakazivanje sa confirm: true.', 'SCHEDULE_CONFIRMATION_REQUIRED');
+  }
+  const ids = [...new Set((Array.isArray(accountIds) ? accountIds : [])
+    .map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!ids.length) {
+    throw httpError(400, 'Označite najmanje jednog odobrenog kandidata.', 'CAMPAIGN_SELECTION_REQUIRED');
+  }
+  if (ids.length > MAX_DAILY_LIMIT) {
+    throw httpError(400, 'Odjednom možete zakazati najviše 30 kandidata.', 'CAMPAIGN_SELECTION_TOO_LARGE');
+  }
+  const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
+  const date = options.date || businessDate();
+  const now = options.now || new Date();
+  await ensureAutomationSetting(db, brand);
+  const outcome = await db.transaction(async (trx) => {
+    await trx('crm_mail_automation_settings').where({ brand_id: brand.id }).forUpdate().first();
+    const rows = await trx('crm_mail_queue')
+      .where({ brand_id: brand.id, queue_date: date })
+      .whereIn('status', ['APPROVED', 'SCHEDULED'])
+      .andWhere((query) => query.whereIn('account_id', ids).orWhereIn('id', ids))
+      .orderBy('sequence_number').forUpdate();
+    const rowsByAccount = new Map(rows.map((row) => [String(row.account_id), row]));
+    const rowsById = new Map(rows.map((row) => [String(row.id), row]));
+    const accountIdsToLock = [...new Set(rows.map((row) => row.account_id))].sort();
+    const accounts = accountIdsToLock.length
+      ? await trx('crm_accounts').whereIn('id', accountIdsToLock).orderBy('id').forUpdate()
+      : [];
+    const accountsById = new Map(accounts.map((account) => [account.id, account]));
+    const suppressed = await suppressionSet(trx);
+    const scheduled = [];
+    const alreadyScheduled = [];
+    const rejected = [];
+
+    for (const identifier of ids) {
+      const row = rowsByAccount.get(identifier) || rowsById.get(identifier);
+      if (!row) {
+        rejected.push({ id: identifier, code: 'NOT_APPROVED_OR_UNAVAILABLE' });
+        continue;
+      }
+      const account = accountsById.get(row.account_id);
+      const currentEmail = validEmail(account?.email);
+      if (!account || account.brand_id !== brand.id || account.archived_at
+        || EXCLUDED_CANDIDATE_STATUSES.includes(account.status)
+        || !currentEmail || currentEmail !== validEmail(row.recipient_email)) {
+        rejected.push({ id: identifier, code: 'ACCOUNT_CHANGED' });
+        continue;
+      }
+      try {
+        checkedQueueRecipients(row, suppressed);
+      } catch (error) {
+        rejected.push({ id: identifier, code: error.code || 'RECIPIENT_INVALID' });
+        continue;
+      }
+      if (row.status === 'SCHEDULED') {
+        alreadyScheduled.push(row.account_id);
+        continue;
+      }
+      scheduled.push(row);
+    }
+
+    if (scheduled.length) {
+      await trx('crm_mail_queue').whereIn('id', scheduled.map((row) => row.id)).update({
+        status: 'SCHEDULED',
+        claim_token: null,
+        claimed_at: null,
+        last_error: null,
+        updated_at: now
+      });
+      await trx('crm_activities').insert(scheduled.map((row) => {
+        const account = accountsById.get(row.account_id);
+        return {
+          id: uuidv4(),
+          account_id: row.account_id,
+          brand_id: brand.id,
+          user_id: actor.id || null,
+          activity_type: 'COMMERCIAL_EMAIL_SCHEDULED',
+          from_status: account?.status || null,
+          to_status: account?.status || null,
+          notes: 'Mail zakazan za slanje u razmaku od 5 minuta.',
+          metadata_json: JSON.stringify({
+            queueId: row.id,
+            intervalMinutes: SCHEDULED_SEND_INTERVAL_MINUTES
+          }),
+          occurred_at: now,
+          created_at: now
+        };
+      }));
+    }
+    return {
+      requested_count: ids.length,
+      scheduled_count: scheduled.length,
+      already_scheduled_count: alreadyScheduled.length,
+      rejected_count: rejected.length,
+      scheduled_account_ids: scheduled.map((row) => row.account_id),
+      already_scheduled_account_ids: alreadyScheduled,
+      rejected,
+      interval_minutes: SCHEDULED_SEND_INTERVAL_MINUTES
+    };
+  });
+  return { ...(await getAutomationState(db, brand, { date })), schedule: outcome };
+}
+
+async function claimNextScheduled(db, brand, now) {
+  return db.transaction(async (trx) => {
+    const rawSettings = await trx('crm_mail_automation_settings')
+      .where({ brand_id: brand.id }).forUpdate().first();
+    const settings = serializeSettings(rawSettings);
+    if (!settings?.subject || !settings?.body_text) return null;
+    if (minutesSince(settings.last_sent_at, now) < SCHEDULED_SEND_INTERVAL_MINUTES) return null;
+    const date = businessDate('Europe/Sarajevo', now);
+    const usedRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
+      .whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).count({ count: '*' }).first();
+    if (Number(usedRow?.count || 0) >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) return null;
+    while (true) {
+      const item = await trx('crm_mail_queue').where({
+        brand_id: brand.id,
+        queue_date: date,
+        status: 'SCHEDULED'
+      }).orderBy('sequence_number').forUpdate().first();
+      if (!item) return null;
+      const account = await trx('crm_accounts').where({ id: item.account_id, brand_id: brand.id })
+        .whereNull('archived_at').forUpdate().first();
+      const currentEmail = validEmail(account?.email);
+      if (!account || EXCLUDED_CANDIDATE_STATUSES.includes(account.status)
+        || !currentEmail || currentEmail !== validEmail(item.recipient_email)) {
+        await trx('crm_mail_queue').where({ id: item.id, status: 'SCHEDULED' }).update({
+          status: 'NOT_APPROVED',
+          claim_token: null,
+          claimed_at: null,
+          last_error: 'Podaci komitenta su promijenjeni nakon zakazivanja. Potrebna je nova provjera.',
+          updated_at: now
+        });
+        continue;
+      }
+      const claimToken = uuidv4();
+      const updated = await trx('crm_mail_queue').where({ id: item.id, status: 'SCHEDULED' }).update({
+        status: 'SENDING',
+        attempts: Number(item.attempts || 0) + 1,
+        claim_token: claimToken,
+        claimed_at: now,
+        last_error: null,
+        updated_at: now
+      });
+      return updated ? { ...item, claim_token: claimToken, settings, account, manual: true } : null;
+    }
+  });
+}
+
 async function claimSelectedQueueItem(db, brand, identifier, now) {
   const date = businessDate('Europe/Sarajevo', now);
   return db.transaction(async (trx) => {
@@ -1438,6 +1590,44 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
   };
 }
 
+async function sendNextScheduledMail(db, brand, options = {}) {
+  const now = options.now || new Date();
+  const actor = options.actor || { id: 'commercial-mail-scheduler', username: 'Zakazano slanje' };
+  const outlook = options.outlookService || createOutlookService();
+  assertOutlookReady(outlook);
+  await markStaleClaims(db, brand.id, now);
+  const claimed = await claimNextScheduled(db, brand, now);
+  if (!claimed) return { sent: false, reason: 'Nema zakazane poruke spremne za slanje.' };
+  let accepted = false;
+  try {
+    const attachment = await queueAttachment(db, claimed.attachment_id, brand.id);
+    const recipients = checkedQueueRecipients(claimed, await suppressionSet(db));
+    const result = await outlook.send({
+      to: [recipients.toEmail],
+      cc: recipients.ccEmails,
+      subject: claimed.subject,
+      body: claimed.body_text,
+      bodyType: 'text',
+      attachments: attachment ? [attachment] : []
+    });
+    accepted = true;
+    await recordSuccessfulSend(db, brand, claimed, result, actor, outlook.config.mailbox, now);
+    return {
+      sent: true,
+      queueId: claimed.id,
+      accountId: claimed.account_id,
+      recipient: claimed.recipient_email,
+      ccCount: recipients.ccEmails.length,
+      sentAt: now,
+      mode: 'SCHEDULED'
+    };
+  } catch (error) {
+    if (accepted) await recordUnconfirmedAcceptedSend(db, brand, claimed, error, new Date());
+    else await recordFailedSend(db, brand, claimed, error, new Date());
+    throw error;
+  }
+}
+
 async function sendNextAutomatedMail(db, brand, options = {}) {
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-bot', username: 'Automatska komercijala' };
@@ -1481,6 +1671,25 @@ async function runAutomationTick(db, options = {}) {
   const outlook = options.outlookService || createOutlookService();
   const { weekday, time } = sarajevoParts(now);
   const date = businessDate('Europe/Sarajevo', now);
+  const scheduledRows = await db({ q: 'crm_mail_queue' })
+    .join({ b: 'crm_brands' }, 'b.id', 'q.brand_id')
+    .where({ 'q.queue_date': date, 'q.status': 'SCHEDULED', 'b.active': true })
+    .select('b.*')
+    .distinct();
+  const scheduledResults = [];
+  for (const brand of scheduledRows) {
+    try {
+      const result = await sendNextScheduledMail(db, brand, { now, outlookService: outlook });
+      scheduledResults.push({
+        brand: brand.code,
+        ...result,
+        recipient: result.recipient ? '[evidentirano]' : undefined
+      });
+    } catch (error) {
+      scheduledResults.push({ brand: brand.code, sent: false, error: String(error.message || error).slice(0, 500) });
+    }
+  }
+
   const rows = await db({ s: 'crm_mail_automation_settings' })
     .join({ b: 'crm_brands' }, 'b.id', 's.brand_id')
     .where({ 's.enabled': true, 's.paused': false, 's.auto_send': true, 'b.active': true })
@@ -1524,7 +1733,55 @@ async function runAutomationTick(db, options = {}) {
       results.push({ brand: brand.code, sent: false, error: String(error.message || error).slice(0, 500) });
     }
   }
-  return { date, time, results };
+  return { date, time, scheduled: scheduledResults, results };
+}
+
+async function needsFiveMinuteFollowUp(db, options = {}) {
+  const now = options.now || new Date();
+  const date = businessDate('Europe/Sarajevo', now);
+  const scheduled = await db({ q: 'crm_mail_queue' })
+    .join({ b: 'crm_brands' }, 'b.id', 'q.brand_id')
+    .where({ 'q.queue_date': date, 'q.status': 'SCHEDULED', 'b.active': true })
+    .first('q.id');
+  if (scheduled) return true;
+
+  const { weekday, time } = sarajevoParts(now);
+  const fastBrands = await db({ s: 'crm_mail_automation_settings' })
+    .join({ b: 'crm_brands' }, 'b.id', 's.brand_id')
+    .where({
+      's.enabled': true,
+      's.paused': false,
+      's.auto_send': true,
+      's.send_interval_minutes': SCHEDULED_SEND_INTERVAL_MINUTES,
+      'b.active': true
+    })
+    .select('s.brand_id', 's.workdays_json', 's.send_window_start', 's.send_window_end');
+  for (const row of fastBrands) {
+    if (!normalizeWorkdays(row.workdays_json).includes(weekday)
+      || time < row.send_window_start || time > row.send_window_end) continue;
+    const approved = await db('crm_mail_queue').where({
+      brand_id: row.brand_id,
+      queue_date: date,
+      status: 'APPROVED'
+    }).first('id');
+    if (approved) return true;
+  }
+  return false;
+}
+
+async function runAutomationJob(db, options = {}) {
+  const nowProvider = options.nowProvider || (() => new Date());
+  const sleep = options.sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const firstNow = new Date(nowProvider());
+  const first = await runAutomationTick(db, { now: firstNow, outlookService: options.outlookService });
+  const followUpNeeded = await needsFiveMinuteFollowUp(db, { now: firstNow });
+  if (!followUpNeeded) return { first, follow_up: null };
+  await sleep(SCHEDULED_SEND_INTERVAL_MINUTES * 60000);
+  const second = await runAutomationTick(db, {
+    now: new Date(nowProvider()),
+    outlookService: options.outlookService
+  });
+  return { first, follow_up: second };
 }
 
 module.exports = {
@@ -1536,9 +1793,12 @@ module.exports = {
   pauseAutomation,
   prepareAutomationQueue,
   reviewAutomationCandidates,
+  runAutomationJob,
   runAutomationTick,
+  scheduleSelectedMails,
   sendDailyReport,
   sendNextAutomatedMail,
+  sendNextScheduledMail,
   sendSelectedMails,
   updateCandidateRecipients,
   updateAutomationSettings,
