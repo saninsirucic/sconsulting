@@ -12,6 +12,7 @@ jest.mock('./commercial/letterReportPdf', () => ({
 jest.mock('./commercial/api', () => ({
   commercialApi: {
     getBrands: jest.fn(),
+    getCallCalendar: jest.fn(),
     getDashboard: jest.fn(),
     getRecords: jest.fn(),
     createRecord: jest.fn(),
@@ -67,6 +68,7 @@ beforeEach(() => {
     { code: 'FS_APP', name: 'FS App', record_count: 0 },
   ] });
   commercialApi.getDashboard.mockResolvedValue({ totals: { total: 1, total_amount: 88562, profit_amount: 65800 }, today: { total: 0 } });
+  commercialApi.getCallCalendar.mockResolvedValue({ items: [], range: {}, brands: [] });
   commercialApi.getRecords.mockResolvedValue({ items: [record], pagination: { total: 1, pages: 1 }, filters: {} });
   commercialApi.createRecord.mockResolvedValue({ id: 'record-2' });
   commercialApi.updateRecord.mockResolvedValue({ ...record, company_name: 'Izmijenjeni kupac' });
@@ -302,6 +304,41 @@ test('statusne boje razlikuju tok, odbijeno i pozitivan ishod', () => {
   expect(statusVisual('REJECTED')).toEqual(expect.objectContaining({ bg: 'red.50' }));
   expect(statusVisual('INTERESTED')).toEqual(expect.objectContaining({ bg: 'green.50' }));
   expect(statusVisual('WON')).toEqual(expect.objectContaining({ bg: 'green.50' }));
+});
+
+test('kalendar poziva prikazuje sljedeće kontakte iz sva tri programa po datumu', async () => {
+  const now = new Date();
+  const contactAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 30);
+  commercialApi.getCallCalendar.mockResolvedValue({
+    items: [{
+      ...record,
+      id: 'calendar-record',
+      company_name: 'Komitent za današnji poziv',
+      phone: '+387 61 555 444',
+      next_contact_at: contactAt.toISOString(),
+      brand_code: 'SAN_PEST',
+      brand_name: 'SAN Pest',
+      admin_call_requested: true,
+    }],
+    range: {},
+    brands: [],
+  });
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Kalendar poziva' }));
+  expect(await screen.findByRole('heading', { name: 'Kalendar poziva' })).toBeInTheDocument();
+  await waitFor(() => expect(commercialApi.getCallCalendar).toHaveBeenCalledWith(expect.objectContaining({
+    from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  })));
+  expect((await screen.findAllByText('Komitent za današnji poziv')).length).toBeGreaterThan(0);
+  expect(screen.getByText('+387 61 555 444')).toBeInTheDocument();
+  expect(screen.getAllByText('SAN Pest').length).toBeGreaterThan(0);
+  expect(screen.getByRole('link', { name: 'Zovi' })).toHaveAttribute('href', 'tel:+38761555444');
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Program u kalendaru' }), { target: { value: 'SAN_PEST' } });
+  await waitFor(() => expect(commercialApi.getCallCalendar).toHaveBeenCalledWith(expect.objectContaining({ brand: 'SAN_PEST' })));
 });
 
 test('kreira Visiocast komitenta kroz modal', async () => {

@@ -52,8 +52,11 @@ import {
   FaBuilding,
   FaCalendarCheck,
   FaCheck,
+  FaChevronLeft,
   FaChevronDown,
+  FaChevronRight,
   FaChevronUp,
+  FaClock,
   FaEdit,
   FaEnvelope,
   FaExchangeAlt,
@@ -835,6 +838,36 @@ function formattedLetterDate(value) {
   return `${match[3]}.${match[2]}.${match[1]}.${match[4] ? ` ${match[4]}:${match[5]}` : ''}`;
 }
 
+const CALENDAR_WEEKDAYS = ['Pon', 'Uto', 'Sri', 'Čet', 'Pet', 'Sub', 'Ned'];
+
+function calendarDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function calendarDateFromKey(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12) : new Date();
+}
+
+function addCalendarDays(value, amount) {
+  const date = new Date(value.getFullYear(), value.getMonth(), value.getDate() + amount, 12);
+  return date;
+}
+
+function calendarPhone(record) {
+  const source = String(recordValue(record, 'phone', 'raw_contact', 'rawContact', 'contact', 'kontakt') || '');
+  const match = source.match(/\+?\d[\d\s/().-]{6,}\d/);
+  return match ? match[0].trim() : '';
+}
+
+function calendarBrandScheme(code) {
+  if (normalizeBrandCode(code) === 'SAN_PEST') return 'green';
+  if (normalizeBrandCode(code) === 'FS_APP') return 'blue';
+  return 'orange';
+}
+
 function defaultLetterHistoryFrom() {
   return `${new Date().getFullYear()}-07-01`;
 }
@@ -1557,6 +1590,226 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   );
 }
 
+function CallCalendar({ brands, globalRefreshKey, onChanged }) {
+  const toast = useToast();
+  const editModal = useDisclosure();
+  const todayKey = calendarDateKey(new Date());
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1, 12);
+  });
+  const [selectedDate, setSelectedDate] = useState(todayKey);
+  const [brandFilter, setBrandFilter] = useState('');
+  const [items, setItems] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [localRefreshKey, setLocalRefreshKey] = useState(0);
+
+  const gridDays = useMemo(() => {
+    const first = new Date(month.getFullYear(), month.getMonth(), 1, 12);
+    const mondayOffset = (first.getDay() + 6) % 7;
+    const start = addCalendarDays(first, -mondayOffset);
+    return Array.from({ length: 42 }, (_, index) => addCalendarDays(start, index));
+  }, [month]);
+  const rangeFrom = calendarDateKey(gridDays[0]);
+  const rangeTo = calendarDateKey(gridDays[gridDays.length - 1]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await commercialApi.getCallCalendar({
+        from: rangeFrom,
+        to: rangeTo,
+        ...(brandFilter ? { brand: brandFilter } : {}),
+      });
+      setItems(Array.isArray(result) ? result : result?.items || []);
+    } catch (requestError) {
+      setError(requestError.message || 'Kalendar poziva trenutno nije dostupan.');
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [brandFilter, rangeFrom, rangeTo]);
+
+  useEffect(() => { load(); }, [globalRefreshKey, load, localRefreshKey]);
+
+  const grouped = useMemo(() => items.reduce((all, item) => {
+    const key = calendarDateKey(recordValue(item, 'next_contact_at', 'nextContactAt'));
+    if (!key) return all;
+    if (!all[key]) all[key] = [];
+    all[key].push(item);
+    return all;
+  }, {}), [items]);
+  const selectedItems = grouped[selectedDate] || [];
+  const monthPrefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+  const monthCount = items.filter((item) => calendarDateKey(recordValue(item, 'next_contact_at', 'nextContactAt')).startsWith(monthPrefix)).length;
+  const selectedLabel = calendarDateFromKey(selectedDate).toLocaleDateString('bs-BA', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+
+  const changeMonth = (amount) => {
+    const next = new Date(month.getFullYear(), month.getMonth() + amount, 1, 12);
+    setMonth(next);
+    setSelectedDate(calendarDateKey(next));
+  };
+  const showToday = () => {
+    const now = new Date();
+    setMonth(new Date(now.getFullYear(), now.getMonth(), 1, 12));
+    setSelectedDate(calendarDateKey(now));
+  };
+  const openEdit = (record) => {
+    setEditing(record);
+    editModal.onOpen();
+  };
+
+  return (
+    <VStack align="stretch" spacing={5}>
+      <Box border="1px solid" borderColor="blue.200" bg="blue.50" borderRadius="2xl" p={{ base: 4, md: 5 }}>
+        <Flex justify="space-between" gap={4} align={{ base: 'start', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
+          <Box>
+            <HStack><Icon as={FaCalendarCheck} color="blue.600" boxSize={5} /><Heading size="md">Kalendar poziva</Heading></HStack>
+            <Text mt={2} color="gray.600">Zajednički pregled „Sljedećeg kontakta“ iz svih programa kojima imate pristup.</Text>
+          </Box>
+          <Select aria-label="Program u kalendaru" maxW={{ base: 'full', md: '250px' }} bg="white" value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)}>
+            <option value="">Svi dostupni programi</option>
+            {brands.map((brand) => <option key={brand.code} value={brand.code}>{brand.name}</option>)}
+          </Select>
+        </Flex>
+      </Box>
+
+      <SimpleGrid columns={{ base: 3 }} spacing={{ base: 2, md: 4 }}>
+        {[
+          ['Danas', (grouped[todayKey] || []).length, 'blue'],
+          ['Izabrani dan', selectedItems.length, 'orange'],
+          ['Ovaj mjesec', monthCount, 'purple'],
+        ].map(([label, value, scheme]) => (
+          <Stat key={label} border="1px solid" borderColor={`${scheme}.100`} borderRadius="xl" p={{ base: 2, md: 4 }} bg="white">
+            <StatLabel fontSize={{ base: '2xs', sm: 'sm' }} color="gray.600">{label}</StatLabel>
+            <StatNumber fontSize={{ base: 'xl', md: '2xl' }}>{value}</StatNumber>
+          </Stat>
+        ))}
+      </SimpleGrid>
+
+      <Box border="1px solid" borderColor="gray.200" borderRadius="2xl" overflow="hidden" bg="white" boxShadow="sm">
+        <Flex p={{ base: 3, md: 4 }} align="center" justify="space-between" gap={2} borderBottom="1px solid" borderColor="gray.200">
+          <IconButton aria-label="Prethodni mjesec" icon={<FaChevronLeft />} variant="ghost" onClick={() => changeMonth(-1)} />
+          <VStack spacing={0}>
+            <Heading size="sm" textTransform="capitalize">{month.toLocaleDateString('bs-BA', { month: 'long', year: 'numeric' })}</Heading>
+            <Button size="xs" variant="link" colorScheme="blue" onClick={showToday}>Idi na danas</Button>
+          </VStack>
+          <IconButton aria-label="Sljedeći mjesec" icon={<FaChevronRight />} variant="ghost" onClick={() => changeMonth(1)} />
+        </Flex>
+
+        {error && <Box p={4}><ErrorAlert message={error} onRetry={load} /></Box>}
+        {loading ? <Loading label="Učitavanje kalendara poziva..." /> : (
+          <Box p={{ base: 1, sm: 2, md: 3 }}>
+            <SimpleGrid columns={7} spacing={{ base: 1, md: 2 }} mb={2}>
+              {CALENDAR_WEEKDAYS.map((day) => <Text key={day} textAlign="center" fontSize={{ base: '2xs', md: 'xs' }} fontWeight="bold" color="gray.500">{day}</Text>)}
+            </SimpleGrid>
+            <SimpleGrid columns={7} spacing={{ base: 1, md: 2 }}>
+              {gridDays.map((day) => {
+                const key = calendarDateKey(day);
+                const dayItems = grouped[key] || [];
+                const isSelected = key === selectedDate;
+                const isToday = key === todayKey;
+                const inMonth = day.getMonth() === month.getMonth();
+                const firstCompany = recordValue(dayItems[0], 'company_name', 'companyName', 'name', 'komitent');
+                return (
+                  <Box
+                    as="button"
+                    type="button"
+                    key={key}
+                    aria-label={`${day.toLocaleDateString('bs-BA')} - ${dayItems.length} ${dayItems.length === 1 ? 'poziv' : 'poziva'}`}
+                    minH={{ base: '64px', md: '104px' }}
+                    p={{ base: 1, md: 2 }}
+                    textAlign="left"
+                    border="1px solid"
+                    borderColor={isSelected ? 'orange.500' : (isToday ? 'blue.400' : 'gray.200')}
+                    borderRadius="lg"
+                    bg={isSelected ? 'orange.500' : (inMonth ? 'white' : 'gray.50')}
+                    color={isSelected ? 'white' : (inMonth ? 'gray.800' : 'gray.400')}
+                    opacity={inMonth ? 1 : 0.7}
+                    _hover={{ borderColor: isSelected ? 'orange.600' : 'orange.300', bg: isSelected ? 'orange.600' : 'orange.50' }}
+                    _focusVisible={{ outline: '3px solid', outlineColor: 'blue.300' }}
+                    onClick={() => setSelectedDate(key)}
+                  >
+                    <Flex justify="space-between" align="start" gap={1}>
+                      <Text fontSize={{ base: 'xs', md: 'sm' }} fontWeight={isToday ? 'extrabold' : 'semibold'}>{day.getDate()}</Text>
+                      {dayItems.length > 0 && <Badge colorScheme={isSelected ? 'gray' : 'orange'} fontSize={{ base: '2xs', md: 'xs' }}>{dayItems.length}</Badge>}
+                    </Flex>
+                    {firstCompany && <Text display={{ base: 'none', md: 'block' }} mt={2} fontSize="xs" fontWeight="semibold" noOfLines={2}>{firstCompany}</Text>}
+                    {dayItems.length > 1 && <Text display={{ base: 'none', md: 'block' }} mt={1} fontSize="2xs">+{dayItems.length - 1} još</Text>}
+                  </Box>
+                );
+              })}
+            </SimpleGrid>
+          </Box>
+        )}
+      </Box>
+
+      <Box>
+        <HStack mb={3} justify="space-between" align="center" flexWrap="wrap">
+          <Heading size="sm" textTransform="capitalize">Pozivi za {selectedLabel}</Heading>
+          <Badge colorScheme="orange" px={3} py={1}>{selectedItems.length} {selectedItems.length === 1 ? 'kontakt' : 'kontakata'}</Badge>
+        </HStack>
+        {selectedItems.length === 0 ? (
+          <Box border="1px dashed" borderColor="gray.300" borderRadius="xl" py={8} px={4} textAlign="center" color="gray.500">Za ovaj datum nema zakazanih sljedećih kontakata.</Box>
+        ) : (
+          <VStack align="stretch" spacing={3}>
+            {selectedItems.map((record) => {
+              const status = recordValue(record, 'status', 'crm_status') || 'NEW';
+              const visual = statusVisual(status);
+              const phone = calendarPhone(record);
+              const contactAt = new Date(recordValue(record, 'next_contact_at', 'nextContactAt'));
+              const time = Number.isNaN(contactAt.getTime()) ? '—' : contactAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+              const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
+              return (
+                <Flex key={record.id} border="1px solid" borderColor={visual.borderColor} bg={visual.bg} borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
+                  <VStack minW={{ md: '76px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
+                    <Icon as={FaClock} color="blue.500" />
+                    <Text fontSize="lg" fontWeight="bold">{time}</Text>
+                  </VStack>
+                  <Box flex="1" minW={0}>
+                    <HStack spacing={2} flexWrap="wrap">
+                      <Badge colorScheme={calendarBrandScheme(record.brand_code)}>{record.brand_name || displayStatus(record.brand_code)}</Badge>
+                      <Badge colorScheme={statusColorScheme(status)}>{displayStatus(status)}</Badge>
+                      {record.admin_call_requested && <Badge colorScheme="purple">Admin rekao zvati</Badge>}
+                    </HStack>
+                    <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
+                    <HStack mt={1} spacing={3} color="gray.600" fontSize="sm" flexWrap="wrap">
+                      {phone && <Text><Icon as={FaPhoneAlt} mr={1} />{phone}</Text>}
+                      {record.email && <Text><Icon as={FaEnvelope} mr={1} />{record.email}</Text>}
+                      {record.location && <Text>{record.location}</Text>}
+                    </HStack>
+                  </Box>
+                  <HStack flexShrink={0} spacing={2} alignSelf={{ base: 'stretch', md: 'center' }}>
+                    {phone && <Button as="a" href={`tel:${phone.replace(/[^\d+]/g, '')}`} flex={{ base: 1, md: 'initial' }} leftIcon={<FaPhoneAlt />} colorScheme="green">Zovi</Button>}
+                    <Button flex={{ base: 1, md: 'initial' }} leftIcon={<FaEdit />} variant="outline" onClick={() => openEdit(record)}>Uredi termin</Button>
+                  </HStack>
+                </Flex>
+              );
+            })}
+          </VStack>
+        )}
+      </Box>
+
+      <RecordModal
+        isOpen={editModal.isOpen}
+        onClose={editModal.onClose}
+        record={editing}
+        brandCode={editing?.brand_code}
+        onSaved={() => {
+          toast({ title: 'Sljedeći kontakt je sačuvan.', status: 'success', position: 'top-right' });
+          setLocalRefreshKey((value) => value + 1);
+          onChanged();
+        }}
+      />
+    </VStack>
+  );
+}
+
 function WaitingBrand({ brand }) {
   return (
     <Box py={{ base: 8, md: 14 }} px={4} border="1px dashed" borderColor="orange.300" bg="orange.50" borderRadius="2xl" textAlign="center">
@@ -1618,11 +1871,13 @@ export default function CommercialModule({ user }) {
       {brandsLoading ? <Loading label="Učitavanje dostupnih komercijalnih baza..." /> : brands.length === 0 ? (
         <EmptyState title="Nema dodijeljenih komercijalnih baza" text="Vašem profilu trenutno nije dodijeljen pristup nijednoj komercijalnoj bazi. Obratite se direktoru." />
       ) : (
-        <Tabs colorScheme="orange" variant="enclosed" isLazy>
+        <Tabs colorScheme="orange" variant="enclosed" isLazy defaultIndex={1}>
           <TabList overflowX="auto" overflowY="hidden" sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
+            <Tab flexShrink={0} minH="44px" fontWeight="bold"><Icon as={FaCalendarCheck} mr={2} />Kalendar poziva</Tab>
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
           </TabList>
           <TabPanels>
+            <TabPanel px={{ base: 0, md: 1 }} py={5}><CallCalendar brands={brands} globalRefreshKey={globalRefreshKey} onChanged={() => setGlobalRefreshKey((value) => value + 1)} /></TabPanel>
             {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} brands={brands} user={user} globalRefreshKey={globalRefreshKey} onGlobalChanged={() => setGlobalRefreshKey((value) => value + 1)} /> : <WaitingBrand brand={brand} />}</TabPanel>)}
           </TabPanels>
         </Tabs>

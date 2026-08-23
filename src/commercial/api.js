@@ -5,6 +5,13 @@ const brandPath = (code) => `${base}/brands/${encodeURIComponent(code)}`;
 
 export const commercialApi = {
   getBrands: () => apiRequest(`${base}/brands`),
+  getCallCalendar: (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== '' && value !== undefined && value !== null) query.set(key, String(value));
+    });
+    return apiRequest(`${base}/calendar${query.toString() ? `?${query}` : ''}`, { method: 'GET' });
+  },
   getDashboard: (code) => apiRequest(`${brandPath(code)}/dashboard`),
   getRecords: (code, params = {}) => {
     const query = new URLSearchParams();

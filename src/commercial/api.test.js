@@ -92,3 +92,14 @@ test('trajno sprema kvačicu Admin rekao zvati na komitentu', async () => {
   expect(options.method).toBe('PATCH');
   expect(JSON.parse(options.body)).toEqual({ requested: true });
 });
+
+test('učitava zajednički kalendar poziva za raspon i program', async () => {
+  await commercialApi.getCallCalendar({ from: '2026-08-01', to: '2026-09-06', brand: 'SAN_PEST' });
+
+  const [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/calendar?');
+  expect(url).toContain('from=2026-08-01');
+  expect(url).toContain('to=2026-09-06');
+  expect(url).toContain('brand=SAN_PEST');
+  expect(options.method).toBe('GET');
+});
