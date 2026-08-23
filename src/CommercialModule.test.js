@@ -18,6 +18,7 @@ jest.mock('./commercial/api', () => ({
     updateRecord: jest.fn(),
     transferRecord: jest.fn(),
     sendRecordLetter: jest.fn(),
+    setAdminCallRequested: jest.fn(),
     deleteRecord: jest.fn(),
     getDailyList: jest.fn(),
     createDailyList: jest.fn(),
@@ -81,6 +82,7 @@ beforeEach(() => {
     recipient: record.email,
     sent_at: '2026-08-18T17:51:00.000Z',
   });
+  commercialApi.setAdminCallRequested.mockResolvedValue({ ...record, admin_call_requested: true, admin_call_requested_at: '2026-08-23T12:00:00.000Z' });
   commercialApi.deleteRecord.mockResolvedValue({ success: true });
   commercialApi.getDailyList.mockResolvedValue({ items: [] });
   commercialApi.createDailyList.mockResolvedValue({ items: [] });
@@ -179,6 +181,34 @@ test('jednim klikom prikazuje dopise od početka jula i filtrira datum slanja', 
     sentFrom: '2026-08-01',
     sentTo: '2026-08-31',
   })));
+});
+
+test('admin označava komitenta za poziv i posebni filter ostaje odvojen po programu', async () => {
+  const markedRecord = {
+    ...record,
+    admin_call_requested: true,
+    admin_call_requested_at: '2026-08-23T12:00:00.000Z',
+  };
+  commercialApi.getRecords.mockImplementation(async (brandCode, params) => ({
+    items: params?.adminCallRequested ? [markedRecord] : [record],
+    pagination: { total: 1, pages: 1 },
+    filters: {},
+  }));
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+
+  const checkboxes = screen.getAllByRole('checkbox', { name: 'Admin rekao zvati - Primjer d.o.o.' });
+  fireEvent.click(checkboxes[0]);
+  await waitFor(() => expect(commercialApi.setAdminCallRequested).toHaveBeenCalledWith('record-1', true));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Prikaži komitente označene Admin rekao zvati' }));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    adminCallRequested: true,
+    sortBy: 'admin_call_requested_at',
+    sortDirection: 'desc',
+  })));
+  expect((await screen.findAllByText(/označenih za poziv/)).length).toBeGreaterThan(0);
+  expect(screen.getAllByText('ADMIN REKAO ZVATI').length).toBeGreaterThan(0);
 });
 
 test('PDF izvještaj preuzima sve stranice za izabrani program i period', async () => {

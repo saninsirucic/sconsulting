@@ -83,3 +83,12 @@ test('odmah šalje sačuvani dopis iz CRM reda uz sigurnosnu potvrdu', async () 
   expect(options.method).toBe('POST');
   expect(JSON.parse(options.body)).toEqual({ confirm: true });
 });
+
+test('trajno sprema kvačicu Admin rekao zvati na komitentu', async () => {
+  await commercialApi.setAdminCallRequested('account/aba', true);
+
+  const [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/records/account%2Faba/admin-call-request');
+  expect(options.method).toBe('PATCH');
+  expect(JSON.parse(options.body)).toEqual({ requested: true });
+});

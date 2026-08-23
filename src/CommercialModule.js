@@ -59,6 +59,7 @@ import {
   FaExchangeAlt,
   FaFilePdf,
   FaPaperPlane,
+  FaPhoneAlt,
   FaPlus,
   FaRedo,
   FaSearch,
@@ -853,12 +854,15 @@ function recordLetterBlockedReason(record) {
 }
 
 function RecordDetailsGrid({ record }) {
+  const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
+  const adminCallRequestedAt = recordValue(record, 'admin_call_requested_at', 'adminCallRequestedAt');
   const details = [
     ['Glavni email za slanje', recordValue(record, 'email')],
     ['Izvorni mail podaci', recordValue(record, 'raw_mail', 'rawMail', 'mail')],
     ['Kontakt', recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone')],
     ['Komentar', recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar')],
     ['CRM napomene', recordValue(record, 'notes')],
+    ['Admin rekao zvati', adminCallRequested ? `Da${adminCallRequestedAt ? ` · ${formattedContactDate(adminCallRequestedAt)}` : ''}` : 'Ne'],
   ];
 
   return (
@@ -873,7 +877,7 @@ function RecordDetailsGrid({ record }) {
   );
 }
 
-function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter, showLetterSentAt }) {
+function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -883,6 +887,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
   const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
+  const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
   const visual = statusVisual(recordStatus);
 
   return (
@@ -895,6 +900,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
         <VStack align="end" spacing={1} flexShrink={0}>
           <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
           <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
+          {adminCallRequested && <Badge colorScheme="purple">ADMIN REKAO ZVATI</Badge>}
         </VStack>
       </Flex>
 
@@ -914,6 +920,18 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
       ) : nextContact && (
         <Text mt={2} fontSize="xs" fontWeight="semibold" color="orange.700">Sljedeći kontakt: {formattedContactDate(nextContact)}</Text>
       )}
+
+      <Box mt={3} px={3} py={2} borderRadius="md" bg={adminCallRequested ? 'purple.100' : 'whiteAlpha.700'} border="1px solid" borderColor={adminCallRequested ? 'purple.300' : 'gray.200'}>
+        <Checkbox
+          aria-label={`Admin rekao zvati - ${company}`}
+          colorScheme="purple"
+          isChecked={adminCallRequested}
+          isDisabled={isTogglingAdminCall}
+          onChange={(event) => onToggleAdminCall(record, event.target.checked)}
+        >
+          <Text fontSize="sm" fontWeight="semibold">Admin rekao zvati</Text>
+        </Checkbox>
+      </Box>
 
       <Button
         aria-label={`Pošalji dopis za ${company}`}
@@ -948,7 +966,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
   );
 }
 
-function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter, showLetterSentAt }) {
+function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -959,6 +977,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
   const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
+  const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
   const visual = statusVisual(recordStatus);
 
   return (
@@ -967,6 +986,17 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
         <Td py={3}>
           <Text fontWeight="semibold" noOfLines={2}>{company}</Text>
           <Text mt={1} fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
+          <Checkbox
+            mt={2}
+            size="sm"
+            aria-label={`Admin rekao zvati - ${company}`}
+            colorScheme="purple"
+            isChecked={adminCallRequested}
+            isDisabled={isTogglingAdminCall}
+            onChange={(event) => onToggleAdminCall(record, event.target.checked)}
+          >
+            <Text fontSize="xs" fontWeight="semibold" color={adminCallRequested ? 'purple.700' : 'gray.600'}>Admin rekao zvati</Text>
+          </Checkbox>
         </Td>
         <Td py={3}>
           <Text fontSize="sm" noOfLines={1}>{recordValue(record, 'record_type') || '—'}</Text>
@@ -1035,6 +1065,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [priority, setPriority] = useState('');
   const [dimensionFilter, setDimensionFilter] = useState('');
   const [lettersOnly, setLettersOnly] = useState(false);
+  const [adminCallOnly, setAdminCallOnly] = useState(false);
   const [sentFrom, setSentFrom] = useState('');
   const [sentTo, setSentTo] = useState('');
   const [page, setPage] = useState(1);
@@ -1045,6 +1076,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [dailyOpen, setDailyOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sendingLetterId, setSendingLetterId] = useState('');
+  const [togglingAdminCallId, setTogglingAdminCallId] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingAllPdf, setExportingAllPdf] = useState(false);
   const brandCode = brand.code || brand.slug;
@@ -1053,6 +1085,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     const [sortBy, sortDirection] = sortOption.split(':');
     const params = { page: targetPage, perPage: targetPerPage, search, status, priority, sortBy, sortDirection };
     if (lettersOnly) params.lettersOnly = true;
+    if (adminCallOnly) params.adminCallRequested = true;
     if (sentFrom) params.sentFrom = sentFrom;
     if (sentTo) params.sentTo = sentTo;
     const normalizedBrandCode = normalizeBrandCode(brandCode);
@@ -1060,7 +1093,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (normalizedBrandCode === 'SAN_PEST' && dimensionFilter) params.country = dimensionFilter;
     if (normalizedBrandCode === 'FS_APP' && dimensionFilter) params.record_type = dimensionFilter;
     return params;
-  }, [brandCode, dimensionFilter, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
+  }, [adminCallOnly, brandCode, dimensionFilter, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1089,6 +1122,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     const nextValue = !lettersOnly;
     setLettersOnly(nextValue);
     if (nextValue) {
+      setAdminCallOnly(false);
       setSentFrom(defaultLetterHistoryFrom());
       setSentTo('');
       setSortOption('letter_sent_at:desc');
@@ -1096,6 +1130,19 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       setSentFrom('');
       setSentTo('');
       if (sortOption.startsWith('letter_sent_at:')) setSortOption('company_name:asc');
+    }
+    setPage(1);
+  };
+  const toggleAdminCallFilter = () => {
+    const nextValue = !adminCallOnly;
+    setAdminCallOnly(nextValue);
+    if (nextValue) {
+      setLettersOnly(false);
+      setSentFrom('');
+      setSentTo('');
+      setSortOption('admin_call_requested_at:desc');
+    } else if (sortOption.startsWith('admin_call_requested_at:')) {
+      setSortOption('company_name:asc');
     }
     setPage(1);
   };
@@ -1144,6 +1191,25 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       });
     } finally {
       setSendingLetterId('');
+    }
+  };
+
+  const toggleAdminCall = async (record, requested) => {
+    const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Komitent';
+    setTogglingAdminCallId(record.id);
+    try {
+      await commercialApi.setAdminCallRequested(record.id, requested);
+      toast({
+        title: requested ? `${company} je označen za poziv.` : `Oznaka za ${company} je uklonjena.`,
+        description: requested ? 'Ostat će u listi „Admin rekao zvati“ dok kvačicu ne skinete.' : 'Komitent više nije na posebnoj listi za pozivanje.',
+        status: 'success',
+        position: 'top-right',
+      });
+      changed();
+    } catch (requestError) {
+      toast({ title: requestError.message || 'Oznaku za poziv trenutno nije moguće sačuvati.', status: 'error', position: 'top-right' });
+    } finally {
+      setTogglingAdminCallId('');
     }
   };
 
@@ -1251,6 +1317,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const rangeStart = total > 0 ? ((page - 1) * perPage) + 1 : 0;
   const rangeEnd = Math.min(page * perPage, total);
   const visiblePages = pageNumbers(page, Math.max(1, pages));
+  const resultLabel = adminCallOnly ? 'označenih za poziv' : (lettersOnly ? 'dopisa' : 'zapisa');
 
   return (
     <VStack align="stretch" spacing={5}>
@@ -1343,6 +1410,37 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         </Flex>
       </Box>
 
+      <Box
+        border="1px solid"
+        borderColor={adminCallOnly ? 'purple.300' : 'gray.200'}
+        bg={adminCallOnly ? 'purple.50' : 'gray.50'}
+        borderRadius="xl"
+        p={{ base: 3, md: 4 }}
+      >
+        <Flex align={{ base: 'stretch', lg: 'center' }} justify="space-between" gap={4} direction={{ base: 'column', lg: 'row' }}>
+          <Box>
+            <HStack spacing={2} flexWrap="wrap">
+              <Icon as={FaPhoneAlt} color={adminCallOnly ? 'purple.600' : 'gray.500'} />
+              <Text fontWeight="bold">Lista za pozvati</Text>
+              <Badge colorScheme="purple">Admin rekao zvati</Badge>
+            </HStack>
+            <Text mt={1} fontSize="sm" color="gray.600">U prikazu dopisa označite kvačicu uz komitenta. Oznaka ostaje sačuvana i sutradan, a nakon poziva je skinite.</Text>
+          </Box>
+          <Button
+            aria-label={adminCallOnly ? 'Prikaži sve komitente' : 'Prikaži komitente označene Admin rekao zvati'}
+            aria-pressed={adminCallOnly}
+            minH="44px"
+            flexShrink={0}
+            leftIcon={<FaPhoneAlt />}
+            colorScheme="purple"
+            variant={adminCallOnly ? 'solid' : 'outline'}
+            onClick={toggleAdminCallFilter}
+          >
+            {adminCallOnly ? 'Prikaži sve komitente' : 'Prikaži za pozvati'}
+          </Button>
+        </Flex>
+      </Box>
+
       <Divider />
       <Flex gap={3} direction={{ base: 'column', xl: 'row' }}>
         <HStack flex="1" border="1px solid" borderColor="gray.200" borderRadius="md" px={3}>
@@ -1358,11 +1456,13 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       </Flex>
 
       <Flex px={{ base: 0, md: 1 }} gap={3} align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }}>
-        <Text fontSize="sm" color="gray.600">Prikazano <strong>{rangeStart}–{rangeEnd}</strong> od <strong>{total}</strong> {lettersOnly ? 'dopisa' : 'zapisa'}</Text>
+        <Text fontSize="sm" color="gray.600">Prikazano <strong>{rangeStart}–{rangeEnd}</strong> od <strong>{total}</strong> {resultLabel}</Text>
         <HStack spacing={3}>
           <Select aria-label="Sortiranje komitenata" size="sm" minH="40px" maxW="230px" value={sortOption} onChange={(event) => { setSortOption(event.target.value); setPage(1); }}>
             {lettersOnly && <option value="letter_sent_at:desc">Datum slanja - najnoviji</option>}
             {lettersOnly && <option value="letter_sent_at:asc">Datum slanja - najstariji</option>}
+            {adminCallOnly && <option value="admin_call_requested_at:desc">Najnovije admin oznake</option>}
+            {adminCallOnly && <option value="admin_call_requested_at:asc">Najstarije admin oznake</option>}
             <option value="company_name:asc">Naziv A–Ž</option>
             <option value="company_name:desc">Naziv Ž–A</option>
             <option value="source_row_number:asc">Redni broj</option>
@@ -1383,7 +1483,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
 
       {error && <ErrorAlert message={error} onRetry={load} />}
       {loading ? <Loading label={`Učitavanje ${brand.name} baze...`} /> : items.length === 0 ? (
-        <EmptyState title="Nema pronađenih komitenata" text={lettersOnly ? 'Promijenite raspon datuma ili očistite dodatne filtere.' : 'Promijenite filtere ili dodajte prvi komercijalni zapis.'} />
+        <EmptyState title="Nema pronađenih komitenata" text={adminCallOnly ? 'Nijedan komitent u ovom programu trenutno nema oznaku „Admin rekao zvati“.' : (lettersOnly ? 'Promijenite raspon datuma ili očistite dodatne filtere.' : 'Promijenite filtere ili dodajte prvi komercijalni zapis.')} />
       ) : (
         <>
           <VStack display={{ base: 'flex', xl: 'none' }} align="stretch" spacing={3}>
@@ -1395,7 +1495,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 onTransfer={openTransfer}
                 onRemove={remove}
                 onSendLetter={sendLetter}
+                onToggleAdminCall={toggleAdminCall}
                 isSendingLetter={sendingLetterId === record.id}
+                isTogglingAdminCall={togglingAdminCallId === record.id}
                 showLetterSentAt={lettersOnly}
               />
             ))}
@@ -1411,7 +1513,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 onTransfer={openTransfer}
                 onRemove={remove}
                 onSendLetter={sendLetter}
+                onToggleAdminCall={toggleAdminCall}
                 isSendingLetter={sendingLetterId === record.id}
+                isTogglingAdminCall={togglingAdminCallId === record.id}
                 showLetterSentAt={lettersOnly}
               />
             ))}</Tbody>
@@ -1421,7 +1525,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       )}
 
       <Flex justify="space-between" align="center" direction={{ base: 'column', md: 'row' }} gap={3}>
-        <Text fontSize="sm" color="gray.600">Stranica {page} od {Math.max(1, pages)} · {total} {lettersOnly ? 'dopisa' : 'zapisa'}</Text>
+        <Text fontSize="sm" color="gray.600">Stranica {page} od {Math.max(1, pages)} · {total} {resultLabel}</Text>
         <HStack display={{ base: 'flex', md: 'none' }} w="full" justify="center">
           <Button flex="1" minH="40px" size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button>
           <Text flexShrink={0} fontSize="sm">{page} / {Math.max(1, pages)}</Text>

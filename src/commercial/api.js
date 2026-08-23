@@ -23,6 +23,10 @@ export const commercialApi = {
     method: 'POST',
     body: { confirm: true },
   }),
+  setAdminCallRequested: (id, requested) => apiRequest(`${base}/records/${encodeURIComponent(id)}/admin-call-request`, {
+    method: 'PATCH',
+    body: { requested },
+  }),
   deleteRecord: (id) => apiRequest(`${base}/records/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`),
   createDailyList: (code) => apiRequest(`${brandPath(code)}/daily-list`, { method: 'POST' }),
