@@ -288,6 +288,10 @@ test('CRM liste podržavaju filter grada, države i vrste po odvojenim bazama', 
   const byCity = await listAccounts(db, visioBrand, { location: city, perPage: 100 });
   assert.ok(byCity.pagination.total > 0);
   assert.ok(byCity.items.every((item) => item.location === city));
+  const selectedCities = visioList.filters.locations.slice(0, 2);
+  const byCities = await listAccounts(db, visioBrand, { locations: JSON.stringify(selectedCities), perPage: 100 });
+  assert.ok(byCities.pagination.total > 0);
+  assert.ok(byCities.items.every((item) => selectedCities.includes(item.location)));
 
   const sanPestBrand = await resolveBrand(db, user, 'san-pest');
   await createAccount(db, sanPestBrand, user, { company_name: 'DDD Zagreb', location: 'Zagreb, Hrvatska' });
@@ -296,6 +300,9 @@ test('CRM liste podržavaju filter grada, države i vrste po odvojenim bazama', 
   assert.equal(byCountry.pagination.total, 1);
   assert.ok(byCountry.items.every((item) => item.location.endsWith(', Hrvatska')));
   assert.deepEqual(byCountry.filters.countries, ['Hrvatska', 'Srbija']);
+  const byCountries = await listAccounts(db, sanPestBrand, { countries: JSON.stringify(['Hrvatska', 'Srbija']), perPage: 100 });
+  assert.equal(byCountries.pagination.total, 2);
+  assert.ok(byCountries.items.every((item) => item.location.endsWith(', Hrvatska') || item.location.endsWith(', Srbija')));
 
   const fsAppBrand = await resolveBrand(db, user, 'fs-app');
   const fsList = await listAccounts(db, fsAppBrand, {});
@@ -304,6 +311,10 @@ test('CRM liste podržavaju filter grada, države i vrste po odvojenim bazama', 
   const byType = await listAccounts(db, fsAppBrand, { record_type: recordType, perPage: 100 });
   assert.ok(byType.pagination.total > 0);
   assert.ok(byType.items.every((item) => item.record_type === recordType));
+  const selectedTypes = fsList.filters.recordTypes.slice(0, 2);
+  const byTypes = await listAccounts(db, fsAppBrand, { recordTypes: JSON.stringify(selectedTypes), perPage: 100 });
+  assert.ok(byTypes.pagination.total > 0);
+  assert.ok(byTypes.items.every((item) => selectedTypes.includes(item.record_type)));
 });
 
 test('kalendar poziva spaja sljedeće kontakte samo iz programa dostupnih korisniku', async (t) => {

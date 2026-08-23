@@ -287,6 +287,36 @@ function countryFromLocation(value) {
   return parts.length > 1 ? parts[parts.length - 1] : null;
 }
 
+function parseMultiFilter(value, label, maximumLength = 250) {
+  if (value === undefined || value === null || value === '') return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(String(value));
+  } catch (error) {
+    parsed = [value];
+  }
+  const values = (Array.isArray(parsed) ? parsed : [parsed])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  const uniqueValues = [...new Set(values)];
+  if (uniqueValues.length > 100 || uniqueValues.some((item) => item.length > maximumLength)) {
+    throw httpError(400, `Filter ${label} nije podržan.`);
+  }
+  return uniqueValues;
+}
+
+function applyCountryFilter(query, countries) {
+  const normalizedCountries = countries.map((country) => country.toLowerCase());
+  query.where((builder) => {
+    normalizedCountries.forEach((country, index) => {
+      const method = index === 0 ? 'where' : 'orWhere';
+      builder[method]((countryBuilder) => countryBuilder
+        .whereRaw("LOWER(TRIM(COALESCE(location, ''))) = ?", [country])
+        .orWhereRaw("LOWER(TRIM(COALESCE(location, ''))) LIKE ?", [`%, ${country}`]));
+    });
+  });
+}
+
 function applyAccountFilters(query, params) {
   if (String(params.archived || '').toLowerCase() === 'true') query.whereNotNull('archived_at');
   else query.whereNull('archived_at');
@@ -300,17 +330,21 @@ function applyAccountFilters(query, params) {
     if (!CRM_PRIORITIES.has(priority)) throw httpError(400, 'Filter prioriteta nije podržan.');
     query.where('priority', priority);
   }
-  if (params.record_type) query.where('record_type', String(params.record_type));
-  if (params.location) query.where('location', String(params.location));
+  const recordTypes = parseMultiFilter(params.recordTypes || params.record_types, 'vrste');
+  const locations = parseMultiFilter(params.locations, 'grada');
+  const countries = parseMultiFilter(params.countries, 'države', 100);
+  if (recordTypes.length) query.whereIn('record_type', recordTypes);
+  else if (params.record_type) query.where('record_type', String(params.record_type));
+  if (locations.length) query.whereIn('location', locations);
+  else if (params.location) query.where('location', String(params.location));
   if (String(params.adminCallRequested || params.admin_call_requested || '').toLowerCase() === 'true') {
     query.whereNotNull('admin_call_requested_at');
   }
-  if (params.country) {
-    const country = String(params.country).trim().toLowerCase();
+  if (countries.length) applyCountryFilter(query, countries);
+  else if (params.country) {
+    const country = String(params.country).trim();
     if (country.length > 100) throw httpError(400, 'Filter države nije podržan.');
-    query.where((builder) => builder
-      .whereRaw("LOWER(TRIM(COALESCE(location, ''))) = ?", [country])
-      .orWhereRaw("LOWER(TRIM(COALESCE(location, ''))) LIKE ?", [`%, ${country}`]));
+    applyCountryFilter(query, [country]);
   }
   if (params.search) {
     const search = `%${String(params.search).trim().toLowerCase()}%`;
