@@ -55,6 +55,7 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaEdit,
+  FaEnvelope,
   FaExchangeAlt,
   FaPaperPlane,
   FaPlus,
@@ -793,9 +794,23 @@ function DashboardCards({ dashboard }) {
 }
 
 function statusColorScheme(status) {
-  if (status === 'WON') return 'green';
+  if (['INTERESTED', 'WON'].includes(status)) return 'green';
   if (status === 'REJECTED') return 'red';
-  return 'orange';
+  if (['CALL_REQUIRED', 'CONTACTED', 'EMAIL_SENT', 'MEETING_SCHEDULED', 'OFFER_SENT', 'FOLLOW_UP'].includes(status)) return 'yellow';
+  return 'gray';
+}
+
+export function statusVisual(status) {
+  if (['INTERESTED', 'WON'].includes(status)) {
+    return { bg: 'green.50', hoverBg: 'green.100', borderColor: 'green.200' };
+  }
+  if (status === 'REJECTED') {
+    return { bg: 'red.50', hoverBg: 'red.100', borderColor: 'red.200' };
+  }
+  if (['CALL_REQUIRED', 'CONTACTED', 'EMAIL_SENT', 'MEETING_SCHEDULED', 'OFFER_SENT', 'FOLLOW_UP'].includes(status)) {
+    return { bg: 'yellow.50', hoverBg: 'yellow.100', borderColor: 'yellow.200' };
+  }
+  return { bg: 'white', hoverBg: 'gray.50', borderColor: 'gray.200' };
 }
 
 function priorityColorScheme(priority) {
@@ -808,6 +823,17 @@ function formattedContactDate(value) {
   if (!value) return '—';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('bs-BA');
+}
+
+function formattedLetterDate(value) {
+  if (!value) return 'Datum nije evidentiran';
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  if (!match) return formattedContactDate(value);
+  return `${match[3]}.${match[2]}.${match[1]}.${match[4] ? ` ${match[4]}:${match[5]}` : ''}`;
+}
+
+function defaultLetterHistoryFrom() {
+  return `${new Date().getFullYear()}-07-01`;
 }
 
 function structuredRecordEmail(record) {
@@ -845,7 +871,7 @@ function RecordDetailsGrid({ record }) {
   );
 }
 
-function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter }) {
+function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter, showLetterSentAt }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -853,10 +879,12 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const email = recordValue(record, 'email', 'raw_mail', 'rawMail', 'mail');
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
+  const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
+  const visual = statusVisual(recordStatus);
 
   return (
-    <Box border="1px solid" borderColor="gray.200" borderRadius="xl" bg="white" p={3} boxShadow="sm">
+    <Box border="1px solid" borderColor={visual.borderColor} borderRadius="xl" bg={visual.bg} p={3} boxShadow="sm">
       <Flex justify="space-between" align="start" gap={3}>
         <Box minW={0}>
           <Text fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
@@ -879,7 +907,9 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
       {email && <Text mt={3} fontSize="sm" color="gray.700" noOfLines={1}>{email}</Text>}
       {comment && <Text mt={1} fontSize="sm" color="gray.500" noOfLines={1}>{comment}</Text>}
 
-      {nextContact && (
+      {showLetterSentAt ? (
+        <Text mt={2} fontSize="xs" fontWeight="bold" color="blue.700">Dopis poslan: {formattedLetterDate(letterSentAt)}</Text>
+      ) : nextContact && (
         <Text mt={2} fontSize="xs" fontWeight="semibold" color="orange.700">Sljedeći kontakt: {formattedContactDate(nextContact)}</Text>
       )}
 
@@ -916,7 +946,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, isSend
   );
 }
 
-function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter }) {
+function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, isSendingLetter, showLetterSentAt }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -925,11 +955,13 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
   const contact = recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone');
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
+  const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
+  const visual = statusVisual(recordStatus);
 
   return (
     <React.Fragment>
-      <Tr _hover={{ bg: 'gray.50' }} bg={details.isOpen ? 'orange.50' : 'white'}>
+      <Tr _hover={{ bg: visual.hoverBg }} bg={details.isOpen ? visual.hoverBg : visual.bg}>
         <Td py={3}>
           <Text fontWeight="semibold" noOfLines={2}>{company}</Text>
           <Text mt={1} fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
@@ -949,7 +981,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
           </VStack>
         </Td>
         <Td py={3}>
-          <Text fontSize="sm" noOfLines={2}>{formattedContactDate(nextContact)}</Text>
+          <Text fontSize="sm" noOfLines={2}>{showLetterSentAt ? formattedLetterDate(letterSentAt) : formattedContactDate(nextContact)}</Text>
         </Td>
         <Td py={3}>
           <HStack spacing={1} justify="flex-end">
@@ -972,9 +1004,9 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
         </Td>
       </Tr>
       {details.isOpen && (
-        <Tr bg="orange.50">
+        <Tr bg={visual.hoverBg}>
           <Td colSpan={6} pt={0} pb={5} px={5}>
-            <Box borderTop="1px solid" borderColor="orange.200" pt={4}><RecordDetailsGrid record={record} /></Box>
+            <Box borderTop="1px solid" borderColor={visual.borderColor} pt={4}><RecordDetailsGrid record={record} /></Box>
           </Td>
         </Tr>
       )}
@@ -1000,6 +1032,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
   const [dimensionFilter, setDimensionFilter] = useState('');
+  const [lettersOnly, setLettersOnly] = useState(false);
+  const [sentFrom, setSentFrom] = useState('');
+  const [sentTo, setSentTo] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [sortOption, setSortOption] = useState('company_name:asc');
@@ -1016,6 +1051,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     try {
       const [sortBy, sortDirection] = sortOption.split(':');
       const params = { page, perPage, search, status, priority, sortBy, sortDirection };
+      if (lettersOnly) params.lettersOnly = true;
+      if (sentFrom) params.sentFrom = sentFrom;
+      if (sentTo) params.sentTo = sentTo;
       const normalizedBrandCode = normalizeBrandCode(brandCode);
       if (normalizedBrandCode === 'VISIOCAST' && dimensionFilter) params.location = dimensionFilter;
       if (normalizedBrandCode === 'SAN_PEST' && dimensionFilter) params.country = dimensionFilter;
@@ -1031,7 +1069,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     } finally {
       setLoading(false);
     }
-  }, [brandCode, dimensionFilter, page, perPage, priority, search, sortOption, status]);
+  }, [brandCode, dimensionFilter, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 300 : 0);
@@ -1039,6 +1077,20 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   }, [globalRefreshKey, load, refreshKey, search]);
 
   const changed = useCallback(() => setRefreshKey((value) => value + 1), []);
+  const toggleLetterHistory = () => {
+    const nextValue = !lettersOnly;
+    setLettersOnly(nextValue);
+    if (nextValue) {
+      setSentFrom(defaultLetterHistoryFrom());
+      setSentTo('');
+      setSortOption('letter_sent_at:desc');
+    } else {
+      setSentFrom('');
+      setSentTo('');
+      if (sortOption.startsWith('letter_sent_at:')) setSortOption('company_name:asc');
+    }
+    setPage(1);
+  };
   const openNew = () => { setEditing(null); modal.onOpen(); };
   const openEdit = (record) => { setEditing(record); modal.onOpen(); };
   const openTransfer = (record) => { setTransferring(record); transferModal.onOpen(); };
@@ -1118,6 +1170,55 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       </Flex>
       <DailyPanel brandCode={brandCode} isOpen={dailyOpen} onChanged={changed} />
 
+      <Box
+        border="1px solid"
+        borderColor={lettersOnly ? 'blue.300' : 'gray.200'}
+        bg={lettersOnly ? 'blue.50' : 'gray.50'}
+        borderRadius="xl"
+        p={{ base: 3, md: 4 }}
+      >
+        <Flex align={{ base: 'stretch', lg: 'center' }} justify="space-between" gap={4} direction={{ base: 'column', lg: 'row' }}>
+          <Box>
+            <HStack spacing={2}><Icon as={FaEnvelope} color={lettersOnly ? 'blue.600' : 'gray.500'} /><Text fontWeight="bold">Evidencija poslanih dopisa</Text></HStack>
+            <Text mt={1} fontSize="sm" color="gray.600">Jedan klik prikazuje samo komitente kojima je dopis poslan i stvarni datum slanja.</Text>
+          </Box>
+          <Button
+            aria-label={lettersOnly ? 'Prikaži sve komitente' : 'Prikaži poslane dopise od 1. jula'}
+            aria-pressed={lettersOnly}
+            minH="44px"
+            flexShrink={0}
+            leftIcon={<FaEnvelope />}
+            colorScheme={lettersOnly ? 'blue' : 'orange'}
+            variant={lettersOnly ? 'solid' : 'outline'}
+            onClick={toggleLetterHistory}
+          >
+            {lettersOnly ? 'Prikaži sve komitente' : 'Dopisi od 01.07.'}
+          </Button>
+        </Flex>
+
+        {lettersOnly && (
+          <Flex mt={4} gap={3} align={{ base: 'stretch', md: 'end' }} direction={{ base: 'column', md: 'row' }}>
+            <FormControl maxW={{ md: '210px' }}>
+              <FormLabel mb={1} fontSize="sm">Poslano od datuma</FormLabel>
+              <Input aria-label="Dopis poslan od datuma" type="date" bg="white" value={sentFrom} onChange={(event) => { setSentFrom(event.target.value); setPage(1); }} />
+            </FormControl>
+            <FormControl maxW={{ md: '210px' }}>
+              <FormLabel mb={1} fontSize="sm">Poslano do datuma</FormLabel>
+              <Input aria-label="Dopis poslan do datuma" type="date" bg="white" value={sentTo} onChange={(event) => { setSentTo(event.target.value); setPage(1); }} />
+            </FormControl>
+            <Button minH="40px" variant="ghost" colorScheme="blue" onClick={() => { setSentFrom(''); setSentTo(''); setPage(1); }}>Očisti datume</Button>
+          </Flex>
+        )}
+
+        <Flex mt={4} gap={2} align="center" flexWrap="wrap">
+          <Text mr={1} fontSize="xs" fontWeight="semibold" color="gray.600">Boje redova:</Text>
+          <Badge colorScheme="yellow">U toku / dopis / sastanak</Badge>
+          <Badge colorScheme="red">Odbijeno</Badge>
+          <Badge colorScheme="green">Zainteresovan / prihvaćeno</Badge>
+          <Text fontSize="xs" color="gray.500">Boja se mijenja kada u „Uredi“ promijenite CRM status.</Text>
+        </Flex>
+      </Box>
+
       <Divider />
       <Flex gap={3} direction={{ base: 'column', xl: 'row' }}>
         <HStack flex="1" border="1px solid" borderColor="gray.200" borderRadius="md" px={3}>
@@ -1133,9 +1234,11 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       </Flex>
 
       <Flex px={{ base: 0, md: 1 }} gap={3} align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }}>
-        <Text fontSize="sm" color="gray.600">Prikazano <strong>{rangeStart}–{rangeEnd}</strong> od <strong>{total}</strong> zapisa</Text>
+        <Text fontSize="sm" color="gray.600">Prikazano <strong>{rangeStart}–{rangeEnd}</strong> od <strong>{total}</strong> {lettersOnly ? 'dopisa' : 'zapisa'}</Text>
         <HStack spacing={3}>
           <Select aria-label="Sortiranje komitenata" size="sm" minH="40px" maxW="230px" value={sortOption} onChange={(event) => { setSortOption(event.target.value); setPage(1); }}>
+            {lettersOnly && <option value="letter_sent_at:desc">Datum slanja - najnoviji</option>}
+            {lettersOnly && <option value="letter_sent_at:asc">Datum slanja - najstariji</option>}
             <option value="company_name:asc">Naziv A–Ž</option>
             <option value="company_name:desc">Naziv Ž–A</option>
             <option value="source_row_number:asc">Redni broj</option>
@@ -1156,7 +1259,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
 
       {error && <ErrorAlert message={error} onRetry={load} />}
       {loading ? <Loading label={`Učitavanje ${brand.name} baze...`} /> : items.length === 0 ? (
-        <EmptyState title="Nema pronađenih komitenata" text="Promijenite filtere ili dodajte prvi komercijalni zapis." />
+        <EmptyState title="Nema pronađenih komitenata" text={lettersOnly ? 'Promijenite raspon datuma ili očistite dodatne filtere.' : 'Promijenite filtere ili dodajte prvi komercijalni zapis.'} />
       ) : (
         <>
           <VStack display={{ base: 'flex', xl: 'none' }} align="stretch" spacing={3}>
@@ -1169,12 +1272,13 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 onRemove={remove}
                 onSendLetter={sendLetter}
                 isSendingLetter={sendingLetterId === record.id}
+                showLetterSentAt={lettersOnly}
               />
             ))}
           </VStack>
           <Box display={{ base: 'none', xl: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" boxShadow="sm">
             <Table size="sm" sx={{ tableLayout: 'fixed' }}>
-            <Thead bg="orange.50"><Tr><Th w="21%">Komitent</Th><Th w="15%">Profil</Th><Th w="24%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">Sljedeći kontakt</Th><Th w="13%" textAlign="right">Akcije</Th></Tr></Thead>
+            <Thead bg="orange.50"><Tr><Th w="21%">Komitent</Th><Th w="15%">Profil</Th><Th w="24%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">{lettersOnly ? 'Dopis poslan' : 'Sljedeći kontakt'}</Th><Th w="13%" textAlign="right">Akcije</Th></Tr></Thead>
             <Tbody>{items.map((record) => (
               <CompactRecordRow
                 key={record.id}
@@ -1184,6 +1288,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 onRemove={remove}
                 onSendLetter={sendLetter}
                 isSendingLetter={sendingLetterId === record.id}
+                showLetterSentAt={lettersOnly}
               />
             ))}</Tbody>
             </Table>
@@ -1192,7 +1297,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       )}
 
       <Flex justify="space-between" align="center" direction={{ base: 'column', md: 'row' }} gap={3}>
-        <Text fontSize="sm" color="gray.600">Stranica {page} od {Math.max(1, pages)} · {total} zapisa</Text>
+        <Text fontSize="sm" color="gray.600">Stranica {page} od {Math.max(1, pages)} · {total} {lettersOnly ? 'dopisa' : 'zapisa'}</Text>
         <HStack display={{ base: 'flex', md: 'none' }} w="full" justify="center">
           <Button flex="1" minH="40px" size="sm" variant="outline" isDisabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Prethodna</Button>
           <Text flexShrink={0} fontSize="sm">{page} / {Math.max(1, pages)}</Text>

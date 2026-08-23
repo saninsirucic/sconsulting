@@ -1,6 +1,6 @@
 import { ChakraProvider } from '@chakra-ui/react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import CommercialModule from './CommercialModule';
+import CommercialModule, { statusVisual } from './CommercialModule';
 import { commercialApi } from './commercial/api';
 
 jest.mock('./commercial/api', () => ({
@@ -139,6 +139,48 @@ test('omogućava pregled velikih baza kroz kompaktne kolone, sortiranje i izbor 
     sortBy: 'updated_at',
     sortDirection: 'desc',
   })));
+});
+
+test('jednim klikom prikazuje dopise od početka jula i filtrira datum slanja', async () => {
+  const sentRecord = {
+    ...record,
+    status: 'EMAIL_SENT',
+    letter_sent_at: '2026-08-20T15:30:00',
+  };
+  commercialApi.getRecords.mockImplementation(async (brandCode, params) => ({
+    items: params?.lettersOnly ? [sentRecord] : [record],
+    pagination: { total: 1, pages: 1 },
+    filters: {},
+  }));
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Prikaži poslane dopise od 1. jula' }));
+  const expectedFrom = `${new Date().getFullYear()}-07-01`;
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    lettersOnly: true,
+    sentFrom: expectedFrom,
+    sortBy: 'letter_sent_at',
+    sortDirection: 'desc',
+  })));
+
+  expect(await screen.findByRole('columnheader', { name: 'Dopis poslan', hidden: true })).toBeInTheDocument();
+  expect(screen.getAllByText('20.08.2026. 15:30').length).toBeGreaterThan(0);
+  fireEvent.change(screen.getByLabelText('Dopis poslan od datuma'), { target: { value: '2026-08-01' } });
+  fireEvent.change(screen.getByLabelText('Dopis poslan do datuma'), { target: { value: '2026-08-31' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    lettersOnly: true,
+    sentFrom: '2026-08-01',
+    sentTo: '2026-08-31',
+  })));
+});
+
+test('statusne boje razlikuju tok, odbijeno i pozitivan ishod', () => {
+  expect(statusVisual('EMAIL_SENT')).toEqual(expect.objectContaining({ bg: 'yellow.50' }));
+  expect(statusVisual('MEETING_SCHEDULED')).toEqual(expect.objectContaining({ bg: 'yellow.50' }));
+  expect(statusVisual('REJECTED')).toEqual(expect.objectContaining({ bg: 'red.50' }));
+  expect(statusVisual('INTERESTED')).toEqual(expect.objectContaining({ bg: 'green.50' }));
+  expect(statusVisual('WON')).toEqual(expect.objectContaining({ bg: 'green.50' }));
 });
 
 test('kreira Visiocast komitenta kroz modal', async () => {

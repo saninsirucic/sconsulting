@@ -46,7 +46,7 @@ export const STATUS_LABELS = {
   INTERESTED: 'Zainteresovan',
   OFFER_SENT: 'Ponuda poslana',
   FOLLOW_UP: 'Follow-up',
-  WON: 'Ugovoren',
+  WON: 'Prihvaćeno / ugovoreno',
   REJECTED: 'Odbijen',
   HIGH: 'Visok',
   MEDIUM: 'Srednji',
