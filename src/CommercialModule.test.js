@@ -2,9 +2,10 @@ import { ChakraProvider } from '@chakra-ui/react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CommercialModule, { statusVisual } from './CommercialModule';
 import { commercialApi } from './commercial/api';
-import { downloadLetterReportPdf } from './commercial/letterReportPdf';
+import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 
 jest.mock('./commercial/letterReportPdf', () => ({
+  downloadCombinedLetterReportPdf: jest.fn(),
   downloadLetterReportPdf: jest.fn(),
 }));
 
@@ -221,6 +222,47 @@ test('PDF izvještaj preuzima sve stranice za izabrani program i period', async 
     sentFrom: '2026-08-01',
     sentTo: '2026-08-31',
     records: [firstSentRecord, secondSentRecord],
+  })));
+});
+
+test('zbirni PDF preuzima dopise iz sva 3 programa za isti period', async () => {
+  const sentByBrand = {
+    VISIOCAST: { ...record, id: 'visi-1', company_name: 'Visiocast komitent', status: 'EMAIL_SENT', letter_sent_at: '2026-08-20T10:00:00' },
+    SAN_PEST: { ...record, id: 'san-1', company_name: 'SAN Pest komitent', status: 'INTERESTED', letter_sent_at: '2026-08-21T11:00:00' },
+    FS_APP: { ...record, id: 'fs-1', company_name: 'FS App komitent', status: 'MEETING_SCHEDULED', letter_sent_at: '2026-08-22T12:00:00' },
+  };
+  commercialApi.getRecords.mockImplementation(async (brandCode, params) => ({
+    items: params?.perPage === 100 ? [sentByBrand[brandCode]] : [record],
+    pagination: { total: 1, pages: 1 },
+    filters: {},
+  }));
+
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getByRole('button', { name: 'Prikaži poslane dopise od 1. jula' }));
+  fireEvent.change(await screen.findByLabelText('Dopis poslan od datuma'), { target: { value: '2026-08-01' } });
+  fireEvent.change(screen.getByLabelText('Dopis poslan do datuma'), { target: { value: '2026-08-31' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preuzmi zajednički PDF izvještaj za sva 3 programa' }));
+
+  for (const brandCode of ['VISIOCAST', 'SAN_PEST', 'FS_APP']) {
+    await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith(brandCode, expect.objectContaining({
+      page: 1,
+      perPage: 100,
+      lettersOnly: true,
+      sentFrom: '2026-08-01',
+      sentTo: '2026-08-31',
+      sortBy: 'letter_sent_at',
+      sortDirection: 'desc',
+    })));
+  }
+  await waitFor(() => expect(downloadCombinedLetterReportPdf).toHaveBeenCalledWith(expect.objectContaining({
+    sentFrom: '2026-08-01',
+    sentTo: '2026-08-31',
+    programs: [
+      expect.objectContaining({ brandCode: 'VISIOCAST', records: [sentByBrand.VISIOCAST] }),
+      expect.objectContaining({ brandCode: 'SAN_PEST', records: [sentByBrand.SAN_PEST] }),
+      expect.objectContaining({ brandCode: 'FS_APP', records: [sentByBrand.FS_APP] }),
+    ],
   })));
 });
 

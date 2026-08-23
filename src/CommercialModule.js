@@ -67,7 +67,7 @@ import {
 } from 'react-icons/fa';
 import { commercialApi } from './commercial/api';
 import CommercialMailAutomation from './commercial/CommercialMailAutomation';
-import { downloadLetterReportPdf } from './commercial/letterReportPdf';
+import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 import MailRecipientsEditor, { normalizeCcEmails } from './commercial/MailRecipientsEditor';
 import {
   BRAND_DEFINITIONS,
@@ -1046,6 +1046,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [refreshKey, setRefreshKey] = useState(0);
   const [sendingLetterId, setSendingLetterId] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingAllPdf, setExportingAllPdf] = useState(false);
   const brandCode = brand.code || brand.slug;
 
   const recordParams = useCallback(({ targetPage = page, targetPerPage = perPage } = {}) => {
@@ -1184,6 +1185,59 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     }
   };
 
+  const fetchAllLetterRecords = async (reportBrandCode) => {
+    const params = {
+      page: 1,
+      perPage: 100,
+      lettersOnly: true,
+      sortBy: 'letter_sent_at',
+      sortDirection: 'desc',
+      ...(sentFrom ? { sentFrom } : {}),
+      ...(sentTo ? { sentTo } : {}),
+    };
+    const firstResult = await commercialApi.getRecords(reportBrandCode, params);
+    const firstItems = Array.isArray(firstResult) ? firstResult : (firstResult?.items || firstResult?.records || []);
+    const reportPages = Array.isArray(firstResult) ? 1 : Number(firstResult?.pagination?.pages || firstResult?.pagination?.totalPages || 1);
+    const remainingResults = reportPages > 1
+      ? await Promise.all(Array.from({ length: reportPages - 1 }, (_, index) => (
+        commercialApi.getRecords(reportBrandCode, { ...params, page: index + 2 })
+      )))
+      : [];
+    return remainingResults.reduce((all, result) => all.concat(
+      Array.isArray(result) ? result : (result?.items || result?.records || [])
+    ), [...firstItems]);
+  };
+
+  const downloadAllProgramsPdfReport = async () => {
+    setExportingAllPdf(true);
+    try {
+      const expectedCodes = ['VISIOCAST', 'SAN_PEST', 'FS_APP'];
+      const reportBrands = expectedCodes.map((code) => brands.find((item) => normalizeBrandCode(item.code || item.slug) === code));
+      if (reportBrands.some((item) => !item)) throw new Error('Za zbirni izvještaj potreban je pristup sva 3 programa.');
+      const programs = await Promise.all(reportBrands.map(async (reportBrand) => ({
+        brandCode: normalizeBrandCode(reportBrand.code || reportBrand.slug),
+        brandName: reportBrand.name,
+        records: await fetchAllLetterRecords(reportBrand.code || reportBrand.slug),
+      })));
+      const totalRecords = programs.reduce((sum, program) => sum + program.records.length, 0);
+      if (!totalRecords) {
+        toast({ title: 'Nema poslanih dopisa u sva 3 programa za izabrani period.', status: 'warning', position: 'top-right' });
+        return;
+      }
+      downloadCombinedLetterReportPdf({ programs, sentFrom, sentTo });
+      toast({
+        title: 'Zbirni PDF izvještaj je preuzet.',
+        description: `${totalRecords} dopisa iz sva 3 programa.`,
+        status: 'success',
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      toast({ title: requestError.message || 'Zbirni PDF izvještaj trenutno nije moguće pripremiti.', status: 'error', position: 'top-right' });
+    } finally {
+      setExportingAllPdf(false);
+    }
+  };
+
   const items = data.items || data.records || [];
   const pages = data.pagination?.pages || data.pagination?.totalPages || 1;
   const total = data.pagination?.total ?? items.length;
@@ -1242,7 +1296,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         </Flex>
 
         {lettersOnly && (
-          <Flex mt={4} gap={3} align={{ base: 'stretch', md: 'end' }} direction={{ base: 'column', md: 'row' }}>
+          <Flex mt={4} gap={3} align={{ base: 'stretch', md: 'end' }} direction={{ base: 'column', md: 'row' }} flexWrap={{ base: 'nowrap', md: 'wrap' }}>
             <FormControl maxW={{ md: '210px' }}>
               <FormLabel mb={1} fontSize="sm">Poslano od datuma</FormLabel>
               <Input aria-label="Dopis poslan od datuma" type="date" bg="white" value={sentFrom} onChange={(event) => { setSentFrom(event.target.value); setPage(1); }} />
@@ -1258,10 +1312,24 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
               leftIcon={<FaFilePdf />}
               colorScheme="red"
               isLoading={exportingPdf}
+              isDisabled={exportingAllPdf}
               loadingText="Priprema PDF..."
               onClick={downloadPdfReport}
             >
               PDF izvještaj
+            </Button>
+            <Button
+              aria-label="Preuzmi zajednički PDF izvještaj za sva 3 programa"
+              minH="40px"
+              leftIcon={<FaFilePdf />}
+              colorScheme="purple"
+              variant="outline"
+              isLoading={exportingAllPdf}
+              isDisabled={exportingPdf}
+              loadingText="Priprema sva 3..."
+              onClick={downloadAllProgramsPdfReport}
+            >
+              PDF sva 3 programa
             </Button>
           </Flex>
         )}
