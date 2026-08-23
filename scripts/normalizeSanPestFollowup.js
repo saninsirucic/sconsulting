@@ -40,7 +40,7 @@ async function analyze(db) {
   const preserved = [];
   const reset = [];
   for (const account of accounts) {
-    const sent = sentIds.has(account.id) || account.status === 'EMAIL_SENT' || Boolean(extractLetterSentAt(account));
+    const sent = sentIds.has(account.id) || Boolean(extractLetterSentAt(account));
     if (sent) preserved.push(account);
     else reset.push(account);
   }
@@ -57,6 +57,7 @@ async function analyze(db) {
       accounts_to_reset: reset.length,
       comments_to_clear: reset.filter((row) => Boolean(String(row.comment || '').trim())).length,
       statuses_to_call_required: reset.filter((row) => row.status !== 'CALL_REQUIRED').length,
+      old_email_sent_statuses_to_reset: reset.filter((row) => row.status === 'EMAIL_SENT').length,
       seminar_note_blocks_to_remove: reset.filter((row) => cleanSeminarNotes(row.notes) !== (row.notes || null)).length,
       sample_to_reset: reset.slice(0, 10).map((row) => ({
         nr: row.source_row_number,
