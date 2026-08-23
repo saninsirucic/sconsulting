@@ -24,6 +24,7 @@ const {
   extractLetterSentAt,
   listAccessibleBrands,
   listAccounts,
+  listCallCalendar,
   listActivities,
   readDailyAssignments,
   resolveBrand,
@@ -303,6 +304,59 @@ test('CRM liste podržavaju filter grada, države i vrste po odvojenim bazama', 
   const byType = await listAccounts(db, fsAppBrand, { record_type: recordType, perPage: 100 });
   assert.ok(byType.pagination.total > 0);
   assert.ok(byType.items.every((item) => item.record_type === recordType));
+});
+
+test('kalendar poziva spaja sljedeće kontakte samo iz programa dostupnih korisniku', async (t) => {
+  const db = await testDb(t);
+  const commercial = await insertUser(db, { id: 'calendar-commercial', username: 'calendar-user' });
+  const visioBrand = await grantBrand(db, commercial.id, 'VISIOCAST');
+  const fsBrand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const director = { id: 'env-director', role: 'direktor', authSource: 'env' };
+
+  const visioContact = await createAccount(db, visioBrand, commercial, {
+    company_name: 'Visiocast poziv u kalendaru',
+    phone: '+387 61 111 111',
+    next_contact_at: '2026-08-25T08:30:00.000Z'
+  });
+  const fsContact = await createAccount(db, fsBrand, director, {
+    company_name: 'FS App poziv u kalendaru',
+    phone: '+387 61 222 222',
+    next_contact_at: '2026-08-26T09:45:00.000Z'
+  });
+  await createAccount(db, visioBrand, commercial, {
+    company_name: 'Kontakt izvan raspona',
+    next_contact_at: '2026-09-15T10:00:00.000Z'
+  });
+
+  const commercialCalendar = await listCallCalendar(db, commercial, {
+    from: '2026-08-24',
+    to: '2026-08-31'
+  });
+  assert.deepEqual(commercialCalendar.items.map((item) => item.id), [visioContact.id]);
+  assert.equal(commercialCalendar.items[0].brand_code, 'VISIOCAST');
+  assert.deepEqual(commercialCalendar.brands.map((brand) => brand.code), ['VISIOCAST']);
+
+  const directorCalendar = await listCallCalendar(db, director, {
+    from: '2026-08-24',
+    to: '2026-08-31'
+  });
+  assert.deepEqual(directorCalendar.items.map((item) => item.id), [visioContact.id, fsContact.id]);
+
+  const fsOnly = await listCallCalendar(db, director, {
+    from: '2026-08-24',
+    to: '2026-08-31',
+    brand: 'fs-app'
+  });
+  assert.deepEqual(fsOnly.items.map((item) => item.id), [fsContact.id]);
+
+  await assert.rejects(
+    listCallCalendar(db, commercial, { from: '2026-08-31', to: '2026-08-24' }),
+    (error) => error.status === 400 && /Početni datum/.test(error.message)
+  );
+  await assert.rejects(
+    listCallCalendar(db, commercial, { from: '2026-08-24', to: '2026-08-31', brand: 'FS_APP' }),
+    (error) => error.status === 403 && error.code === 'BRAND_ACCESS_DENIED'
+  );
 });
 
 test('historija dopisa izvodi datum iz starih komentara i filtrira ga neovisno o trenutnom statusu', async (t) => {

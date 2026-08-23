@@ -392,6 +392,51 @@ async function listAccounts(db, brand, params = {}) {
   };
 }
 
+async function listCallCalendar(db, user, params = {}) {
+  const from = parseFilterDate(params.from, 'Početni datum kalendara');
+  const to = parseFilterDate(params.to, 'Završni datum kalendara');
+  if (!from || !to) {
+    throw httpError(400, 'Početni i završni datum kalendara su obavezni.', 'CALENDAR_RANGE_REQUIRED');
+  }
+  if (from > to) {
+    throw httpError(400, 'Početni datum kalendara ne može biti nakon završnog datuma.');
+  }
+  const rangeDays = Math.round((new Date(`${to}T00:00:00.000Z`) - new Date(`${from}T00:00:00.000Z`)) / 86400000);
+  if (rangeDays > 92) {
+    throw httpError(400, 'Kalendar se može učitati za najviše 93 dana.', 'CALENDAR_RANGE_TOO_LARGE');
+  }
+
+  let brands = await listAccessibleBrands(db, user);
+  const requestedBrand = params.brand ? normalizeBrandCode(params.brand) : '';
+  if (requestedBrand) {
+    brands = brands.filter((brand) => brand.code === requestedBrand);
+    if (!brands.length) {
+      throw httpError(403, 'Nemate pristup traženom programu u kalendaru.', 'BRAND_ACCESS_DENIED');
+    }
+  }
+  if (!brands.length) return { items: [], range: { from, to }, brands: [] };
+
+  const fromTimestamp = new Date(`${from}T00:00:00.000Z`);
+  const toExclusive = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86400000);
+  const rows = await db({ a: 'crm_accounts' })
+    .join({ b: 'crm_brands' }, 'b.id', 'a.brand_id')
+    .whereIn('a.brand_id', brands.map((brand) => brand.id))
+    .whereNull('a.archived_at')
+    .whereNotNull('a.next_contact_at')
+    .where('a.next_contact_at', '>=', fromTimestamp)
+    .where('a.next_contact_at', '<', toExclusive)
+    .select('a.*', 'b.code as brand_code', 'b.name as brand_name')
+    .orderBy('a.next_contact_at', 'asc')
+    .orderBy('a.company_name', 'asc')
+    .limit(2000);
+
+  return {
+    items: rows.map(serializeAccount),
+    range: { from, to },
+    brands: brands.map(serializeBrand)
+  };
+}
+
 async function createAccount(db, brand, user, body) {
   const id = uuidv4();
   const now = new Date();
@@ -1031,6 +1076,7 @@ module.exports = {
   httpError,
   listAccessibleBrands,
   listAccounts,
+  listCallCalendar,
   listActivities,
   normalizeAccountInput,
   normalizeBrandCode,

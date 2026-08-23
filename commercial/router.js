@@ -24,6 +24,7 @@ const {
   httpError,
   listAccessibleBrands,
   listAccounts,
+  listCallCalendar,
   listActivities,
   readDailyAssignments,
   resolveBrand,
@@ -116,6 +117,10 @@ function createCommercialRouter({ db, outlookService }) {
   router.get('/brands', asyncRoute(async (req, res) => {
     const items = await listAccessibleBrands(db, req.user);
     res.json({ items, brands: items });
+  }));
+
+  router.get('/calendar', asyncRoute(async (req, res) => {
+    res.json(await listCallCalendar(db, req.user, req.query));
   }));
 
   router.get('/brands/:code/dashboard', asyncRoute(async (req, res) => {
