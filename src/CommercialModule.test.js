@@ -376,22 +376,30 @@ test('nudi poseban filter grada, države i vrste za svaku bazu', async () => {
   }));
   renderModule();
 
-  const cityFilter = await screen.findByRole('combobox', { name: 'Filter po gradu' });
-  fireEvent.change(cityFilter, { target: { value: 'Travnik' } });
-  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({ location: 'Travnik' })));
+  const cityFilter = await screen.findByRole('button', { name: 'Filter po gradu' });
+  await waitFor(() => expect(cityFilter).toBeEnabled());
+  fireEvent.click(cityFilter);
+  await screen.findByRole('menuitem', { name: 'Travnik' });
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Odaberi sve' }));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({ locations: JSON.stringify(['Sarajevo', 'Travnik']) })));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Sarajevo' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Sarajevo' }));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({ locations: JSON.stringify(['Travnik', 'Sarajevo']) })));
 
   fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
-  const countryFilter = await screen.findByRole('combobox', { name: 'Filter po državi' });
-  await screen.findByRole('option', { name: 'Srbija' });
-  fireEvent.change(countryFilter, { target: { value: 'Srbija' } });
-  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('SAN_PEST', expect.objectContaining({ country: 'Srbija' })));
+  const countryFilter = await screen.findByRole('button', { name: 'Filter po državi' });
+  await waitFor(() => expect(countryFilter).toBeEnabled());
+  fireEvent.click(countryFilter);
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Srbija' }));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('SAN_PEST', expect.objectContaining({ countries: JSON.stringify(['Srbija']) })));
 
   fireEvent.click(screen.getByRole('tab', { name: /FS App/ }));
-  const typeFilter = await screen.findByRole('combobox', { name: 'Filter po vrsti' });
-  await screen.findByRole('option', { name: 'Restoran' });
-  fireEvent.change(typeFilter, { target: { value: 'Restoran' } });
-  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('FS_APP', expect.objectContaining({ record_type: 'Restoran' })));
-}, 15000);
+  const typeFilter = await screen.findByRole('button', { name: 'Filter po vrsti' });
+  await waitFor(() => expect(typeFilter).toBeEnabled());
+  fireEvent.click(typeFilter);
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Restoran' }));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('FS_APP', expect.objectContaining({ recordTypes: JSON.stringify(['Restoran']) })));
+}, 45000);
 
 test('prikazuje samo brendove koje je backend dodijelio korisniku', async () => {
   commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'VISIOCAST', name: 'Visiocast', record_count: 1 }] });

@@ -17,6 +17,10 @@ import {
   Icon,
   IconButton,
   Input,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
   Modal,
   ModalBody,
   ModalCloseButton,
@@ -1085,6 +1089,71 @@ function pageNumbers(currentPage, totalPages) {
   return Array.from({ length: visibleCount }, (_, index) => start + index);
 }
 
+function MultiSelectFilter({ ariaLabel, placeholder, options, selected, onChange }) {
+  const normalizedOptions = Array.isArray(options) ? options : [];
+  const allSelected = normalizedOptions.length > 0 && selected.length === normalizedOptions.length;
+  const buttonLabel = selected.length === 0
+    ? placeholder
+    : allSelected
+      ? `${placeholder} (${selected.length})`
+      : selected.length === 1
+        ? selected[0]
+        : `${selected.length} odabrano`;
+
+  const toggleOption = (value) => {
+    onChange(selected.includes(value)
+      ? selected.filter((item) => item !== value)
+      : [...selected, value]);
+  };
+
+  return (
+    <Menu closeOnSelect={false} placement="bottom-end">
+      <MenuButton
+        as={Button}
+        aria-label={ariaLabel}
+        rightIcon={<FaChevronDown />}
+        w={{ base: 'full', xl: '210px' }}
+        minH="40px"
+        isDisabled={normalizedOptions.length === 0}
+        justifyContent="space-between"
+        variant="outline"
+        bg="white"
+        fontWeight="normal"
+        textAlign="left"
+        overflow="hidden"
+        textOverflow="ellipsis"
+        whiteSpace="nowrap"
+      >
+        {buttonLabel}
+      </MenuButton>
+      <MenuList minW="250px" maxH="360px" overflowY="auto" zIndex="popover">
+        <MenuItem
+          fontWeight="semibold"
+          borderBottom="1px solid"
+          borderColor="gray.100"
+          onClick={() => onChange(allSelected ? [] : [...normalizedOptions])}
+        >
+          <Checkbox
+            isChecked={allSelected}
+            isIndeterminate={selected.length > 0 && !allSelected}
+            pointerEvents="none"
+            colorScheme="orange"
+          >
+            Odaberi sve
+          </Checkbox>
+        </MenuItem>
+        {normalizedOptions.map((value) => (
+          <MenuItem key={value} onClick={() => toggleOption(value)}>
+            <Checkbox isChecked={selected.includes(value)} pointerEvents="none" colorScheme="orange">
+              {value}
+            </Checkbox>
+          </MenuItem>
+        ))}
+      </MenuList>
+    </Menu>
+  );
+}
+
 function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) {
   const toast = useToast();
   const modal = useDisclosure();
@@ -1096,7 +1165,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
-  const [dimensionFilter, setDimensionFilter] = useState('');
+  const [dimensionFilters, setDimensionFilters] = useState([]);
   const [lettersOnly, setLettersOnly] = useState(false);
   const [adminCallOnly, setAdminCallOnly] = useState(false);
   const [sentFrom, setSentFrom] = useState('');
@@ -1122,11 +1191,11 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (sentFrom) params.sentFrom = sentFrom;
     if (sentTo) params.sentTo = sentTo;
     const normalizedBrandCode = normalizeBrandCode(brandCode);
-    if (normalizedBrandCode === 'VISIOCAST' && dimensionFilter) params.location = dimensionFilter;
-    if (normalizedBrandCode === 'SAN_PEST' && dimensionFilter) params.country = dimensionFilter;
-    if (normalizedBrandCode === 'FS_APP' && dimensionFilter) params.record_type = dimensionFilter;
+    if (normalizedBrandCode === 'VISIOCAST' && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
+    if (normalizedBrandCode === 'SAN_PEST' && dimensionFilters.length) params.countries = JSON.stringify(dimensionFilters);
+    if (normalizedBrandCode === 'FS_APP' && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
     return params;
-  }, [adminCallOnly, brandCode, dimensionFilter, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
+  }, [adminCallOnly, brandCode, dimensionFilters, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1482,9 +1551,13 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         </HStack>
         <Select maxW={{ xl: '210px' }} placeholder="Svi statusi" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>{availableStatuses.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
         <Select maxW={{ xl: '180px' }} placeholder="Svi prioriteti" value={priority} onChange={(event) => { setPriority(event.target.value); setPage(1); }}>{availablePriorities.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
-        <Select aria-label={dimensionConfig.ariaLabel} maxW={{ xl: '210px' }} placeholder={dimensionConfig.placeholder} value={dimensionFilter} onChange={(event) => { setDimensionFilter(event.target.value); setPage(1); }}>
-          {dimensionConfig.options.map((value) => <option key={value} value={value}>{value}</option>)}
-        </Select>
+        <MultiSelectFilter
+          ariaLabel={dimensionConfig.ariaLabel}
+          placeholder={dimensionConfig.placeholder}
+          options={dimensionConfig.options}
+          selected={dimensionFilters}
+          onChange={(values) => { setDimensionFilters(values); setPage(1); }}
+        />
         <Button w={{ base: 'full', xl: 'auto' }} minH="44px" leftIcon={<FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} onClick={openNew}>Novi komitent</Button>
       </Flex>
 
