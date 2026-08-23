@@ -57,6 +57,7 @@ import {
   FaEdit,
   FaEnvelope,
   FaExchangeAlt,
+  FaFilePdf,
   FaPaperPlane,
   FaPlus,
   FaRedo,
@@ -66,6 +67,7 @@ import {
 } from 'react-icons/fa';
 import { commercialApi } from './commercial/api';
 import CommercialMailAutomation from './commercial/CommercialMailAutomation';
+import { downloadLetterReportPdf } from './commercial/letterReportPdf';
 import MailRecipientsEditor, { normalizeCcEmails } from './commercial/MailRecipientsEditor';
 import {
   BRAND_DEFINITIONS,
@@ -1043,24 +1045,29 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [dailyOpen, setDailyOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sendingLetterId, setSendingLetterId] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
   const brandCode = brand.code || brand.slug;
+
+  const recordParams = useCallback(({ targetPage = page, targetPerPage = perPage } = {}) => {
+    const [sortBy, sortDirection] = sortOption.split(':');
+    const params = { page: targetPage, perPage: targetPerPage, search, status, priority, sortBy, sortDirection };
+    if (lettersOnly) params.lettersOnly = true;
+    if (sentFrom) params.sentFrom = sentFrom;
+    if (sentTo) params.sentTo = sentTo;
+    const normalizedBrandCode = normalizeBrandCode(brandCode);
+    if (normalizedBrandCode === 'VISIOCAST' && dimensionFilter) params.location = dimensionFilter;
+    if (normalizedBrandCode === 'SAN_PEST' && dimensionFilter) params.country = dimensionFilter;
+    if (normalizedBrandCode === 'FS_APP' && dimensionFilter) params.record_type = dimensionFilter;
+    return params;
+  }, [brandCode, dimensionFilter, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [sortBy, sortDirection] = sortOption.split(':');
-      const params = { page, perPage, search, status, priority, sortBy, sortDirection };
-      if (lettersOnly) params.lettersOnly = true;
-      if (sentFrom) params.sentFrom = sentFrom;
-      if (sentTo) params.sentTo = sentTo;
-      const normalizedBrandCode = normalizeBrandCode(brandCode);
-      if (normalizedBrandCode === 'VISIOCAST' && dimensionFilter) params.location = dimensionFilter;
-      if (normalizedBrandCode === 'SAN_PEST' && dimensionFilter) params.country = dimensionFilter;
-      if (normalizedBrandCode === 'FS_APP' && dimensionFilter) params.record_type = dimensionFilter;
       const [dashboardResult, recordResult] = await Promise.all([
         commercialApi.getDashboard(brandCode),
-        commercialApi.getRecords(brandCode, params),
+        commercialApi.getRecords(brandCode, recordParams()),
       ]);
       setDashboard(dashboardResult);
       setData(Array.isArray(recordResult) ? { items: recordResult, pagination: {} } : { items: [], pagination: {}, filters: {}, ...recordResult });
@@ -1069,7 +1076,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     } finally {
       setLoading(false);
     }
-  }, [brandCode, dimensionFilter, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
+  }, [brandCode, recordParams]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 300 : 0);
@@ -1136,6 +1143,44 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       });
     } finally {
       setSendingLetterId('');
+    }
+  };
+
+  const downloadPdfReport = async () => {
+    setExportingPdf(true);
+    try {
+      const firstResult = await commercialApi.getRecords(brandCode, recordParams({ targetPage: 1, targetPerPage: 100 }));
+      const firstItems = Array.isArray(firstResult) ? firstResult : (firstResult?.items || firstResult?.records || []);
+      const reportPages = Array.isArray(firstResult) ? 1 : Number(firstResult?.pagination?.pages || firstResult?.pagination?.totalPages || 1);
+      const remainingResults = reportPages > 1
+        ? await Promise.all(Array.from({ length: reportPages - 1 }, (_, index) => (
+          commercialApi.getRecords(brandCode, recordParams({ targetPage: index + 2, targetPerPage: 100 }))
+        )))
+        : [];
+      const reportItems = remainingResults.reduce((all, result) => all.concat(
+        Array.isArray(result) ? result : (result?.items || result?.records || [])
+      ), [...firstItems]);
+      if (!reportItems.length) {
+        toast({ title: 'Nema poslanih dopisa za izabrani period.', status: 'warning', position: 'top-right' });
+        return;
+      }
+      downloadLetterReportPdf({
+        brandCode: normalizeBrandCode(brandCode),
+        brandName: brand.name,
+        records: reportItems,
+        sentFrom,
+        sentTo,
+      });
+      toast({
+        title: 'PDF izvještaj je preuzet.',
+        description: `${reportItems.length} ${reportItems.length === 1 ? 'dopis' : 'dopisa'} za ${brand.name}.`,
+        status: 'success',
+        position: 'top-right',
+      });
+    } catch (requestError) {
+      toast({ title: requestError.message || 'PDF izvještaj trenutno nije moguće pripremiti.', status: 'error', position: 'top-right' });
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -1207,6 +1252,17 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
               <Input aria-label="Dopis poslan do datuma" type="date" bg="white" value={sentTo} onChange={(event) => { setSentTo(event.target.value); setPage(1); }} />
             </FormControl>
             <Button minH="40px" variant="ghost" colorScheme="blue" onClick={() => { setSentFrom(''); setSentTo(''); setPage(1); }}>Očisti datume</Button>
+            <Button
+              aria-label="Preuzmi PDF izvještaj za izabrani period"
+              minH="40px"
+              leftIcon={<FaFilePdf />}
+              colorScheme="red"
+              isLoading={exportingPdf}
+              loadingText="Priprema PDF..."
+              onClick={downloadPdfReport}
+            >
+              PDF izvještaj
+            </Button>
           </Flex>
         )}
 

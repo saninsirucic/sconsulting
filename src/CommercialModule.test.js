@@ -2,6 +2,11 @@ import { ChakraProvider } from '@chakra-ui/react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CommercialModule, { statusVisual } from './CommercialModule';
 import { commercialApi } from './commercial/api';
+import { downloadLetterReportPdf } from './commercial/letterReportPdf';
+
+jest.mock('./commercial/letterReportPdf', () => ({
+  downloadLetterReportPdf: jest.fn(),
+}));
 
 jest.mock('./commercial/api', () => ({
   commercialApi: {
@@ -172,6 +177,50 @@ test('jednim klikom prikazuje dopise od početka jula i filtrira datum slanja', 
     lettersOnly: true,
     sentFrom: '2026-08-01',
     sentTo: '2026-08-31',
+  })));
+});
+
+test('PDF izvještaj preuzima sve stranice za izabrani program i period', async () => {
+  const firstSentRecord = { ...record, status: 'EMAIL_SENT', letter_sent_at: '2026-08-20T15:30:00' };
+  const secondSentRecord = { ...record, id: 'record-2', company_name: 'Drugi komitent', status: 'INTERESTED', letter_sent_at: '2026-08-21T09:15:00' };
+  commercialApi.getRecords.mockImplementation(async (brandCode, params) => {
+    if (params?.perPage === 100 && params?.page === 1) {
+      return { items: [firstSentRecord], pagination: { total: 2, pages: 2 }, filters: {} };
+    }
+    if (params?.perPage === 100 && params?.page === 2) {
+      return { items: [secondSentRecord], pagination: { total: 2, pages: 2 }, filters: {} };
+    }
+    return {
+      items: params?.lettersOnly ? [firstSentRecord] : [record],
+      pagination: { total: 1, pages: 1 },
+      filters: {},
+    };
+  });
+
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getByRole('button', { name: 'Prikaži poslane dopise od 1. jula' }));
+  fireEvent.change(await screen.findByLabelText('Dopis poslan od datuma'), { target: { value: '2026-08-01' } });
+  fireEvent.change(screen.getByLabelText('Dopis poslan do datuma'), { target: { value: '2026-08-31' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preuzmi PDF izvještaj za izabrani period' }));
+
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    page: 1,
+    perPage: 100,
+    lettersOnly: true,
+    sentFrom: '2026-08-01',
+    sentTo: '2026-08-31',
+  })));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
+    page: 2,
+    perPage: 100,
+  })));
+  await waitFor(() => expect(downloadLetterReportPdf).toHaveBeenCalledWith(expect.objectContaining({
+    brandCode: 'VISIOCAST',
+    brandName: 'Visiocast',
+    sentFrom: '2026-08-01',
+    sentTo: '2026-08-31',
+    records: [firstSentRecord, secondSentRecord],
   })));
 });
 
