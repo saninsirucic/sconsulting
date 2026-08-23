@@ -220,6 +220,7 @@ function serializeAccount(row) {
     total_amount: numberOrNull(row.total_amount),
     profit_amount: numberOrNull(row.profit_amount),
     letter_sent_at: extractLetterSentAt(row),
+    admin_call_requested: Boolean(row.admin_call_requested_at),
     cc_emails: ccEmails,
     cc_emails_json: undefined,
     source_data: parseJson(row.source_data_json, {}),
@@ -301,6 +302,9 @@ function applyAccountFilters(query, params) {
   }
   if (params.record_type) query.where('record_type', String(params.record_type));
   if (params.location) query.where('location', String(params.location));
+  if (String(params.adminCallRequested || params.admin_call_requested || '').toLowerCase() === 'true') {
+    query.whereNotNull('admin_call_requested_at');
+  }
   if (params.country) {
     const country = String(params.country).trim().toLowerCase();
     if (country.length > 100) throw httpError(400, 'Filter države nije podržan.');
@@ -330,7 +334,7 @@ async function listAccounts(db, brand, params = {}) {
   const sortFields = new Set([
     'source_row_number', 'company_name', 'record_type', 'branch_count', 'total_amount',
     'profit_amount', 'location', 'status', 'priority', 'next_contact_at', 'updated_at',
-    'letter_sent_at'
+    'letter_sent_at', 'admin_call_requested_at'
   ]);
   const sortBy = sortFields.has(params.sortBy || params.sort_by)
     ? (params.sortBy || params.sort_by) : 'source_row_number';
@@ -572,6 +576,37 @@ async function archiveAccount(db, account, user) {
     });
   });
   return { success: true };
+}
+
+async function setAdminCallRequested(db, account, user, requested) {
+  if (account.archived_at) throw httpError(409, 'Arhivirani komitent se ne može označiti za poziv.');
+  if (typeof requested !== 'boolean') {
+    throw httpError(400, 'Polje requested mora biti true ili false.', 'ADMIN_CALL_REQUEST_INVALID');
+  }
+  const now = new Date();
+  await db.transaction(async (trx) => {
+    const lockedAccount = await trx('crm_accounts').where({ id: account.id }).forUpdate().first();
+    if (!lockedAccount) throw httpError(404, 'Komitent nije pronađen.', 'ACCOUNT_NOT_FOUND');
+    if (lockedAccount.archived_at) throw httpError(409, 'Arhivirani komitent se ne može označiti za poziv.');
+    const alreadyRequested = Boolean(lockedAccount.admin_call_requested_at);
+    if (alreadyRequested === requested) return;
+    await trx('crm_accounts').where({ id: lockedAccount.id }).update({
+      admin_call_requested_at: requested ? now : null,
+      admin_call_requested_by: requested ? user.id : null,
+      updated_by: user.id,
+      updated_at: now
+    });
+    await logActivity(trx, {
+      account: lockedAccount,
+      user,
+      type: requested ? 'ADMIN_CALL_REQUESTED' : 'ADMIN_CALL_CLEARED',
+      fromStatus: lockedAccount.status,
+      toStatus: lockedAccount.status,
+      notes: requested ? 'Admin označio komitenta za poziv.' : 'Oznaka za poziv je uklonjena.',
+      metadata: { requested }
+    });
+  });
+  return serializeAccount(await db('crm_accounts').where({ id: account.id }).first());
 }
 
 async function listActivities(db, accountId) {
@@ -1003,6 +1038,7 @@ module.exports = {
   readDailyAssignments,
   serializeAccount,
   serializeBrand,
+  setAdminCallRequested,
   transferAccount,
   updateAccount,
   approveDailyAssignments,

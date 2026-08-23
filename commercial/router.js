@@ -27,6 +27,7 @@ const {
   listActivities,
   readDailyAssignments,
   resolveBrand,
+  setAdminCallRequested,
   transferAccount,
   updateAccount,
   updateDailyAssignment
@@ -126,6 +127,10 @@ function createCommercialRouter({ db, outlookService }) {
   router.post('/brands/:code/records', asyncRoute(createRecord));
   router.put('/records/:id', asyncRoute(editRecord));
   router.patch('/records/:id', asyncRoute(editRecord));
+  router.patch('/records/:id/admin-call-request', asyncRoute(async (req, res) => {
+    const account = await getAccount(req, true);
+    res.json(await setAdminCallRequested(db, account, req.user, req.body && req.body.requested));
+  }));
   router.post('/records/:id/transfer', asyncRoute(transferRecord));
   router.post('/records/:id/send-letter', asyncRoute(async (req, res) => {
     if (!req.body || req.body.confirm !== true) {

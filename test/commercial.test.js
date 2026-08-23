@@ -5,6 +5,7 @@ const knex = require('knex');
 const migration = require('../migrations/20260813120000_create_commercial_crm');
 const tokenVersionMigration = require('../migrations/20260813130000_add_app_user_token_version');
 const fsAppMigration = require('../migrations/20260817100000_import_fs_app_accounts');
+const adminCallMigration = require('../migrations/20260823130000_add_admin_call_request');
 const {
   allowRoles,
   authenticateCredentials,
@@ -26,6 +27,7 @@ const {
   listActivities,
   readDailyAssignments,
   resolveBrand,
+  setAdminCallRequested,
   transferAccount,
   updateAccount,
   updateDailyAssignment
@@ -38,6 +40,7 @@ async function testDb(t) {
   await migration.up(db);
   await tokenVersionMigration.up(db);
   await fsAppMigration.up(db);
+  await adminCallMigration.up(db);
   return db;
 }
 
@@ -358,6 +361,53 @@ test('historija dopisa izvodi datum iz starih komentara i filtrira ga neovisno o
   await assert.rejects(
     listAccounts(db, brand, { lettersOnly: 'true', sentFrom: '2026-08-21', sentTo: '2026-08-20' }),
     (error) => error.status === 400 && /Početni datum/.test(error.message)
+  );
+});
+
+test('oznaka Admin rekao zvati ostaje u bazi, ima poseban filter i audit', async (t) => {
+  const db = await testDb(t);
+  const user = { id: 'env-director', role: 'direktor', authSource: 'env' };
+  const brand = await resolveBrand(db, user, 'visiocast');
+  const created = await createAccount(db, brand, user, {
+    company_name: 'Komitent kojeg admin treba zvati',
+    status: 'EMAIL_SENT',
+    comment: 'Poslat dopis 22.08.2026. u 10:00.'
+  });
+
+  assert.equal(created.admin_call_requested, false);
+  const marked = await setAdminCallRequested(
+    db,
+    await accountWithBrand(db, created.id),
+    user,
+    true
+  );
+  assert.equal(marked.admin_call_requested, true);
+  assert.ok(marked.admin_call_requested_at);
+  assert.equal(marked.admin_call_requested_by, user.id);
+
+  const callList = await listAccounts(db, brand, {
+    adminCallRequested: 'true',
+    search: 'Komitent kojeg admin',
+    sortBy: 'admin_call_requested_at',
+    sortDirection: 'desc'
+  });
+  assert.equal(callList.pagination.total, 1);
+  assert.equal(callList.items[0].id, created.id);
+
+  await setAdminCallRequested(db, await accountWithBrand(db, created.id), user, true);
+  assert.equal((await listActivities(db, created.id)).filter((item) => item.activity_type === 'ADMIN_CALL_REQUESTED').length, 1);
+
+  const cleared = await setAdminCallRequested(
+    db,
+    await accountWithBrand(db, created.id),
+    user,
+    false
+  );
+  assert.equal(cleared.admin_call_requested, false);
+  assert.equal((await listAccounts(db, brand, { admin_call_requested: 'true', search: 'Komitent kojeg admin' })).pagination.total, 0);
+  assert.deepEqual(
+    (await listActivities(db, created.id)).slice(0, 2).map((item) => item.activity_type),
+    ['ADMIN_CALL_CLEARED', 'ADMIN_CALL_REQUESTED']
   );
 });
 
