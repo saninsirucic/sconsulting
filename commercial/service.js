@@ -157,6 +157,55 @@ function numberOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function referenceYear(row) {
+  const reference = new Date(row.created_at || row.updated_at || Date.now());
+  return Number.isNaN(reference.getTime()) ? new Date().getUTCFullYear() : reference.getUTCFullYear();
+}
+
+function letterTimestamp(row, dayValue, monthValue, yearValue, timeValue) {
+  const day = Number(dayValue);
+  const month = Number(monthValue);
+  let year = yearValue ? Number(yearValue) : referenceYear(row);
+  if (String(yearValue || '').length === 2) year += year >= 70 ? 1900 : 2000;
+  const timestamp = Date.UTC(year, month - 1, day);
+  const date = new Date(timestamp);
+  if (
+    !Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)
+    || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+  ) return null;
+  const datePart = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (!timeValue) return datePart;
+  const [hour, minute] = String(timeValue).split(':').map(Number);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+    return datePart;
+  }
+  return `${datePart}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+}
+
+function extractLetterSentAt(row) {
+  if (!row) return null;
+  const explicit = row.letter_sent_at || row.letterSentAt;
+  if (explicit) {
+    const explicitDate = new Date(explicit);
+    if (!Number.isNaN(explicitDate.getTime())) {
+      return explicit instanceof Date ? explicit.toISOString() : String(explicit);
+    }
+  }
+  const text = [row.comment, row.notes].filter(Boolean).join('\n');
+  const datedPatterns = [
+    /poslat\s+dopis\s+(\d{1,2})\.(\d{1,2})\.(\d{2,4})\.?(?:\s+u\s+(\d{1,2}:\d{2}))?/i,
+    /mail\s+poslan\s+(\d{1,2})\.(\d{1,2})\.(\d{2,4})\.?(?:\s+u\s+(\d{1,2}:\d{2}))?/i,
+    /poslao\s+mail\s+(\d{1,2})\.(\d{1,2})\.(\d{2,4})\.?(?:\s+u\s+(\d{1,2}:\d{2}))?/i,
+    /(\d{1,2})\.(\d{1,2})\.(\d{2,4})\.?\s*[-–—]\s*poslan\s+(?:e-?mail|mail)/i
+  ];
+  for (const pattern of datedPatterns) {
+    const match = text.match(pattern);
+    if (match) return letterTimestamp(row, match[1], match[2], match[3], match[4]);
+  }
+  const legacy = text.match(/poslao\s+(\d{1,2})\.(\d{1,2})\.(?!\d)/i);
+  return legacy ? letterTimestamp(row, legacy[1], legacy[2], null, null) : null;
+}
+
 function serializeAccount(row) {
   const rawCcEmails = parseJson(row?.cc_emails_json, []);
   const ccEmails = Array.isArray(rawCcEmails)
@@ -170,6 +219,7 @@ function serializeAccount(row) {
     unit_amount: numberOrNull(row.unit_amount),
     total_amount: numberOrNull(row.total_amount),
     profit_amount: numberOrNull(row.profit_amount),
+    letter_sent_at: extractLetterSentAt(row),
     cc_emails: ccEmails,
     cc_emails_json: undefined,
     source_data: parseJson(row.source_data_json, {}),
@@ -200,6 +250,35 @@ function parsePositiveInt(value, fallback, maximum) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, maximum);
+}
+
+function parseFilterDate(value, label) {
+  if (!value) return null;
+  const normalized = String(value).trim();
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match || !letterTimestamp({}, match[3], match[2], match[1], null)) {
+    throw httpError(400, `${label} nije ispravan datum.`);
+  }
+  return normalized;
+}
+
+function requestedLetterHistory(params, sortBy) {
+  return String(params.lettersOnly || params.letters_only || '').toLowerCase() === 'true'
+    || Boolean(params.sentFrom || params.sent_from || params.sentTo || params.sent_to)
+    || sortBy === 'letter_sent_at';
+}
+
+function compareAccounts(left, right, field, direction) {
+  const leftValue = left[field];
+  const rightValue = right[field];
+  if ((leftValue === null || leftValue === undefined || leftValue === '') && (rightValue === null || rightValue === undefined || rightValue === '')) return 0;
+  if (leftValue === null || leftValue === undefined || leftValue === '') return 1;
+  if (rightValue === null || rightValue === undefined || rightValue === '') return -1;
+  const numeric = ['source_row_number', 'branch_count', 'total_amount', 'profit_amount'].includes(field);
+  const result = numeric
+    ? Number(leftValue) - Number(rightValue)
+    : String(leftValue).localeCompare(String(rightValue), 'bs');
+  return direction === 'desc' ? -result : result;
 }
 
 function countryFromLocation(value) {
@@ -248,35 +327,64 @@ async function listAccounts(db, brand, params = {}) {
   const page = parsePositiveInt(params.page, 1, 100000);
   const perPage = parsePositiveInt(params.perPage || params.per_page, 25, 100);
   const base = applyAccountFilters(db('crm_accounts').where({ brand_id: brand.id }), params);
-  const countRow = await base.clone().count({ count: '*' }).first();
   const sortFields = new Set([
     'source_row_number', 'company_name', 'record_type', 'branch_count', 'total_amount',
-    'profit_amount', 'location', 'status', 'priority', 'next_contact_at', 'updated_at'
+    'profit_amount', 'location', 'status', 'priority', 'next_contact_at', 'updated_at',
+    'letter_sent_at'
   ]);
   const sortBy = sortFields.has(params.sortBy || params.sort_by)
     ? (params.sortBy || params.sort_by) : 'source_row_number';
   const sortDirection = String(params.sortDirection || params.sort_direction).toLowerCase() === 'desc' ? 'desc' : 'asc';
-  const items = await base.clone().select('*')
-    .orderByRaw(`CASE WHEN ?? IS NULL THEN 1 ELSE 0 END`, [sortBy])
-    .orderBy(sortBy, sortDirection)
-    .orderBy('company_name', 'asc')
-    .limit(perPage).offset((page - 1) * perPage);
   const facets = await db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at')
     .select('status', 'priority', 'location', 'record_type');
   const unique = (key) => [...new Set(facets.map((row) => row[key]).filter(Boolean))].sort();
   const countries = [...new Set(facets.map((row) => countryFromLocation(row.location)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, 'bs'));
+  const filters = {
+    statuses: unique('status'),
+    priorities: unique('priority'),
+    locations: unique('location'),
+    recordTypes: unique('record_type'),
+    countries
+  };
+
+  if (requestedLetterHistory(params, sortBy)) {
+    const sentFrom = parseFilterDate(params.sentFrom || params.sent_from, 'Početni datum');
+    const sentTo = parseFilterDate(params.sentTo || params.sent_to, 'Završni datum');
+    if (sentFrom && sentTo && sentFrom > sentTo) {
+      throw httpError(400, 'Početni datum ne može biti nakon završnog datuma.');
+    }
+    const lettersOnly = String(params.lettersOnly || params.letters_only || '').toLowerCase() === 'true';
+    let historyItems = (await base.clone().select('*')).map(serializeAccount);
+    if (lettersOnly) {
+      historyItems = historyItems.filter((account) => account.letter_sent_at || account.status === 'EMAIL_SENT');
+    }
+    if (sentFrom) historyItems = historyItems.filter((account) => account.letter_sent_at && account.letter_sent_at.slice(0, 10) >= sentFrom);
+    if (sentTo) historyItems = historyItems.filter((account) => account.letter_sent_at && account.letter_sent_at.slice(0, 10) <= sentTo);
+    historyItems.sort((left, right) => (
+      compareAccounts(left, right, sortBy, sortDirection)
+      || String(left.company_name || '').localeCompare(String(right.company_name || ''), 'bs')
+    ));
+    const total = historyItems.length;
+    const start = (page - 1) * perPage;
+    return {
+      items: historyItems.slice(start, start + perPage),
+      pagination: { page, perPage, total, pages: Math.ceil(total / perPage) },
+      filters
+    };
+  }
+
+  const countRow = await base.clone().count({ count: '*' }).first();
+  const items = await base.clone().select('*')
+    .orderByRaw(`CASE WHEN ?? IS NULL THEN 1 ELSE 0 END`, [sortBy])
+    .orderBy(sortBy, sortDirection)
+    .orderBy('company_name', 'asc')
+    .limit(perPage).offset((page - 1) * perPage);
   const total = Number(countRow ? countRow.count : 0);
   return {
     items: items.map(serializeAccount),
     pagination: { page, perPage, total, pages: Math.ceil(total / perPage) },
-    filters: {
-      statuses: unique('status'),
-      priorities: unique('priority'),
-      locations: unique('location'),
-      recordTypes: unique('record_type'),
-      countries
-    }
+    filters
   };
 }
 
@@ -884,6 +992,7 @@ module.exports = {
   createAccount,
   dashboard,
   ensureDailyAssignments,
+  extractLetterSentAt,
   httpError,
   listAccessibleBrands,
   listAccounts,

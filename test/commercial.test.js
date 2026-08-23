@@ -20,6 +20,7 @@ const {
   createAccount,
   dashboard,
   ensureDailyAssignments,
+  extractLetterSentAt,
   listAccessibleBrands,
   listAccounts,
   listActivities,
@@ -299,6 +300,65 @@ test('CRM liste podržavaju filter grada, države i vrste po odvojenim bazama', 
   const byType = await listAccounts(db, fsAppBrand, { record_type: recordType, perPage: 100 });
   assert.ok(byType.pagination.total > 0);
   assert.ok(byType.items.every((item) => item.record_type === recordType));
+});
+
+test('historija dopisa izvodi datum iz starih komentara i filtrira ga neovisno o trenutnom statusu', async (t) => {
+  const db = await testDb(t);
+  const user = { id: 'env-director', role: 'direktor', authSource: 'env' };
+  const brand = await resolveBrand(db, user, 'fs-app');
+
+  assert.equal(extractLetterSentAt({ comment: 'Poslat dopis 20.08.2026. u 15:30.' }), '2026-08-20T15:30:00');
+  assert.equal(extractLetterSentAt({ comment: 'Poslao mail 15.07.26.', created_at: '2026-08-23' }), '2026-07-15');
+  assert.equal(extractLetterSentAt({ comment: 'Poslao 06.01.', created_at: '2026-08-23' }), '2026-01-06');
+  assert.equal(extractLetterSentAt({ comment: '20.08.2026. - poslan mail' }), '2026-08-20');
+
+  await createAccount(db, brand, user, {
+    company_name: 'Historija dopisa - zainteresovan',
+    status: 'INTERESTED',
+    comment: 'Mail poslan 18.08.2026. - FS App.'
+  });
+  await createAccount(db, brand, user, {
+    company_name: 'Historija dopisa - poslano',
+    status: 'EMAIL_SENT',
+    comment: 'Poslat dopis 20.08.2026. u 15:30.'
+  });
+  await createAccount(db, brand, user, {
+    company_name: 'Historija dopisa - bez datuma',
+    status: 'EMAIL_SENT',
+    comment: 'Dopis je poslan, ali datum nije zapisan.'
+  });
+  await createAccount(db, brand, user, {
+    company_name: 'Historija dopisa - januar',
+    status: 'EMAIL_SENT',
+    comment: 'Poslao 06.01.'
+  });
+
+  const fromJuly = await listAccounts(db, brand, {
+    search: 'Historija dopisa',
+    lettersOnly: 'true',
+    sentFrom: '2026-07-01',
+    sortBy: 'letter_sent_at',
+    sortDirection: 'desc',
+    perPage: 100
+  });
+  assert.deepEqual(fromJuly.items.map((item) => [item.company_name, item.letter_sent_at]), [
+    ['Historija dopisa - poslano', '2026-08-20T15:30:00'],
+    ['Historija dopisa - zainteresovan', '2026-08-18']
+  ]);
+
+  const augustEighteenth = await listAccounts(db, brand, {
+    search: 'Historija dopisa',
+    lettersOnly: 'true',
+    sentFrom: '2026-08-18',
+    sentTo: '2026-08-18'
+  });
+  assert.equal(augustEighteenth.pagination.total, 1);
+  assert.equal(augustEighteenth.items[0].status, 'INTERESTED');
+
+  await assert.rejects(
+    listAccounts(db, brand, { lettersOnly: 'true', sentFrom: '2026-08-21', sentTo: '2026-08-20' }),
+    (error) => error.status === 400 && /Početni datum/.test(error.message)
+  );
 });
 
 test('komitent se prebacuje između baza uz očuvane podatke, audit i čišćenje nedovršenog dnevnog zadatka', async (t) => {
