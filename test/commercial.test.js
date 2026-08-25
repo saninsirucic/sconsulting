@@ -6,6 +6,7 @@ const migration = require('../migrations/20260813120000_create_commercial_crm');
 const tokenVersionMigration = require('../migrations/20260813130000_add_app_user_token_version');
 const fsAppMigration = require('../migrations/20260817100000_import_fs_app_accounts');
 const adminCallMigration = require('../migrations/20260823130000_add_admin_call_request');
+const calendarMeetingsMigration = require('../migrations/20260825120000_create_crm_calendar_meetings');
 const {
   allowRoles,
   authenticateCredentials,
@@ -18,7 +19,9 @@ const {
 const {
   accountWithBrand,
   archiveAccount,
+  calendarMeetingWithBrand,
   createAccount,
+  createCalendarMeeting,
   dashboard,
   ensureDailyAssignments,
   extractLetterSentAt,
@@ -31,6 +34,7 @@ const {
   setAdminCallRequested,
   transferAccount,
   updateAccount,
+  updateCalendarMeeting,
   updateDailyAssignment
 } = require('../commercial/service');
 const { manageUser } = require('../scripts/manageUser');
@@ -42,6 +46,7 @@ async function testDb(t) {
   await tokenVersionMigration.up(db);
   await fsAppMigration.up(db);
   await adminCallMigration.up(db);
+  await calendarMeetingsMigration.up(db);
   return db;
 }
 
@@ -367,6 +372,55 @@ test('kalendar poziva spaja sljedeće kontakte samo iz programa dostupnih korisn
   await assert.rejects(
     listCallCalendar(db, commercial, { from: '2026-08-24', to: '2026-08-31', brand: 'FS_APP' }),
     (error) => error.status === 403 && error.code === 'BRAND_ACCESS_DENIED'
+  );
+});
+
+test('komercijalista dodaje i uređuje svoje sastanke, a direktor vidi zajednički pregled', async (t) => {
+  const db = await testDb(t);
+  const commercial = await insertUser(db, { id: 'meeting-commercial', username: 'meeting-user', display_name: 'Prodaja Test' });
+  const colleague = await insertUser(db, { id: 'meeting-colleague', username: 'meeting-colleague' });
+  const brand = await grantBrand(db, commercial.id, 'VISIOCAST');
+  await grantBrand(db, colleague.id, 'VISIOCAST');
+  const director = { id: 'env-director', role: 'direktor', authSource: 'env' };
+
+  const ownMeeting = await createCalendarMeeting(db, brand, commercial, {
+    title: 'Sastanak sa Komitentom A',
+    starts_at: '2026-08-27T09:00:00.000Z',
+    duration_minutes: 45,
+    location: 'Online',
+    notes: 'Prezentacija ponude'
+  });
+  await createCalendarMeeting(db, brand, colleague, {
+    title: 'Sastanak kolege',
+    starts_at: '2026-08-27T11:00:00.000Z',
+    duration_minutes: 30
+  });
+
+  const ownCalendar = await listCallCalendar(db, commercial, { from: '2026-08-27', to: '2026-08-27' });
+  assert.deepEqual(ownCalendar.meetings.map((meeting) => meeting.id), [ownMeeting.id]);
+  assert.equal(ownCalendar.meetings[0].user_name, 'Prodaja Test');
+
+  const directorCalendar = await listCallCalendar(db, director, { from: '2026-08-27', to: '2026-08-27' });
+  assert.equal(directorCalendar.meetings.length, 2);
+
+  const storedMeeting = await calendarMeetingWithBrand(db, ownMeeting.id);
+  const updated = await updateCalendarMeeting(db, storedMeeting, commercial, {
+    title: 'Pomjeren sastanak sa Komitentom A',
+    starts_at: '2026-08-27T10:30:00.000Z',
+    duration_minutes: 60,
+    location: 'Kancelarija'
+  });
+  assert.equal(updated.title, 'Pomjeren sastanak sa Komitentom A');
+  assert.equal(updated.duration_minutes, 60);
+
+  const colleagueMeeting = await calendarMeetingWithBrand(db, directorCalendar.meetings.find((meeting) => meeting.user_id === colleague.id).id);
+  await assert.rejects(
+    updateCalendarMeeting(db, colleagueMeeting, commercial, { title: 'Nedozvoljena izmjena' }),
+    (error) => error.status === 403 && error.code === 'MEETING_OWNER_REQUIRED'
+  );
+  await assert.rejects(
+    createCalendarMeeting(db, brand, commercial, { title: '', starts_at: '2026-08-27T09:00:00.000Z' }),
+    (error) => error.status === 400 && error.code === 'MEETING_TITLE_REQUIRED'
   );
 });
 

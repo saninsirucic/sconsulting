@@ -157,6 +157,27 @@ function numberOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeCalendarMeetingInput(body, existing = {}) {
+  const title = optionalString(body, 'title', existing, 300);
+  if (!title) throw httpError(400, 'Naziv sastanka ili komitent je obavezan.', 'MEETING_TITLE_REQUIRED');
+  const startsAt = optionalTimestamp(body, 'starts_at', existing);
+  if (!startsAt) throw httpError(400, 'Datum i vrijeme sastanka su obavezni.', 'MEETING_START_REQUIRED');
+  const rawDuration = Object.prototype.hasOwnProperty.call(body, 'duration_minutes')
+    ? body.duration_minutes
+    : (existing.duration_minutes ?? 30);
+  const durationMinutes = Number(rawDuration);
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 480) {
+    throw httpError(400, 'Trajanje sastanka mora biti između 5 i 480 minuta.', 'MEETING_DURATION_INVALID');
+  }
+  return {
+    title,
+    starts_at: startsAt,
+    duration_minutes: durationMinutes,
+    location: optionalString(body, 'location', existing, 500),
+    notes: optionalString(body, 'notes', existing, 20000)
+  };
+}
+
 function referenceYear(row) {
   const reference = new Date(row.created_at || row.updated_at || Date.now());
   return Number.isNaN(reference.getTime()) ? new Date().getUTCFullYear() : reference.getUTCFullYear();
@@ -251,6 +272,24 @@ function parsePositiveInt(value, fallback, maximum) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, maximum);
+}
+
+function serializeCalendarMeeting(row) {
+  return row ? {
+    id: row.id,
+    brand_id: row.brand_id,
+    brand_code: row.brand_code,
+    brand_name: row.brand_name,
+    user_id: row.user_id,
+    user_name: row.user_name || row.user_id,
+    title: row.title,
+    starts_at: row.starts_at,
+    duration_minutes: Number(row.duration_minutes || 30),
+    location: row.location,
+    notes: row.notes,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  } : null;
 }
 
 function parseFilterDate(value, label) {
@@ -448,7 +487,7 @@ async function listCallCalendar(db, user, params = {}) {
       throw httpError(403, 'Nemate pristup traženom programu u kalendaru.', 'BRAND_ACCESS_DENIED');
     }
   }
-  if (!brands.length) return { items: [], range: { from, to }, brands: [] };
+  if (!brands.length) return { items: [], meetings: [], range: { from, to }, brands: [] };
 
   const fromTimestamp = new Date(`${from}T00:00:00.000Z`);
   const toExclusive = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86400000);
@@ -464,11 +503,64 @@ async function listCallCalendar(db, user, params = {}) {
     .orderBy('a.company_name', 'asc')
     .limit(2000);
 
+  let meetingQuery = db({ m: 'crm_calendar_meetings' })
+    .join({ b: 'crm_brands' }, 'b.id', 'm.brand_id')
+    .leftJoin({ u: 'app_users' }, 'u.id', 'm.user_id')
+    .whereIn('m.brand_id', brands.map((brand) => brand.id))
+    .where('m.starts_at', '>=', fromTimestamp)
+    .where('m.starts_at', '<', toExclusive)
+    .select('m.*', 'b.code as brand_code', 'b.name as brand_name', 'u.display_name as user_name')
+    .orderBy('m.starts_at', 'asc')
+    .orderBy('m.title', 'asc')
+    .limit(2000);
+  if (user.role !== 'direktor') meetingQuery = meetingQuery.where('m.user_id', user.id);
+  const meetings = await meetingQuery;
+
   return {
     items: rows.map(serializeAccount),
+    meetings: meetings.map(serializeCalendarMeeting),
     range: { from, to },
     brands: brands.map(serializeBrand)
   };
+}
+
+async function calendarMeetingWithBrand(db, id) {
+  return db({ m: 'crm_calendar_meetings' })
+    .join({ b: 'crm_brands' }, 'b.id', 'm.brand_id')
+    .leftJoin({ u: 'app_users' }, 'u.id', 'm.user_id')
+    .where('m.id', id)
+    .select('m.*', 'b.code as brand_code', 'b.name as brand_name', 'u.display_name as user_name')
+    .first();
+}
+
+async function createCalendarMeeting(db, brand, user, body) {
+  const id = uuidv4();
+  const now = new Date();
+  const normalized = normalizeCalendarMeetingInput(body || {});
+  await db('crm_calendar_meetings').insert({
+    id,
+    brand_id: brand.id,
+    user_id: user.id,
+    ...normalized,
+    created_by: user.id,
+    updated_by: user.id,
+    created_at: now,
+    updated_at: now
+  });
+  return serializeCalendarMeeting(await calendarMeetingWithBrand(db, id));
+}
+
+async function updateCalendarMeeting(db, meeting, user, body) {
+  if (user.role !== 'direktor' && meeting.user_id !== user.id) {
+    throw httpError(403, 'Ne možete mijenjati sastanak drugog komercijaliste.', 'MEETING_OWNER_REQUIRED');
+  }
+  const normalized = normalizeCalendarMeetingInput(body || {}, meeting);
+  await db('crm_calendar_meetings').where({ id: meeting.id }).update({
+    ...normalized,
+    updated_by: user.id,
+    updated_at: new Date()
+  });
+  return serializeCalendarMeeting(await calendarMeetingWithBrand(db, meeting.id));
 }
 
 async function createAccount(db, brand, user, body) {
@@ -1103,7 +1195,9 @@ module.exports = {
   addManualActivity,
   archiveAccount,
   businessDate,
+  calendarMeetingWithBrand,
   createAccount,
+  createCalendarMeeting,
   dashboard,
   ensureDailyAssignments,
   extractLetterSentAt,
@@ -1113,14 +1207,17 @@ module.exports = {
   listCallCalendar,
   listActivities,
   normalizeAccountInput,
+  normalizeCalendarMeetingInput,
   normalizeBrandCode,
   resolveBrand,
   readDailyAssignments,
   serializeAccount,
   serializeBrand,
+  serializeCalendarMeeting,
   setAdminCallRequested,
   transferAccount,
   updateAccount,
+  updateCalendarMeeting,
   approveDailyAssignments,
   updateDailyAssignment
 };

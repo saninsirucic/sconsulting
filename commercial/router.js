@@ -18,7 +18,9 @@ const {
   addManualActivity,
   approveDailyAssignments,
   archiveAccount,
+  calendarMeetingWithBrand,
   createAccount,
+  createCalendarMeeting,
   dashboard,
   ensureDailyAssignments,
   httpError,
@@ -31,6 +33,7 @@ const {
   setAdminCallRequested,
   transferAccount,
   updateAccount,
+  updateCalendarMeeting,
   updateDailyAssignment
 } = require('./service');
 
@@ -60,6 +63,16 @@ function createCommercialRouter({ db, outlookService }) {
     if (req.user.role !== 'direktor') {
       throw httpError(403, 'Samo direktor može mijenjati automatsko slanje.', 'DIRECTOR_REQUIRED');
     }
+  };
+
+  const getCalendarMeeting = async (req, write = false) => {
+    const meeting = await calendarMeetingWithBrand(db, req.params.id);
+    if (!meeting) throw httpError(404, 'Sastanak nije pronađen.', 'MEETING_NOT_FOUND');
+    await resolveBrand(db, req.user, meeting.brand_code, { write });
+    if (req.user.role !== 'direktor' && meeting.user_id !== req.user.id) {
+      throw httpError(403, 'Ne možete mijenjati sastanak drugog komercijaliste.', 'MEETING_OWNER_REQUIRED');
+    }
+    return meeting;
   };
 
   const listRecords = async (req, res) => {
@@ -121,6 +134,18 @@ function createCommercialRouter({ db, outlookService }) {
 
   router.get('/calendar', asyncRoute(async (req, res) => {
     res.json(await listCallCalendar(db, req.user, req.query));
+  }));
+  router.post('/brands/:code/calendar/meetings', asyncRoute(async (req, res) => {
+    const brand = await getBrand(req, true);
+    res.status(201).json(await createCalendarMeeting(db, brand, req.user, req.body || {}));
+  }));
+  router.put('/calendar/meetings/:id', asyncRoute(async (req, res) => {
+    const meeting = await getCalendarMeeting(req, true);
+    res.json(await updateCalendarMeeting(db, meeting, req.user, req.body || {}));
+  }));
+  router.patch('/calendar/meetings/:id', asyncRoute(async (req, res) => {
+    const meeting = await getCalendarMeeting(req, true);
+    res.json(await updateCalendarMeeting(db, meeting, req.user, req.body || {}));
   }));
 
   router.get('/brands/:code/dashboard', asyncRoute(async (req, res) => {
