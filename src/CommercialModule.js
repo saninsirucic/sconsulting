@@ -1978,95 +1978,110 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
         )}
       </Box>
 
-      <Box>
-        <HStack mb={3} justify="space-between" align="center" flexWrap="wrap">
-          <Heading size="sm" textTransform="capitalize">Obaveze za {selectedLabel}</Heading>
-          <HStack spacing={2}>
-            <Badge colorScheme="orange" px={3} py={1}>{selectedItems.length} {selectedItems.length === 1 ? 'poziv' : 'poziva'}</Badge>
-            <Badge colorScheme="purple" px={3} py={1}>{selectedMeetings.length} {selectedMeetings.length === 1 ? 'sastanak' : 'sastanaka'}</Badge>
-            <Button size="sm" leftIcon={<FaPlus />} colorScheme="blue" variant="outline" onClick={openNewMeeting}>Dodaj sastanak</Button>
-          </HStack>
-        </HStack>
-        {selectedItems.length === 0 && selectedMeetings.length === 0 ? (
-          <Box border="1px dashed" borderColor="gray.300" borderRadius="xl" py={8} px={4} textAlign="center" color="gray.500">Za ovaj datum nema poziva ni sastanaka.</Box>
-        ) : (
-          <VStack align="stretch" spacing={6}>
-            {selectedMeetings.length > 0 && (
-              <Box>
-                <Heading mb={3} size="xs" color="purple.700">Sastanci</Heading>
-                <VStack align="stretch" spacing={3}>
-                  {selectedMeetings.map((meeting) => {
-                    const startsAt = new Date(meeting.starts_at);
-                    const endsAt = new Date(startsAt.getTime() + Number(meeting.duration_minutes || 30) * 60000);
-                    const startTime = Number.isNaN(startsAt.getTime()) ? '—' : startsAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
-                    const endTime = Number.isNaN(endsAt.getTime()) ? '' : endsAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
-                    return (
-                      <Flex key={meeting.id} border="1px solid" borderColor="purple.200" bg="purple.50" borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
-                        <VStack minW={{ md: '92px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
-                          <Icon as={FaCalendarCheck} color="purple.500" />
-                          <Text fontSize="lg" fontWeight="bold">{startTime}{endTime ? `–${endTime}` : ''}</Text>
-                        </VStack>
-                        <Box flex="1" minW={0}>
-                          <HStack spacing={2} flexWrap="wrap">
-                            <Badge colorScheme={calendarBrandScheme(meeting.brand_code)}>{meeting.brand_name || displayStatus(meeting.brand_code)}</Badge>
-                            <Badge colorScheme="purple">Sastanak</Badge>
-                            {meeting.user_name && <Badge colorScheme="gray">{meeting.user_name}</Badge>}
-                          </HStack>
-                          <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{meeting.title}</Text>
-                          {meeting.location && <Text mt={1} color="gray.600" fontSize="sm">Mjesto/link: {meeting.location}</Text>}
-                          {meeting.notes && <Text mt={1} color="gray.600" fontSize="sm" whiteSpace="pre-wrap">{meeting.notes}</Text>}
-                        </Box>
-                        <Button flexShrink={0} leftIcon={<FaEdit />} variant="outline" colorScheme="purple" onClick={() => openMeetingEdit(meeting)}>Uredi sastanak</Button>
-                      </Flex>
-                    );
-                  })}
-                </VStack>
-              </Box>
-            )}
+      <VStack align="stretch" spacing={5}>
+        <Box
+          aria-label="Sastanci za izabrani dan"
+          border="2px solid"
+          borderColor="purple.300"
+          bg="purple.50"
+          borderRadius="2xl"
+          p={{ base: 3, md: 5 }}
+          boxShadow="sm"
+        >
+          <Flex mb={4} justify="space-between" align={{ base: 'stretch', sm: 'center' }} gap={3} direction={{ base: 'column', sm: 'row' }}>
+            <Box>
+              <HStack spacing={2}>
+                <Icon as={FaCalendarCheck} color="purple.600" boxSize={5} />
+                <Heading size="sm" color="purple.800">Sastanci</Heading>
+                <Badge colorScheme="purple">{selectedMeetings.length}</Badge>
+              </HStack>
+              <Text mt={1} fontSize="sm" color="purple.700" textTransform="capitalize">{selectedLabel}</Text>
+            </Box>
+            <Button leftIcon={<FaPlus />} colorScheme="purple" onClick={openNewMeeting}>Dodaj sastanak</Button>
+          </Flex>
 
-            {selectedItems.length > 0 && (
-              <Box>
-                <Heading mb={3} size="xs" color="orange.700">Pozivi</Heading>
-                <VStack align="stretch" spacing={3}>
-                  {selectedItems.map((record) => {
-                    const status = recordValue(record, 'status', 'crm_status') || 'NEW';
-                    const visual = statusVisual(status);
-                    const phone = calendarPhone(record);
-                    const contactAt = new Date(recordValue(record, 'next_contact_at', 'nextContactAt'));
-                    const time = Number.isNaN(contactAt.getTime()) ? '—' : contactAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
-                    const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
-                    return (
-                      <Flex key={record.id} border="1px solid" borderColor={visual.borderColor} bg={visual.bg} borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
-                        <VStack minW={{ md: '76px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
-                          <Icon as={FaClock} color="orange.500" />
-                          <Text fontSize="lg" fontWeight="bold">{time}</Text>
-                        </VStack>
-                        <Box flex="1" minW={0}>
-                          <HStack spacing={2} flexWrap="wrap">
-                            <Badge colorScheme={calendarBrandScheme(record.brand_code)}>{record.brand_name || displayStatus(record.brand_code)}</Badge>
-                            <Badge colorScheme={statusColorScheme(status)}>{displayStatus(status)}</Badge>
-                            {record.admin_call_requested && <Badge colorScheme="purple">Admin rekao zvati</Badge>}
-                          </HStack>
-                          <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
-                          <HStack mt={1} spacing={3} color="gray.600" fontSize="sm" flexWrap="wrap">
-                            {phone && <Text><Icon as={FaPhoneAlt} mr={1} />{phone}</Text>}
-                            {record.email && <Text><Icon as={FaEnvelope} mr={1} />{record.email}</Text>}
-                            {record.location && <Text>{record.location}</Text>}
-                          </HStack>
-                        </Box>
-                        <HStack flexShrink={0} spacing={2} alignSelf={{ base: 'stretch', md: 'center' }}>
-                          {phone && <Button as="a" href={`tel:${phone.replace(/[^\d+]/g, '')}`} flex={{ base: 1, md: 'initial' }} leftIcon={<FaPhoneAlt />} colorScheme="green">Zovi</Button>}
-                          <Button flex={{ base: 1, md: 'initial' }} leftIcon={<FaEdit />} variant="outline" onClick={() => openEdit(record)}>Uredi termin</Button>
-                        </HStack>
-                      </Flex>
-                    );
-                  })}
-                </VStack>
-              </Box>
-            )}
-          </VStack>
-        )}
-      </Box>
+          {selectedMeetings.length === 0 ? (
+            <Box border="1px dashed" borderColor="purple.300" bg="whiteAlpha.700" borderRadius="xl" py={6} px={4} textAlign="center">
+              <Text fontWeight="semibold" color="purple.700">Nema zakazanih sastanaka za ovaj datum.</Text>
+              <Text mt={1} fontSize="sm" color="gray.600">Kliknite „Dodaj sastanak“ da unesete novi termin.</Text>
+            </Box>
+          ) : (
+            <VStack align="stretch" spacing={3}>
+              {selectedMeetings.map((meeting) => {
+                const startsAt = new Date(meeting.starts_at);
+                const endsAt = new Date(startsAt.getTime() + Number(meeting.duration_minutes || 30) * 60000);
+                const startTime = Number.isNaN(startsAt.getTime()) ? '—' : startsAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+                const endTime = Number.isNaN(endsAt.getTime()) ? '' : endsAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+                return (
+                  <Flex key={meeting.id} border="1px solid" borderColor="purple.200" bg="white" borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
+                    <VStack minW={{ md: '92px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
+                      <Icon as={FaCalendarCheck} color="purple.500" />
+                      <Text fontSize="lg" fontWeight="bold">{startTime}{endTime ? `–${endTime}` : ''}</Text>
+                    </VStack>
+                    <Box flex="1" minW={0}>
+                      <HStack spacing={2} flexWrap="wrap">
+                        <Badge colorScheme={calendarBrandScheme(meeting.brand_code)}>{meeting.brand_name || displayStatus(meeting.brand_code)}</Badge>
+                        <Badge colorScheme="purple">Sastanak</Badge>
+                        {meeting.user_name && <Badge colorScheme="gray">{meeting.user_name}</Badge>}
+                      </HStack>
+                      <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{meeting.title}</Text>
+                      {meeting.location && <Text mt={1} color="gray.600" fontSize="sm">Mjesto/link: {meeting.location}</Text>}
+                      {meeting.notes && <Text mt={1} color="gray.600" fontSize="sm" whiteSpace="pre-wrap">{meeting.notes}</Text>}
+                    </Box>
+                    <Button flexShrink={0} leftIcon={<FaEdit />} variant="outline" colorScheme="purple" onClick={() => openMeetingEdit(meeting)}>Uredi sastanak</Button>
+                  </Flex>
+                );
+              })}
+            </VStack>
+          )}
+        </Box>
+
+        <Box>
+          <HStack mb={3} justify="space-between" align="center" flexWrap="wrap">
+            <Heading size="sm" color="orange.700" textTransform="capitalize">Pozivi za {selectedLabel}</Heading>
+            <Badge colorScheme="orange" px={3} py={1}>{selectedItems.length} {selectedItems.length === 1 ? 'poziv' : 'poziva'}</Badge>
+          </HStack>
+          {selectedItems.length === 0 ? (
+            <Box border="1px dashed" borderColor="gray.300" borderRadius="xl" py={7} px={4} textAlign="center" color="gray.500">Za ovaj datum nema zakazanih poziva.</Box>
+          ) : (
+            <VStack align="stretch" spacing={3}>
+              {selectedItems.map((record) => {
+                const status = recordValue(record, 'status', 'crm_status') || 'NEW';
+                const visual = statusVisual(status);
+                const phone = calendarPhone(record);
+                const contactAt = new Date(recordValue(record, 'next_contact_at', 'nextContactAt'));
+                const time = Number.isNaN(contactAt.getTime()) ? '—' : contactAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+                const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
+                return (
+                  <Flex key={record.id} border="1px solid" borderColor={visual.borderColor} bg={visual.bg} borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
+                    <VStack minW={{ md: '76px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
+                      <Icon as={FaClock} color="orange.500" />
+                      <Text fontSize="lg" fontWeight="bold">{time}</Text>
+                    </VStack>
+                    <Box flex="1" minW={0}>
+                      <HStack spacing={2} flexWrap="wrap">
+                        <Badge colorScheme={calendarBrandScheme(record.brand_code)}>{record.brand_name || displayStatus(record.brand_code)}</Badge>
+                        <Badge colorScheme={statusColorScheme(status)}>{displayStatus(status)}</Badge>
+                        {record.admin_call_requested && <Badge colorScheme="purple">Admin rekao zvati</Badge>}
+                      </HStack>
+                      <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
+                      <HStack mt={1} spacing={3} color="gray.600" fontSize="sm" flexWrap="wrap">
+                        {phone && <Text><Icon as={FaPhoneAlt} mr={1} />{phone}</Text>}
+                        {record.email && <Text><Icon as={FaEnvelope} mr={1} />{record.email}</Text>}
+                        {record.location && <Text>{record.location}</Text>}
+                      </HStack>
+                    </Box>
+                    <HStack flexShrink={0} spacing={2} alignSelf={{ base: 'stretch', md: 'center' }}>
+                      {phone && <Button as="a" href={`tel:${phone.replace(/[^\d+]/g, '')}`} flex={{ base: 1, md: 'initial' }} leftIcon={<FaPhoneAlt />} colorScheme="green">Zovi</Button>}
+                      <Button flex={{ base: 1, md: 'initial' }} leftIcon={<FaEdit />} variant="outline" onClick={() => openEdit(record)}>Uredi termin</Button>
+                    </HStack>
+                  </Flex>
+                );
+              })}
+            </VStack>
+          )}
+        </Box>
+      </VStack>
 
       <CalendarMeetingModal
         isOpen={meetingModal.isOpen}

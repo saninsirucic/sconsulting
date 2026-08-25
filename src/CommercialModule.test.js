@@ -354,6 +354,9 @@ test('kalendar prikazuje pozive i sastanke iz dostupnih programa po datumu', asy
   expect(screen.getAllByText('Prezentacija za novog klijenta').length).toBeGreaterThan(0);
   expect(screen.getByText('Mjesto/link: Online')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Uredi sastanak' })).toBeInTheDocument();
+  const meetingsSection = screen.getByLabelText('Sastanci za izabrani dan');
+  const callsHeading = screen.getByRole('heading', { name: /Pozivi za/i });
+  expect(meetingsSection.compareDocumentPosition(callsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
   fireEvent.change(screen.getByRole('combobox', { name: 'Program u kalendaru' }), { target: { value: 'SAN_PEST' } });
   await waitFor(() => expect(commercialApi.getCallCalendar).toHaveBeenCalledWith(expect.objectContaining({ brand: 'SAN_PEST' })));
@@ -364,6 +367,7 @@ test('komercijalista dodaje sastanak za izabrani datum', async () => {
   await screen.findAllByText('Primjer d.o.o.');
   fireEvent.click(screen.getByRole('tab', { name: 'Kalendar' }));
   await screen.findByRole('heading', { name: 'Kalendar poziva i sastanaka' });
+  expect(screen.getByText('Nema zakazanih sastanaka za ovaj datum.')).toBeInTheDocument();
 
   fireEvent.click(screen.getAllByRole('button', { name: 'Dodaj sastanak' })[0]);
   expect(await screen.findByRole('dialog')).toHaveTextContent('Dodaj sastanak');
