@@ -860,6 +860,23 @@ function addCalendarDays(value, amount) {
   return date;
 }
 
+function calendarLocalDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function defaultMeetingDateTime(dateKey) {
+  const date = calendarDateFromKey(dateKey);
+  const today = new Date();
+  if (calendarDateKey(date) === calendarDateKey(today)) {
+    date.setHours(today.getHours() + 1, 0, 0, 0);
+  } else {
+    date.setHours(9, 0, 0, 0);
+  }
+  return calendarLocalDateTime(date);
+}
+
 function calendarPhone(record) {
   const source = String(recordValue(record, 'phone', 'raw_contact', 'rawContact', 'contact', 'kontakt') || '');
   const match = source.match(/\+?\d[\d\s/().-]{6,}\d/);
@@ -1663,9 +1680,119 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   );
 }
 
+function CalendarMeetingModal({ isOpen, onClose, brands, meeting, selectedDate, defaultBrandCode, onSaved }) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    brand_code: '', title: '', starts_at: '', duration_minutes: 30, location: '', notes: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const preferredBrand = meeting?.brand_code
+      || (brands.some((brand) => brand.code === defaultBrandCode) ? defaultBrandCode : '')
+      || brands[0]?.code
+      || '';
+    setForm({
+      brand_code: preferredBrand,
+      title: meeting?.title || '',
+      starts_at: meeting?.starts_at ? calendarLocalDateTime(meeting.starts_at) : defaultMeetingDateTime(selectedDate),
+      duration_minutes: Number(meeting?.duration_minutes || 30),
+      location: meeting?.location || '',
+      notes: meeting?.notes || '',
+    });
+    setError('');
+  }, [brands, defaultBrandCode, isOpen, meeting, selectedDate]);
+
+  const change = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const save = async () => {
+    if (!form.brand_code || !form.title.trim() || !form.starts_at) {
+      setError('Program, naziv sastanka i datum s vremenom su obavezni.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const payload = {
+        title: form.title.trim(),
+        starts_at: new Date(form.starts_at).toISOString(),
+        duration_minutes: Number(form.duration_minutes),
+        location: form.location.trim() || null,
+        notes: form.notes.trim() || null,
+      };
+      const result = meeting
+        ? await commercialApi.updateCalendarMeeting(meeting.id, payload)
+        : await commercialApi.createCalendarMeeting(form.brand_code, payload);
+      toast({ title: meeting ? 'Sastanak je izmijenjen.' : 'Sastanak je dodat u kalendar.', status: 'success', position: 'top-right' });
+      onSaved(result);
+      onClose();
+    } catch (requestError) {
+      setError(requestError.message || 'Sastanak trenutno nije moguće sačuvati.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="lg" isCentered>
+      <ModalOverlay />
+      <ModalContent>
+        <ModalHeader>{meeting ? 'Uredi sastanak' : 'Dodaj sastanak'}</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          <VStack align="stretch" spacing={4}>
+            {error && <ErrorAlert message={error} />}
+            <FormControl isRequired>
+              <FormLabel>Program</FormLabel>
+              <Select aria-label="Program sastanka" value={form.brand_code} onChange={change('brand_code')} isDisabled={Boolean(meeting)}>
+                {brands.map((brand) => <option key={brand.code} value={brand.code}>{brand.name}</option>)}
+              </Select>
+            </FormControl>
+            <FormControl isRequired>
+              <FormLabel>Komitent / naziv sastanka</FormLabel>
+              <Input aria-label="Komitent ili naziv sastanka" value={form.title} onChange={change('title')} placeholder="npr. Sastanak sa Primjer d.o.o." />
+            </FormControl>
+            <SimpleGrid columns={{ base: 1, sm: 2 }} spacing={4}>
+              <FormControl isRequired>
+                <FormLabel>Datum i vrijeme</FormLabel>
+                <Input aria-label="Datum i vrijeme sastanka" type="datetime-local" value={form.starts_at} onChange={change('starts_at')} />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Trajanje</FormLabel>
+                <Select aria-label="Trajanje sastanka" value={form.duration_minutes} onChange={change('duration_minutes')}>
+                  <option value={15}>15 minuta</option>
+                  <option value={30}>30 minuta</option>
+                  <option value={45}>45 minuta</option>
+                  <option value={60}>1 sat</option>
+                  <option value={90}>1 sat i 30 minuta</option>
+                  <option value={120}>2 sata</option>
+                </Select>
+              </FormControl>
+            </SimpleGrid>
+            <FormControl>
+              <FormLabel>Mjesto ili online link</FormLabel>
+              <Input aria-label="Mjesto ili link sastanka" value={form.location} onChange={change('location')} placeholder="Kancelarija, adresa ili Teams/Meet link" />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Napomena</FormLabel>
+              <Textarea aria-label="Napomena sastanka" value={form.notes} onChange={change('notes')} rows={4} placeholder="Tema sastanka, šta pripremiti..." />
+            </FormControl>
+          </VStack>
+        </ModalBody>
+        <ModalFooter gap={3}>
+          <Button variant="ghost" onClick={onClose}>Odustani</Button>
+          <Button colorScheme="blue" leftIcon={<FaCalendarCheck />} isLoading={saving} loadingText="Čuvam" onClick={save}>Sačuvaj sastanak</Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+}
+
 function CallCalendar({ brands, globalRefreshKey, onChanged }) {
   const toast = useToast();
   const editModal = useDisclosure();
+  const meetingModal = useDisclosure();
   const todayKey = calendarDateKey(new Date());
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -1674,7 +1801,9 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [brandFilter, setBrandFilter] = useState('');
   const [items, setItems] = useState([]);
+  const [meetings, setMeetings] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [editingMeeting, setEditingMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
@@ -1698,9 +1827,11 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
         ...(brandFilter ? { brand: brandFilter } : {}),
       });
       setItems(Array.isArray(result) ? result : result?.items || []);
+      setMeetings(Array.isArray(result) ? [] : result?.meetings || []);
     } catch (requestError) {
-      setError(requestError.message || 'Kalendar poziva trenutno nije dostupan.');
+      setError(requestError.message || 'Kalendar trenutno nije dostupan.');
       setItems([]);
+      setMeetings([]);
     } finally {
       setLoading(false);
     }
@@ -1715,9 +1846,18 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
     all[key].push(item);
     return all;
   }, {}), [items]);
+  const groupedMeetings = useMemo(() => meetings.reduce((all, meeting) => {
+    const key = calendarDateKey(meeting.starts_at);
+    if (!key) return all;
+    if (!all[key]) all[key] = [];
+    all[key].push(meeting);
+    return all;
+  }, {}), [meetings]);
   const selectedItems = grouped[selectedDate] || [];
+  const selectedMeetings = groupedMeetings[selectedDate] || [];
   const monthPrefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
-  const monthCount = items.filter((item) => calendarDateKey(recordValue(item, 'next_contact_at', 'nextContactAt')).startsWith(monthPrefix)).length;
+  const monthCallCount = items.filter((item) => calendarDateKey(recordValue(item, 'next_contact_at', 'nextContactAt')).startsWith(monthPrefix)).length;
+  const monthMeetingCount = meetings.filter((meeting) => calendarDateKey(meeting.starts_at).startsWith(monthPrefix)).length;
   const selectedLabel = calendarDateFromKey(selectedDate).toLocaleDateString('bs-BA', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   });
@@ -1736,27 +1876,39 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
     setEditing(record);
     editModal.onOpen();
   };
+  const openNewMeeting = () => {
+    setEditingMeeting(null);
+    meetingModal.onOpen();
+  };
+  const openMeetingEdit = (meeting) => {
+    setEditingMeeting(meeting);
+    meetingModal.onOpen();
+  };
 
   return (
     <VStack align="stretch" spacing={5}>
       <Box border="1px solid" borderColor="blue.200" bg="blue.50" borderRadius="2xl" p={{ base: 4, md: 5 }}>
         <Flex justify="space-between" gap={4} align={{ base: 'start', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
           <Box>
-            <HStack><Icon as={FaCalendarCheck} color="blue.600" boxSize={5} /><Heading size="md">Kalendar poziva</Heading></HStack>
-            <Text mt={2} color="gray.600">Zajednički pregled „Sljedećeg kontakta“ iz svih programa kojima imate pristup.</Text>
+            <HStack><Icon as={FaCalendarCheck} color="blue.600" boxSize={5} /><Heading size="md">Kalendar poziva i sastanaka</Heading></HStack>
+            <Text mt={2} color="gray.600">Pregled koga treba zvati i svih zakazanih sastanaka iz programa kojima imate pristup.</Text>
           </Box>
-          <Select aria-label="Program u kalendaru" maxW={{ base: 'full', md: '250px' }} bg="white" value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)}>
-            <option value="">Svi dostupni programi</option>
-            {brands.map((brand) => <option key={brand.code} value={brand.code}>{brand.name}</option>)}
-          </Select>
+          <Flex w={{ base: 'full', md: 'auto' }} gap={3} direction={{ base: 'column', sm: 'row' }}>
+            <Select aria-label="Program u kalendaru" minW={{ md: '230px' }} bg="white" value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)}>
+              <option value="">Svi dostupni programi</option>
+              {brands.map((brand) => <option key={brand.code} value={brand.code}>{brand.name}</option>)}
+            </Select>
+            <Button flexShrink={0} leftIcon={<FaPlus />} colorScheme="blue" onClick={openNewMeeting}>Dodaj sastanak</Button>
+          </Flex>
         </Flex>
       </Box>
 
-      <SimpleGrid columns={{ base: 3 }} spacing={{ base: 2, md: 4 }}>
+      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={{ base: 2, md: 4 }}>
         {[
-          ['Danas', (grouped[todayKey] || []).length, 'blue'],
-          ['Izabrani dan', selectedItems.length, 'orange'],
-          ['Ovaj mjesec', monthCount, 'purple'],
+          ['Pozivi danas', (grouped[todayKey] || []).length, 'orange'],
+          ['Sastanci danas', (groupedMeetings[todayKey] || []).length, 'blue'],
+          ['Pozivi ovaj mjesec', monthCallCount, 'orange'],
+          ['Sastanci ovaj mjesec', monthMeetingCount, 'purple'],
         ].map(([label, value, scheme]) => (
           <Stat key={label} border="1px solid" borderColor={`${scheme}.100`} borderRadius="xl" p={{ base: 2, md: 4 }} bg="white">
             <StatLabel fontSize={{ base: '2xs', sm: 'sm' }} color="gray.600">{label}</StatLabel>
@@ -1785,16 +1937,17 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
               {gridDays.map((day) => {
                 const key = calendarDateKey(day);
                 const dayItems = grouped[key] || [];
+                const dayMeetings = groupedMeetings[key] || [];
                 const isSelected = key === selectedDate;
                 const isToday = key === todayKey;
                 const inMonth = day.getMonth() === month.getMonth();
-                const firstCompany = recordValue(dayItems[0], 'company_name', 'companyName', 'name', 'komitent');
+                const firstCompany = dayMeetings[0]?.title || recordValue(dayItems[0], 'company_name', 'companyName', 'name', 'komitent');
                 return (
                   <Box
                     as="button"
                     type="button"
                     key={key}
-                    aria-label={`${day.toLocaleDateString('bs-BA')} - ${dayItems.length} ${dayItems.length === 1 ? 'poziv' : 'poziva'}`}
+                    aria-label={`${day.toLocaleDateString('bs-BA')} - ${dayItems.length} ${dayItems.length === 1 ? 'poziv' : 'poziva'}, ${dayMeetings.length} ${dayMeetings.length === 1 ? 'sastanak' : 'sastanaka'}`}
                     minH={{ base: '64px', md: '104px' }}
                     p={{ base: 1, md: 2 }}
                     textAlign="left"
@@ -1810,10 +1963,13 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
                   >
                     <Flex justify="space-between" align="start" gap={1}>
                       <Text fontSize={{ base: 'xs', md: 'sm' }} fontWeight={isToday ? 'extrabold' : 'semibold'}>{day.getDate()}</Text>
-                      {dayItems.length > 0 && <Badge colorScheme={isSelected ? 'gray' : 'orange'} fontSize={{ base: '2xs', md: 'xs' }}>{dayItems.length}</Badge>}
+                      <HStack spacing={1}>
+                        {dayItems.length > 0 && <Badge title="Pozivi" colorScheme={isSelected ? 'gray' : 'orange'} fontSize={{ base: '2xs', md: 'xs' }}>☎ {dayItems.length}</Badge>}
+                        {dayMeetings.length > 0 && <Badge title="Sastanci" colorScheme={isSelected ? 'gray' : 'purple'} fontSize={{ base: '2xs', md: 'xs' }}>▣ {dayMeetings.length}</Badge>}
+                      </HStack>
                     </Flex>
                     {firstCompany && <Text display={{ base: 'none', md: 'block' }} mt={2} fontSize="xs" fontWeight="semibold" noOfLines={2}>{firstCompany}</Text>}
-                    {dayItems.length > 1 && <Text display={{ base: 'none', md: 'block' }} mt={1} fontSize="2xs">+{dayItems.length - 1} još</Text>}
+                    {(dayItems.length + dayMeetings.length) > 1 && <Text display={{ base: 'none', md: 'block' }} mt={1} fontSize="2xs">+{dayItems.length + dayMeetings.length - 1} još</Text>}
                   </Box>
                 );
               })}
@@ -1824,49 +1980,106 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
 
       <Box>
         <HStack mb={3} justify="space-between" align="center" flexWrap="wrap">
-          <Heading size="sm" textTransform="capitalize">Pozivi za {selectedLabel}</Heading>
-          <Badge colorScheme="orange" px={3} py={1}>{selectedItems.length} {selectedItems.length === 1 ? 'kontakt' : 'kontakata'}</Badge>
+          <Heading size="sm" textTransform="capitalize">Obaveze za {selectedLabel}</Heading>
+          <HStack spacing={2}>
+            <Badge colorScheme="orange" px={3} py={1}>{selectedItems.length} {selectedItems.length === 1 ? 'poziv' : 'poziva'}</Badge>
+            <Badge colorScheme="purple" px={3} py={1}>{selectedMeetings.length} {selectedMeetings.length === 1 ? 'sastanak' : 'sastanaka'}</Badge>
+            <Button size="sm" leftIcon={<FaPlus />} colorScheme="blue" variant="outline" onClick={openNewMeeting}>Dodaj sastanak</Button>
+          </HStack>
         </HStack>
-        {selectedItems.length === 0 ? (
-          <Box border="1px dashed" borderColor="gray.300" borderRadius="xl" py={8} px={4} textAlign="center" color="gray.500">Za ovaj datum nema zakazanih sljedećih kontakata.</Box>
+        {selectedItems.length === 0 && selectedMeetings.length === 0 ? (
+          <Box border="1px dashed" borderColor="gray.300" borderRadius="xl" py={8} px={4} textAlign="center" color="gray.500">Za ovaj datum nema poziva ni sastanaka.</Box>
         ) : (
-          <VStack align="stretch" spacing={3}>
-            {selectedItems.map((record) => {
-              const status = recordValue(record, 'status', 'crm_status') || 'NEW';
-              const visual = statusVisual(status);
-              const phone = calendarPhone(record);
-              const contactAt = new Date(recordValue(record, 'next_contact_at', 'nextContactAt'));
-              const time = Number.isNaN(contactAt.getTime()) ? '—' : contactAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
-              const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
-              return (
-                <Flex key={record.id} border="1px solid" borderColor={visual.borderColor} bg={visual.bg} borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
-                  <VStack minW={{ md: '76px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
-                    <Icon as={FaClock} color="blue.500" />
-                    <Text fontSize="lg" fontWeight="bold">{time}</Text>
-                  </VStack>
-                  <Box flex="1" minW={0}>
-                    <HStack spacing={2} flexWrap="wrap">
-                      <Badge colorScheme={calendarBrandScheme(record.brand_code)}>{record.brand_name || displayStatus(record.brand_code)}</Badge>
-                      <Badge colorScheme={statusColorScheme(status)}>{displayStatus(status)}</Badge>
-                      {record.admin_call_requested && <Badge colorScheme="purple">Admin rekao zvati</Badge>}
-                    </HStack>
-                    <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
-                    <HStack mt={1} spacing={3} color="gray.600" fontSize="sm" flexWrap="wrap">
-                      {phone && <Text><Icon as={FaPhoneAlt} mr={1} />{phone}</Text>}
-                      {record.email && <Text><Icon as={FaEnvelope} mr={1} />{record.email}</Text>}
-                      {record.location && <Text>{record.location}</Text>}
-                    </HStack>
-                  </Box>
-                  <HStack flexShrink={0} spacing={2} alignSelf={{ base: 'stretch', md: 'center' }}>
-                    {phone && <Button as="a" href={`tel:${phone.replace(/[^\d+]/g, '')}`} flex={{ base: 1, md: 'initial' }} leftIcon={<FaPhoneAlt />} colorScheme="green">Zovi</Button>}
-                    <Button flex={{ base: 1, md: 'initial' }} leftIcon={<FaEdit />} variant="outline" onClick={() => openEdit(record)}>Uredi termin</Button>
-                  </HStack>
-                </Flex>
-              );
-            })}
+          <VStack align="stretch" spacing={6}>
+            {selectedMeetings.length > 0 && (
+              <Box>
+                <Heading mb={3} size="xs" color="purple.700">Sastanci</Heading>
+                <VStack align="stretch" spacing={3}>
+                  {selectedMeetings.map((meeting) => {
+                    const startsAt = new Date(meeting.starts_at);
+                    const endsAt = new Date(startsAt.getTime() + Number(meeting.duration_minutes || 30) * 60000);
+                    const startTime = Number.isNaN(startsAt.getTime()) ? '—' : startsAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+                    const endTime = Number.isNaN(endsAt.getTime()) ? '' : endsAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+                    return (
+                      <Flex key={meeting.id} border="1px solid" borderColor="purple.200" bg="purple.50" borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
+                        <VStack minW={{ md: '92px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
+                          <Icon as={FaCalendarCheck} color="purple.500" />
+                          <Text fontSize="lg" fontWeight="bold">{startTime}{endTime ? `–${endTime}` : ''}</Text>
+                        </VStack>
+                        <Box flex="1" minW={0}>
+                          <HStack spacing={2} flexWrap="wrap">
+                            <Badge colorScheme={calendarBrandScheme(meeting.brand_code)}>{meeting.brand_name || displayStatus(meeting.brand_code)}</Badge>
+                            <Badge colorScheme="purple">Sastanak</Badge>
+                            {meeting.user_name && <Badge colorScheme="gray">{meeting.user_name}</Badge>}
+                          </HStack>
+                          <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{meeting.title}</Text>
+                          {meeting.location && <Text mt={1} color="gray.600" fontSize="sm">Mjesto/link: {meeting.location}</Text>}
+                          {meeting.notes && <Text mt={1} color="gray.600" fontSize="sm" whiteSpace="pre-wrap">{meeting.notes}</Text>}
+                        </Box>
+                        <Button flexShrink={0} leftIcon={<FaEdit />} variant="outline" colorScheme="purple" onClick={() => openMeetingEdit(meeting)}>Uredi sastanak</Button>
+                      </Flex>
+                    );
+                  })}
+                </VStack>
+              </Box>
+            )}
+
+            {selectedItems.length > 0 && (
+              <Box>
+                <Heading mb={3} size="xs" color="orange.700">Pozivi</Heading>
+                <VStack align="stretch" spacing={3}>
+                  {selectedItems.map((record) => {
+                    const status = recordValue(record, 'status', 'crm_status') || 'NEW';
+                    const visual = statusVisual(status);
+                    const phone = calendarPhone(record);
+                    const contactAt = new Date(recordValue(record, 'next_contact_at', 'nextContactAt'));
+                    const time = Number.isNaN(contactAt.getTime()) ? '—' : contactAt.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
+                    const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
+                    return (
+                      <Flex key={record.id} border="1px solid" borderColor={visual.borderColor} bg={visual.bg} borderRadius="xl" p={{ base: 3, md: 4 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }}>
+                        <VStack minW={{ md: '76px' }} spacing={1} align={{ base: 'start', md: 'center' }}>
+                          <Icon as={FaClock} color="orange.500" />
+                          <Text fontSize="lg" fontWeight="bold">{time}</Text>
+                        </VStack>
+                        <Box flex="1" minW={0}>
+                          <HStack spacing={2} flexWrap="wrap">
+                            <Badge colorScheme={calendarBrandScheme(record.brand_code)}>{record.brand_name || displayStatus(record.brand_code)}</Badge>
+                            <Badge colorScheme={statusColorScheme(status)}>{displayStatus(status)}</Badge>
+                            {record.admin_call_requested && <Badge colorScheme="purple">Admin rekao zvati</Badge>}
+                          </HStack>
+                          <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
+                          <HStack mt={1} spacing={3} color="gray.600" fontSize="sm" flexWrap="wrap">
+                            {phone && <Text><Icon as={FaPhoneAlt} mr={1} />{phone}</Text>}
+                            {record.email && <Text><Icon as={FaEnvelope} mr={1} />{record.email}</Text>}
+                            {record.location && <Text>{record.location}</Text>}
+                          </HStack>
+                        </Box>
+                        <HStack flexShrink={0} spacing={2} alignSelf={{ base: 'stretch', md: 'center' }}>
+                          {phone && <Button as="a" href={`tel:${phone.replace(/[^\d+]/g, '')}`} flex={{ base: 1, md: 'initial' }} leftIcon={<FaPhoneAlt />} colorScheme="green">Zovi</Button>}
+                          <Button flex={{ base: 1, md: 'initial' }} leftIcon={<FaEdit />} variant="outline" onClick={() => openEdit(record)}>Uredi termin</Button>
+                        </HStack>
+                      </Flex>
+                    );
+                  })}
+                </VStack>
+              </Box>
+            )}
           </VStack>
         )}
       </Box>
+
+      <CalendarMeetingModal
+        isOpen={meetingModal.isOpen}
+        onClose={meetingModal.onClose}
+        brands={brands}
+        meeting={editingMeeting}
+        selectedDate={selectedDate}
+        defaultBrandCode={brandFilter}
+        onSaved={() => {
+          setLocalRefreshKey((value) => value + 1);
+          onChanged();
+        }}
+      />
 
       <RecordModal
         isOpen={editModal.isOpen}
@@ -1946,7 +2159,7 @@ export default function CommercialModule({ user }) {
       ) : (
         <Tabs colorScheme="orange" variant="enclosed" isLazy defaultIndex={1}>
           <TabList overflowX="auto" overflowY="hidden" sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
-            <Tab flexShrink={0} minH="44px" fontWeight="bold"><Icon as={FaCalendarCheck} mr={2} />Kalendar poziva</Tab>
+            <Tab flexShrink={0} minH="44px" fontWeight="bold"><Icon as={FaCalendarCheck} mr={2} />Kalendar</Tab>
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
           </TabList>
           <TabPanels>

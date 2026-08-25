@@ -12,6 +12,8 @@ export const commercialApi = {
     });
     return apiRequest(`${base}/calendar${query.toString() ? `?${query}` : ''}`, { method: 'GET' });
   },
+  createCalendarMeeting: (code, body) => apiRequest(`${brandPath(code)}/calendar/meetings`, { method: 'POST', body }),
+  updateCalendarMeeting: (id, body) => apiRequest(`${base}/calendar/meetings/${encodeURIComponent(id)}`, { method: 'PUT', body }),
   getDashboard: (code) => apiRequest(`${brandPath(code)}/dashboard`),
   getRecords: (code, params = {}) => {
     const query = new URLSearchParams();

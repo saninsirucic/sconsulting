@@ -103,3 +103,24 @@ test('učitava zajednički kalendar poziva za raspon i program', async () => {
   expect(url).toContain('brand=SAN_PEST');
   expect(options.method).toBe('GET');
 });
+
+test('dodaje i uređuje sastanak u kalendaru komercijaliste', async () => {
+  const body = {
+    title: 'Sastanak sa Primjer d.o.o.',
+    starts_at: '2026-08-27T09:00:00.000Z',
+    duration_minutes: 45,
+  };
+  await commercialApi.createCalendarMeeting('SAN_PEST', body);
+
+  let [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/brands/SAN_PEST/calendar/meetings');
+  expect(options.method).toBe('POST');
+  expect(JSON.parse(options.body)).toEqual(body);
+
+  fetch.mockClear();
+  await commercialApi.updateCalendarMeeting('meeting/1', { ...body, duration_minutes: 60 });
+  [url, options] = fetch.mock.calls[0];
+  expect(url).toContain('/api/commercial/calendar/meetings/meeting%2F1');
+  expect(options.method).toBe('PUT');
+  expect(JSON.parse(options.body)).toEqual({ ...body, duration_minutes: 60 });
+});

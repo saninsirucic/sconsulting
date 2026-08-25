@@ -13,6 +13,8 @@ jest.mock('./commercial/api', () => ({
   commercialApi: {
     getBrands: jest.fn(),
     getCallCalendar: jest.fn(),
+    createCalendarMeeting: jest.fn(),
+    updateCalendarMeeting: jest.fn(),
     getDashboard: jest.fn(),
     getRecords: jest.fn(),
     createRecord: jest.fn(),
@@ -69,6 +71,8 @@ beforeEach(() => {
   ] });
   commercialApi.getDashboard.mockResolvedValue({ totals: { total: 1, total_amount: 88562, profit_amount: 65800 }, today: { total: 0 } });
   commercialApi.getCallCalendar.mockResolvedValue({ items: [], range: {}, brands: [] });
+  commercialApi.createCalendarMeeting.mockResolvedValue({ id: 'meeting-created' });
+  commercialApi.updateCalendarMeeting.mockResolvedValue({ id: 'meeting-updated' });
   commercialApi.getRecords.mockResolvedValue({ items: [record], pagination: { total: 1, pages: 1 }, filters: {} });
   commercialApi.createRecord.mockResolvedValue({ id: 'record-2' });
   commercialApi.updateRecord.mockResolvedValue({ ...record, company_name: 'Izmijenjeni kupac' });
@@ -306,7 +310,7 @@ test('statusne boje razlikuju tok, odbijeno i pozitivan ishod', () => {
   expect(statusVisual('WON')).toEqual(expect.objectContaining({ bg: 'green.50' }));
 });
 
-test('kalendar poziva prikazuje sljedeće kontakte iz sva tri programa po datumu', async () => {
+test('kalendar prikazuje pozive i sastanke iz dostupnih programa po datumu', async () => {
   const now = new Date();
   const contactAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 30);
   commercialApi.getCallCalendar.mockResolvedValue({
@@ -320,14 +324,25 @@ test('kalendar poziva prikazuje sljedeće kontakte iz sva tri programa po datumu
       brand_name: 'SAN Pest',
       admin_call_requested: true,
     }],
+    meetings: [{
+      id: 'meeting-calendar',
+      title: 'Prezentacija za novog klijenta',
+      starts_at: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0).toISOString(),
+      duration_minutes: 45,
+      location: 'Online',
+      notes: 'Pripremiti ponudu',
+      brand_code: 'VISIOCAST',
+      brand_name: 'Visiocast',
+      user_name: 'Prodaja',
+    }],
     range: {},
     brands: [],
   });
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Kalendar poziva' }));
-  expect(await screen.findByRole('heading', { name: 'Kalendar poziva' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'Kalendar' }));
+  expect(await screen.findByRole('heading', { name: 'Kalendar poziva i sastanaka' })).toBeInTheDocument();
   await waitFor(() => expect(commercialApi.getCallCalendar).toHaveBeenCalledWith(expect.objectContaining({
     from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
@@ -336,9 +351,36 @@ test('kalendar poziva prikazuje sljedeće kontakte iz sva tri programa po datumu
   expect(screen.getByText('+387 61 555 444')).toBeInTheDocument();
   expect(screen.getAllByText('SAN Pest').length).toBeGreaterThan(0);
   expect(screen.getByRole('link', { name: 'Zovi' })).toHaveAttribute('href', 'tel:+38761555444');
+  expect(screen.getAllByText('Prezentacija za novog klijenta').length).toBeGreaterThan(0);
+  expect(screen.getByText('Mjesto/link: Online')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Uredi sastanak' })).toBeInTheDocument();
 
   fireEvent.change(screen.getByRole('combobox', { name: 'Program u kalendaru' }), { target: { value: 'SAN_PEST' } });
   await waitFor(() => expect(commercialApi.getCallCalendar).toHaveBeenCalledWith(expect.objectContaining({ brand: 'SAN_PEST' })));
+});
+
+test('komercijalista dodaje sastanak za izabrani datum', async () => {
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getByRole('tab', { name: 'Kalendar' }));
+  await screen.findByRole('heading', { name: 'Kalendar poziva i sastanaka' });
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Dodaj sastanak' })[0]);
+  expect(await screen.findByRole('dialog')).toHaveTextContent('Dodaj sastanak');
+  fireEvent.change(screen.getByLabelText('Komitent ili naziv sastanka'), { target: { value: 'Sastanak sa Primjer d.o.o.' } });
+  fireEvent.change(screen.getByLabelText('Datum i vrijeme sastanka'), { target: { value: '2026-08-27T09:15' } });
+  fireEvent.change(screen.getByLabelText('Trajanje sastanka'), { target: { value: '45' } });
+  fireEvent.change(screen.getByLabelText('Mjesto ili link sastanka'), { target: { value: 'Kancelarija' } });
+  fireEvent.change(screen.getByLabelText('Napomena sastanka'), { target: { value: 'Ponijeti ponudu' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj sastanak' }));
+
+  await waitFor(() => expect(commercialApi.createCalendarMeeting).toHaveBeenCalledWith('VISIOCAST', {
+    title: 'Sastanak sa Primjer d.o.o.',
+    starts_at: new Date('2026-08-27T09:15').toISOString(),
+    duration_minutes: 45,
+    location: 'Kancelarija',
+    notes: 'Ponijeti ponudu',
+  }));
 });
 
 test('kreira Visiocast komitenta kroz modal', async () => {
