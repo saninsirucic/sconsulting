@@ -715,6 +715,7 @@ test('uređuje Visiocast zapis', async () => {
   await screen.findAllByText('Primjer d.o.o.');
 
   fireEvent.click(screen.getAllByRole('button', { name: 'Uredi komitenta' })[0]);
+  expect(screen.getByLabelText('CRM napomene')).toHaveAttribute('rows', '6');
   fireEvent.change(screen.getByLabelText(/Naziv komitenta/), { target: { value: 'Izmijenjeni kupac' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj' }));
   await waitFor(() => expect(commercialApi.updateRecord).toHaveBeenCalledWith('record-1', expect.objectContaining({ company_name: 'Izmijenjeni kupac' })));

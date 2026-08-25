@@ -73,7 +73,7 @@ export const EDIT_FIELDS = [
   { key: 'raw_mail', label: 'Izvorni mail podaci (arhiva)', type: 'textarea', wide: true, rows: 4 },
   { key: 'raw_contact', label: 'Kontakt — puni izvorni sadržaj', type: 'textarea', wide: true, rows: 4 },
   { key: 'comment', label: 'Komentar — puni izvorni sadržaj', type: 'textarea', wide: true, rows: 4 },
-  { key: 'notes', label: 'CRM napomene', type: 'textarea', wide: true, rows: 4 },
+  { key: 'notes', label: 'CRM napomene', type: 'textarea', wide: true, rows: 6, minH: { base: '132px', md: '148px' } },
 ];
 
 export function normalizeBrandCode(value) {

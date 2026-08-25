@@ -200,7 +200,7 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
               <FormControl key={field.key} isRequired={field.required} gridColumn={{ md: field.wide ? 'span 2' : 'auto' }}>
                 <FormLabel fontSize="sm">{field.label}</FormLabel>
                 {field.type === 'textarea' ? (
-                  <Textarea minH={{ base: '88px', md: '80px' }} rows={field.rows || 3} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
+                  <Textarea minH={field.minH || { base: '88px', md: '80px' }} rows={field.rows || 3} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
                 ) : field.type === 'status' ? (
                   <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
                     {CRM_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
