@@ -890,7 +890,7 @@ test('promjena dnevnog zadatka opoziva svaki neslani odobreni mail osim eksplici
   }
 });
 
-test('uvoz ne prelazi dnevni limit kada drugi vidljivi PENDING red već zauzima mjesto', async (t) => {
+test('ručno odobren dnevni izbor zamjenjuje neodobreni PENDING prijedlog kada je red popunjen', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
   const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
@@ -916,10 +916,56 @@ test('uvoz ne prelazi dnevni limit kada drugi vidljivi PENDING red već zauzima 
     date: '2026-08-18',
     confirmed: true
   });
-  assert.equal(imported.import.eligible_count, 0);
-  assert.equal(imported.import.skipped_counts.daily_limit, 1);
-  assert.equal(imported.queue.length, 1);
+  assert.equal(imported.import.eligible_count, 1);
+  assert.equal(imported.import.replaced_pending_count, 1);
+  assert.equal(imported.import.skipped_counts.daily_limit, 0);
+  assert.equal(imported.queue.length, 2);
   assert.equal(imported.today.prepared_count, 1);
+  assert.equal(imported.queue.find((row) => row.account_id === existing.id).status, 'NOT_APPROVED');
+  assert.equal(imported.queue.find((row) => row.account_id === approved.id).status, 'APPROVED');
+});
+
+test('ručni dnevni izbor ne zamjenjuje već zakazane mailove nego samo neodobrene prijedloge', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'FS_APP' }).first();
+  const commercial = { id: 'commercial-user', username: 'prodaja', role: 'komercijala' };
+  const scheduled = await addAccount(db, brand, 'priority-1', {
+    email: 'priority1@firma.ba', source_row_number: 1
+  });
+  const pending = await addAccount(db, brand, 'priority-2', {
+    email: 'priority2@firma.ba', source_row_number: 2
+  });
+  const selected = await addAccount(db, brand, 'priority-3', {
+    email: 'priority3@firma.ba', source_row_number: 3
+  });
+  const assignment = await addAssignment(db, commercial, brand, selected, 'priority-3', {
+    status: 'APPROVED'
+  });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'FS App prijedlog',
+    body: 'Poštovani, predstavljamo FS App.',
+    enabled: false,
+    daily_limit: 2
+  });
+  const date = '2026-08-18';
+  await prepareAutomationQueue(db, brand, commercial, { date });
+  await reviewAutomationCandidates(db, brand, [scheduled.id], 'APPROVED', { date });
+  await scheduleSelectedMails(db, brand, [scheduled.id], {
+    date,
+    confirmed: true,
+    actor: commercial
+  });
+
+  const imported = await importApprovedDailyAssignments(db, brand, commercial, [assignment.id], {
+    date,
+    confirmed: true
+  });
+
+  assert.equal(imported.import.eligible_count, 1);
+  assert.equal(imported.import.replaced_pending_count, 1);
+  assert.equal(imported.queue.find((row) => row.account_id === scheduled.id).status, 'SCHEDULED');
+  assert.equal(imported.queue.find((row) => row.account_id === pending.id).status, 'NOT_APPROVED');
+  assert.equal(imported.queue.find((row) => row.account_id === selected.id).status, 'APPROVED');
 });
 
 test('uvoz ponovo zaključava i provjerava odobrenje nakon početnog pronalaska assignmenta', async (t) => {

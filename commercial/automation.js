@@ -880,6 +880,7 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
     const eligibleAssignmentIds = [];
     let importedCount = 0;
     let alreadyReadyCount = 0;
+    let replacedPendingCount = 0;
     const skippedCounts = {
       not_approved_or_unavailable: Math.max(0, ids.length - assignments.length),
       invalid_account: 0,
@@ -891,6 +892,34 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
       daily_limit: 0
     };
     const now = new Date();
+    const requestedAccountIds = new Set(assignments.map((row) => row.account_id));
+    const replaceableRows = existingRows
+      .filter((row) => ['PENDING', 'FAILED'].includes(row.status) && !requestedAccountIds.has(row.account_id))
+      .sort((left, right) => Number(right.sequence_number || 0) - Number(left.sequence_number || 0));
+
+    const replacePendingRow = async (preferredRow = null) => {
+      const index = preferredRow
+        ? replaceableRows.findIndex((row) => row.id === preferredRow.id)
+        : 0;
+      if (index < 0 || !replaceableRows[index]) return false;
+      const [row] = replaceableRows.splice(index, 1);
+      const updated = await trx('crm_mail_queue').where({ id: row.id })
+        .whereIn('status', ['PENDING', 'FAILED'])
+        .update({
+          status: 'NOT_APPROVED',
+          claim_token: null,
+          claimed_at: null,
+          last_error: 'Zamijenjen ručno odabranim komitentom iz Današnjih 30.',
+          updated_at: now
+        });
+      if (!updated) return false;
+      row.status = 'NOT_APPROVED';
+      const rowEmail = validEmail(row.recipient_email);
+      if (rowEmail && todayEmailOwner.get(rowEmail) === row.account_id) todayEmailOwner.delete(rowEmail);
+      activeSlots = Math.max(0, activeSlots - 1);
+      replacedPendingCount += 1;
+      return true;
+    };
 
     for (const assignmentRow of assignments) {
       const account = await trx('crm_accounts').where({
@@ -949,15 +978,24 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
         skippedCounts.suppressed += 1;
         continue;
       }
-      const emailOwner = todayEmailOwner.get(email);
-      if ((emailOwner && emailOwner !== assignment.id) || selectedEmails.has(email)) {
+      if (selectedEmails.has(email)) {
         skippedCounts.duplicate_email += 1;
         continue;
       }
+      const emailOwner = todayEmailOwner.get(email);
+      if (emailOwner && emailOwner !== assignment.id) {
+        const ownerRow = existingByAccount.get(emailOwner);
+        if (!await replacePendingRow(ownerRow)) {
+          skippedCounts.duplicate_email += 1;
+          continue;
+        }
+      }
       const needsAdditionalSlot = !current || current.status === 'NOT_APPROVED';
       if (needsAdditionalSlot && activeSlots >= Math.min(MAX_DAILY_LIMIT, settings.daily_limit)) {
-        skippedCounts.daily_limit += 1;
-        continue;
+        if (!await replacePendingRow()) {
+          skippedCounts.daily_limit += 1;
+          continue;
+        }
       }
       const queueValues = {
         recipient_email: email,
@@ -1007,6 +1045,7 @@ async function importApprovedDailyAssignments(db, brand, actor, assignmentIds, o
       eligible_count: eligibleAccountIds.length,
       imported_count: importedCount,
       already_ready_count: alreadyReadyCount,
+      replaced_pending_count: replacedPendingCount,
       skipped_count: Math.max(0, ids.length - eligibleAccountIds.length),
       skipped_counts: skippedCounts,
       eligible_account_ids: eligibleAccountIds,
