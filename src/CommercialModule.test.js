@@ -738,16 +738,35 @@ test('promjena jedinog maila u izvornim podacima usklađuje glavni email za slan
   })));
 });
 
-test('jednim dugmetom odmah šalje sačuvani dopis i osvježava CRM komentar', async () => {
+test('jednim dugmetom ažurira samo poslani red bez ponovnog učitavanja baze i čuva oznaku za poziv', async () => {
   const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  commercialApi.getRecords.mockResolvedValue({
+    items: [{ ...record, admin_call_requested: true, admin_call_requested_at: '2026-08-23T12:00:00.000Z' }],
+    pagination: { total: 1, pages: 1 },
+    filters: {},
+  });
+  commercialApi.sendRecordLetter.mockResolvedValue({
+    success: true,
+    sent: true,
+    account_id: record.id,
+    recipient: record.email,
+    sent_at: '2026-08-18T17:51:00.000Z',
+    status: 'EMAIL_SENT',
+    comment: 'Nazvati u petak\nPoslat dopis 18.08.2026. u 19:51.',
+    next_contact_at: '2026-08-25T17:51:00.000Z',
+  });
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
+  commercialApi.getRecords.mockClear();
 
   fireEvent.click(screen.getAllByRole('button', { name: 'Pošalji dopis za Primjer d.o.o.' })[0]);
 
   expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('na prodaja@primjer.ba'));
   await waitFor(() => expect(commercialApi.sendRecordLetter).toHaveBeenCalledWith('record-1'));
-  await waitFor(() => expect(commercialApi.getRecords.mock.calls.length).toBeGreaterThan(1));
+  await waitFor(() => expect(screen.getAllByText('Mail poslan').length).toBeGreaterThan(0));
+  expect(commercialApi.getRecords).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('checkbox', { name: 'Admin rekao zvati - Primjer d.o.o.' })[0]).toBeChecked();
+  expect(screen.getAllByRole('button', { name: 'Pošalji dopis za Primjer d.o.o.' })[0]).toBeDisabled();
   confirmSpy.mockRestore();
 });
 

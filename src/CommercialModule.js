@@ -1294,14 +1294,29 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (!confirmed) return;
     setSendingLetterId(record.id);
     try {
-      await commercialApi.sendRecordLetter(record.id);
+      const result = await commercialApi.sendRecordLetter(record.id);
+      const sentAt = result?.letter_sent_at || result?.sent_at || new Date().toISOString();
+      const updateRecord = (item) => (String(item?.id) === String(record.id) ? {
+        ...item,
+        status: result?.status || 'EMAIL_SENT',
+        comment: result?.comment !== undefined ? result.comment : item.comment,
+        letter_sent_at: sentAt,
+        last_contact_at: result?.last_contact_at || sentAt,
+        next_contact_at: result?.next_contact_at !== undefined ? result.next_contact_at : item.next_contact_at,
+        updated_at: result?.updated_at || sentAt,
+      } : item);
+      setData((current) => ({
+        ...current,
+        items: Array.isArray(current.items) ? current.items.map(updateRecord) : current.items,
+        ...(Array.isArray(current.records) ? { records: current.records.map(updateRecord) } : {}),
+      }));
       toast({
         title: `Dopis je poslan za ${company}.`,
         description: `Poslano na ${email}. CRM komentar sa datumom i vremenom je upisan automatski.`,
         status: 'success',
         position: 'top-right',
       });
-      changed();
+      commercialApi.getDashboard(brandCode).then(setDashboard).catch(() => {});
     } catch (requestError) {
       toast({
         title: requestError.message || 'Dopis trenutno nije moguće poslati.',
