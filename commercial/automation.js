@@ -1546,8 +1546,12 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
       recipient: recipients.toEmail,
       cc_count: recipients.ccEmails.length,
       sent_at: sentAt,
+      letter_sent_at: sentAt,
       status: account?.status || 'EMAIL_SENT',
-      comment: account?.comment || ''
+      comment: account?.comment || '',
+      last_contact_at: account?.last_contact_at || sentAt,
+      next_contact_at: account?.next_contact_at || null,
+      updated_at: account?.updated_at || sentAt
     };
   } catch (error) {
     if (claimed) {

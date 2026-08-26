@@ -511,6 +511,10 @@ test('dugme u CRM redu odmah šalje sačuvani dopis i upisuje tačan datum i vri
 
   assert.equal(result.sent, true);
   assert.equal(result.recipient, 'info@aba.ba');
+  assert.equal(new Date(result.letter_sent_at).toISOString(), sentAt.toISOString());
+  assert.equal(new Date(result.last_contact_at).toISOString(), sentAt.toISOString());
+  assert.ok(result.next_contact_at);
+  assert.match(result.comment, /Poslat dopis 18\.08\.2026\. u 19:51\./);
   assert.equal(payloads.length, 1);
   assert.deepEqual(payloads[0].to, ['info@aba.ba']);
   assert.deepEqual(payloads[0].cc, ['direktor@aba.ba']);
