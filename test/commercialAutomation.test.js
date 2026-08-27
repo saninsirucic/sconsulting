@@ -544,6 +544,68 @@ test('dugme u CRM redu odmah šalje sačuvani dopis i upisuje tačan datum i vri
   );
 });
 
+test('ručno slanje iz CRM reda nastavlja i nakon 30 mailova istog dana', async (t) => {
+  const db = await testDb(t);
+  const brand = await db('crm_brands').where({ code: 'VISIOCAST' }).first();
+  const commercial = { id: 'unlimited-quick-user', username: 'prodaja', role: 'komercijala' };
+  const now = new Date('2026-08-27T12:00:00.000Z');
+  const date = businessDate('Europe/Sarajevo', now);
+  const sentRows = [];
+
+  for (let index = 1; index <= 30; index += 1) {
+    const account = await addAccount(db, brand, `already-sent-${index}`, {
+      email: `already-sent-${index}@firma.ba`
+    });
+    sentRows.push({
+      id: `already-sent-queue-${index}`,
+      brand_id: brand.id,
+      account_id: account.id,
+      queue_date: date,
+      sequence_number: index,
+      recipient_email: account.email,
+      subject: 'Raniji dopis',
+      body_text: 'Ranije poslan sadržaj.',
+      status: 'SENT',
+      attempts: 1,
+      sent_at: now,
+      created_by: commercial.id,
+      created_at: now,
+      updated_at: now
+    });
+  }
+  await db('crm_mail_queue').insert(sentRows);
+
+  const nextAccount = await addAccount(db, brand, 'after-daily-30', {
+    company_name: 'VisioCast komitent poslije tridesetog maila',
+    email: 'after-daily-30@firma.ba'
+  });
+  await updateAutomationSettings(db, brand, commercial, {
+    subject: 'VisioCast za {{KOMITENT}}',
+    body: 'Poštovani {{KOMITENT}}, šaljemo Vam dopis.'
+  });
+  let sends = 0;
+  const result = await sendImmediateAccountMail(db, brand, nextAccount.id, {
+    confirmed: true,
+    actor: commercial,
+    now,
+    outlookService: {
+      config: { writeEnabled: true, mailbox: 'sales@s-consulting.ba' },
+      async send() {
+        sends += 1;
+        return { success: true, accepted: true, id: 'after-limit', conversationId: 'after-limit-conversation' };
+      }
+    }
+  });
+
+  assert.equal(result.sent, true);
+  assert.equal(sends, 1);
+  assert.equal(
+    await db('crm_mail_queue').where({ brand_id: brand.id, queue_date: date, status: 'SENT' })
+      .count({ count: '*' }).first().then((row) => Number(row.count)),
+    31
+  );
+});
+
 test('dugme ne šalje na stari glavni email kada izvorni mail sadrži jednu novu adresu', async (t) => {
   const db = await testDb(t);
   const brand = await db('crm_brands').where({ code: 'SAN_PEST' }).first();

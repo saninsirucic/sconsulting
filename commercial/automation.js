@@ -1449,13 +1449,6 @@ async function claimImmediateAccountMail(db, brand, accountId, actor, now) {
       throw httpError(409, 'Ova email adresa je već u današnjem redu slanja.', 'QUICK_SEND_DUPLICATE_RECIPIENT');
     }
 
-    const dailyLimit = Math.min(MAX_DAILY_LIMIT, Number(settings.daily_limit) || MAX_DAILY_LIMIT);
-    const usedRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
-      .whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).count({ count: '*' }).first();
-    if (Number(usedRow?.count || 0) >= dailyLimit) {
-      throw httpError(409, `Dnevni limit od ${dailyLimit} mailova za ${brand.name} je dostignut.`, 'CAMPAIGN_DAILY_LIMIT_REACHED');
-    }
-
     const claimToken = uuidv4();
     const queueData = {
       recipient_email: recipientEmail,
@@ -1721,12 +1714,6 @@ async function claimSelectedQueueItem(db, brand, identifier, now) {
     if (!settings?.subject || !settings?.body_text) {
       throw httpError(409, 'Prvo sačuvajte naslov i sadržaj maila.', 'AUTOMATION_TEMPLATE_REQUIRED');
     }
-    const dailyLimit = Math.min(MAX_DAILY_LIMIT, Number(settings.daily_limit) || MAX_DAILY_LIMIT);
-    const usedRow = await trx('crm_mail_queue').where({ brand_id: brand.id, queue_date: date })
-      .whereIn('status', ['SENT', 'SENDING', 'SKIPPED']).count({ count: '*' }).first();
-    if (Number(usedRow?.count || 0) >= dailyLimit) {
-      throw httpError(409, `Dnevni limit od ${dailyLimit} mailova za ${brand.name} je dostignut.`, 'CAMPAIGN_DAILY_LIMIT_REACHED');
-    }
     const item = await trx('crm_mail_queue')
       .where({ brand_id: brand.id, queue_date: date, status: 'APPROVED' })
       .andWhere((query) => query.where({ account_id: identifier }).orWhere({ id: identifier }))
@@ -1769,7 +1756,6 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
   }
   const ids = [...new Set((Array.isArray(accountIds) ? accountIds : []).map((value) => String(value || '').trim()).filter(Boolean))];
   if (!ids.length) throw httpError(400, 'Označite najmanje jednog kandidata.', 'CAMPAIGN_SELECTION_REQUIRED');
-  if (ids.length > MAX_DAILY_LIMIT) throw httpError(400, 'Odjednom možete označiti najviše 30 kandidata.', 'CAMPAIGN_SELECTION_TOO_LARGE');
   const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
   const outlook = options.outlookService || createOutlookService();
   assertOutlookReady(outlook);
