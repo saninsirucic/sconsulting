@@ -166,6 +166,8 @@ function addCombinedProgramTable(doc, program) {
 
 export function createCombinedLetterReportPdf({ programs, sentFrom, sentTo, generatedAt = new Date() }) {
   const reportPrograms = Array.isArray(programs) ? programs : [];
+  const programCount = reportPrograms.length;
+  const programNames = reportPrograms.map((program) => program.brandName || program.brandCode || 'Program').join(', ');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -180,12 +182,12 @@ export function createCombinedLetterReportPdf({ programs, sentFrom, sentTo, gene
   doc.setFontSize(18);
   doc.text('Zbirni izvještaj poslanih dopisa', 14, 13);
   doc.setFontSize(10);
-  doc.text('Visiocast, SAN Pest i FS App', 14, 22);
+  doc.text(programNames || 'Komercijalni programi', 14, 22);
 
   doc.setTextColor(24, 39, 63);
   doc.setFontSize(11);
   doc.text(`Period: ${letterReportPeriod(sentFrom, sentTo)}`, 14, 42);
-  doc.text(`Ukupno dopisa u sva 3 programa: ${totalRecords}`, 14, 50);
+  doc.text(`Ukupno dopisa u sva ${programCount} programa: ${totalRecords}`, 14, 50);
   doc.setFontSize(8.5);
   doc.setTextColor(90, 101, 117);
   doc.text(`Izvještaj kreiran: ${generatedAt.toLocaleString('bs-BA')}`, pageWidth - 14, 42, { align: 'right' });
@@ -226,5 +228,5 @@ export function downloadLetterReportPdf(options) {
 
 export function downloadCombinedLetterReportPdf(options) {
   const doc = createCombinedLetterReportPdf(options);
-  doc.save(letterReportFilename('sva-3-programa', options.sentFrom, options.sentTo));
+  doc.save(letterReportFilename(`sva-${options.programs?.length || 4}-programa`, options.sentFrom, options.sentTo));
 }

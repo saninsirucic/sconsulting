@@ -301,7 +301,15 @@ function AutomaticSignaturePreview() {
   );
 }
 
-export default function CommercialMailAutomation({ brandCode, brandName, user, onChanged }) {
+export default function CommercialMailAutomation({
+  brandCode,
+  brandName,
+  campaignDescription,
+  formTitle,
+  subjectPlaceholder,
+  user,
+  onChanged,
+}) {
   const toast = useToast();
   const fileInputRef = useRef(null);
   const role = String(user?.role || '').toLowerCase();
@@ -635,7 +643,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
               <Heading size="sm">Mail kampanja · ručni izbor do 30</Heading>
               <Badge colorScheme={hasSavedTemplate ? 'green' : 'orange'}>{hasSavedTemplate ? 'FORMA SAČUVANA' : 'POTREBNO PODESITI'}</Badge>
             </HStack>
-            <Text fontSize="sm" color="gray.600" mt={1}>Posebna kampanja za {brandName}. Samo poznate CRM adrese; ništa se ne šalje bez tvog izbora i potvrde.</Text>
+            <Text fontSize="sm" color="gray.600" mt={1}>{campaignDescription || `Posebna kampanja za ${brandName}.`} Samo poznate CRM adrese; ništa se ne šalje bez tvog izbora i potvrde.</Text>
           </Box>
         </HStack>
         <Button minH="44px" w={{ base: 'full', md: 'auto' }} variant="outline" bg="white" onClick={() => setOpen((value) => !value)}>{open ? 'Sakrij' : 'Otvori kampanju'}</Button>
@@ -862,7 +870,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                 <Box border="1px solid" borderColor="gray.200" borderRadius="xl" p={{ base: 4, md: 5 }}>
                   <Flex align={{ base: 'start', md: 'center' }} justify="space-between" gap={2} direction={{ base: 'column', md: 'row' }} mb={4}>
                     <Box>
-                      <Heading size="sm">Forma maila za {brandName}</Heading>
+                      <Heading size="sm">{formTitle || `Forma maila za ${brandName}`}</Heading>
                       <Text fontSize="sm" color="gray.600" mt={1}>Sačuvaj jednom; forma i prilog ostaju odvojeni od drugih programa.</Text>
                     </Box>
                     {state.template.updated_at && <Text fontSize="xs" color="gray.500">Forma je ranije sačuvana</Text>}
@@ -876,7 +884,7 @@ export default function CommercialMailAutomation({ brandCode, brandName, user, o
                     </FormControl>
                     <FormControl isRequired>
                       <FormLabel>Subject / naslov maila</FormLabel>
-                      <Input value={form.subject} placeholder={`Naslov ${brandName} maila`} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
+                      <Input value={form.subject} placeholder={subjectPlaceholder || `Naslov ${brandName} maila`} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} />
                     </FormControl>
                     <FormControl isRequired>
                       <FormLabel>Forma / sadržaj maila</FormLabel>

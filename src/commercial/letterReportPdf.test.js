@@ -25,7 +25,7 @@ test('kreira čitljiv PDF izvještaj sa programom, periodom i tabelom', () => {
   expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(10000);
 });
 
-test('kreira zajednički PDF sa pregledom i odvojenim dijelom za sva 3 programa', () => {
+test('kreira zajednički PDF sa pregledom i odvojenim dijelom za sva 4 programa', () => {
   const sentRecord = {
     company_name: 'Čistoća Živinice d.o.o.',
     email: 'info@cistoca.ba',
@@ -40,10 +40,11 @@ test('kreira zajednički PDF sa pregledom i odvojenim dijelom za sva 3 programa'
       { brandCode: 'VISIOCAST', brandName: 'Visiocast', records: [sentRecord] },
       { brandCode: 'SAN_PEST', brandName: 'SAN Pest', records: [{ ...sentRecord, company_name: 'SAN Pest komitent' }] },
       { brandCode: 'FS_APP', brandName: 'FS App', records: [] },
+      { brandCode: 'HACCP_PUBLIC', brandName: 'HACCP javni sektor', records: [{ ...sentRecord, company_name: 'Javna ustanova' }] },
     ],
   });
 
-  expect(doc.getNumberOfPages()).toBe(4);
+  expect(doc.getNumberOfPages()).toBe(5);
   expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(10000);
-  expect(letterReportFilename('sva-3-programa', '2026-07-01', '2026-08-31')).toBe('izvjestaj-poslanih-dopisa-sva-3-programa-2026-07-01-2026-08-31.pdf');
+  expect(letterReportFilename('sva-4-programa', '2026-07-01', '2026-08-31')).toBe('izvjestaj-poslanih-dopisa-sva-4-programa-2026-07-01-2026-08-31.pdf');
 });

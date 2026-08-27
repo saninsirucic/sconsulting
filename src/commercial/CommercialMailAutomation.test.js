@@ -148,6 +148,23 @@ test('komercijalista vidi zasebnu sačuvanu formu, pošiljaoca i responzivnu lis
   expect(screen.getByText(/Mail se ne šalje klikom na „Odobri“/)).toBeInTheDocument();
 });
 
+test('HACCP javni sektor ima posebnu kopiju za klasičnu implementaciju i održavanje', async () => {
+  renderCampaign({
+    brandCode: 'HACCP_PUBLIC',
+    brandName: 'HACCP javni sektor',
+    campaignDescription: 'Posebna ponuda klasične implementacije i održavanja HACCP-a za javne ustanove i javna preduzeća u BiH.',
+    formTitle: 'Forma HACCP ponude za javni sektor',
+    subjectPlaceholder: 'Naslov HACCP ponude za javni sektor',
+  });
+
+  expect(await screen.findByText(/Posebna ponuda klasične implementacije i održavanja HACCP-a/)).toBeInTheDocument();
+  expect(screen.queryByText(/Digitalni HACCP/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Otvori kampanju' }));
+  expect(await screen.findByText('Forma HACCP ponude za javni sektor')).toBeInTheDocument();
+  expect(screen.getByPlaceholderText('Naslov HACCP ponude za javni sektor')).toBeInTheDocument();
+  expect(commercialApi.getMailAutomation).toHaveBeenCalledWith('HACCP_PUBLIC');
+});
+
 test('sprema kompletne parametre automatskog slanja bez diranja ručnog workflowa', async () => {
   renderCampaign();
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));

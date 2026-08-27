@@ -20,6 +20,16 @@ export const BRAND_DEFINITIONS = [
     subtitle: 'Digitalni HACCP',
     ready: false,
   },
+  {
+    code: 'HACCP_PUBLIC',
+    slug: 'haccp-javni-sektor',
+    name: 'HACCP javni sektor',
+    subtitle: 'Klasična implementacija i održavanje HACCP-a za javni sektor u BiH',
+    mailDescription: 'Posebna ponuda klasične implementacije i održavanja HACCP-a za javne ustanove i javna preduzeća u BiH.',
+    mailFormTitle: 'Forma HACCP ponude za javni sektor',
+    mailSubjectPlaceholder: 'Naslov HACCP ponude za javni sektor',
+    ready: false,
+  },
 ];
 
 export const CRM_STATUSES = [

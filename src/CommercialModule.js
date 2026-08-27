@@ -123,8 +123,9 @@ function EmptyState({ title, text }) {
   );
 }
 
-function normalizeRecordForForm(record) {
-  if (!record) return { status: 'NEW', priority: 'MEDIUM', ownership_type: 'UNKNOWN' };
+function normalizeRecordForForm(record, brandCode) {
+  const isHaccpPublic = normalizeBrandCode(brandCode) === 'HACCP_PUBLIC';
+  if (!record) return { status: 'NEW', priority: 'MEDIUM', ownership_type: isHaccpPublic ? 'PUBLIC' : 'UNKNOWN' };
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const nextContactDate = nextContact ? new Date(nextContact) : null;
   const localNextContact = nextContactDate && !Number.isNaN(nextContactDate.getTime())
@@ -139,16 +140,20 @@ function normalizeRecordForForm(record) {
     raw_mail: recordValue(record, 'raw_mail', 'rawMail', 'mail'),
     raw_contact: recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt'),
     comment: recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar'),
+    ownership_type: isHaccpPublic ? 'PUBLIC' : (recordValue(record, 'ownership_type', 'ownershipType') || 'UNKNOWN'),
   };
 }
 
 function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
-  const [form, setForm] = useState(() => normalizeRecordForForm(record));
+  const [form, setForm] = useState(() => normalizeRecordForForm(record, brandCode));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const visibleFields = useMemo(() => {
     const normalizedBrandCode = normalizeBrandCode(brandCode);
     if (normalizedBrandCode === 'FS_APP') return EDIT_FIELDS;
+    if (normalizedBrandCode === 'HACCP_PUBLIC') {
+      return EDIT_FIELDS.filter((field) => !['unit_amount', 'total_amount', 'profit_amount'].includes(field.key));
+    }
     const hiddenFields = normalizedBrandCode === 'VISIOCAST'
       ? ['unit_amount', 'total_amount', 'profit_amount', 'ownership_type']
       : ['ownership_type'];
@@ -156,9 +161,9 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
   }, [brandCode]);
 
   useEffect(() => {
-    setForm(normalizeRecordForForm(record));
+    setForm(normalizeRecordForForm(record, brandCode));
     setError('');
-  }, [isOpen, record]);
+  }, [brandCode, isOpen, record]);
 
   const save = async () => {
     if (!String(form.company_name || '').trim()) return setError('Naziv komitenta je obavezan.');
@@ -166,6 +171,7 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
     setError('');
     try {
       const payload = { ...form };
+      if (normalizeBrandCode(brandCode) === 'HACCP_PUBLIC') payload.ownership_type = 'PUBLIC';
       const originalRawMail = String(recordValue(record, 'raw_mail', 'rawMail', 'mail') || '').trim();
       const currentRawMail = String(payload.raw_mail || '').trim();
       const originalEmail = String(recordValue(record, 'email') || '').trim().toLowerCase();
@@ -216,8 +222,8 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
                     {PRIORITIES.map((priority) => <option key={priority} value={priority}>{displayStatus(priority)}</option>)}
                   </Select>
                 ) : field.type === 'ownership' ? (
-                  <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || 'UNKNOWN'} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
-                    {OWNERSHIP_TYPES.map((ownership) => <option key={ownership} value={ownership}>{displayOwnership(ownership)}</option>)}
+                  <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || 'UNKNOWN'} isDisabled={normalizeBrandCode(brandCode) === 'HACCP_PUBLIC'} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
+                    {(normalizeBrandCode(brandCode) === 'HACCP_PUBLIC' ? ['PUBLIC'] : OWNERSHIP_TYPES).map((ownership) => <option key={ownership} value={ownership}>{displayOwnership(ownership)}</option>)}
                   </Select>
                 ) : (
                   <Input minH={{ base: '44px', md: '40px' }} type={field.type || 'text'} step={field.step} isReadOnly={field.readOnly} bg={field.readOnly ? 'gray.50' : 'white'} value={form[field.key] ?? ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
@@ -896,6 +902,7 @@ function calendarPhone(record) {
 function calendarBrandScheme(code) {
   if (normalizeBrandCode(code) === 'SAN_PEST') return 'green';
   if (normalizeBrandCode(code) === 'FS_APP') return 'blue';
+  if (normalizeBrandCode(code) === 'HACCP_PUBLIC') return 'purple';
   return 'orange';
 }
 
@@ -1234,8 +1241,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     const normalizedBrandCode = normalizeBrandCode(brandCode);
     if (normalizedBrandCode === 'VISIOCAST' && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'SAN_PEST' && dimensionFilters.length) params.countries = JSON.stringify(dimensionFilters);
-    if (normalizedBrandCode === 'FS_APP' && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
+    if (['FS_APP', 'HACCP_PUBLIC'].includes(normalizedBrandCode) && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'FS_APP' && ownershipType) params.ownershipType = ownershipType;
+    if (normalizedBrandCode === 'HACCP_PUBLIC') params.ownershipType = 'PUBLIC';
     return params;
   }, [adminCallOnly, brandCode, dimensionFilters, lettersOnly, ownershipType, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
@@ -1420,6 +1428,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       ...(sentFrom ? { sentFrom } : {}),
       ...(sentTo ? { sentTo } : {}),
     };
+    if (normalizeBrandCode(reportBrandCode) === 'HACCP_PUBLIC') params.ownershipType = 'PUBLIC';
     const firstResult = await commercialApi.getRecords(reportBrandCode, params);
     const firstItems = Array.isArray(firstResult) ? firstResult : (firstResult?.items || firstResult?.records || []);
     const reportPages = Array.isArray(firstResult) ? 1 : Number(firstResult?.pagination?.pages || firstResult?.pagination?.totalPages || 1);
@@ -1436,9 +1445,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const downloadAllProgramsPdfReport = async () => {
     setExportingAllPdf(true);
     try {
-      const expectedCodes = ['VISIOCAST', 'SAN_PEST', 'FS_APP'];
+      const expectedCodes = ['VISIOCAST', 'SAN_PEST', 'FS_APP', 'HACCP_PUBLIC'];
       const reportBrands = expectedCodes.map((code) => brands.find((item) => normalizeBrandCode(item.code || item.slug) === code));
-      if (reportBrands.some((item) => !item)) throw new Error('Za zbirni izvještaj potreban je pristup sva 3 programa.');
+      if (reportBrands.some((item) => !item)) throw new Error('Za zbirni izvještaj potreban je pristup sva 4 programa.');
       const programs = await Promise.all(reportBrands.map(async (reportBrand) => ({
         brandCode: normalizeBrandCode(reportBrand.code || reportBrand.slug),
         brandName: reportBrand.name,
@@ -1446,13 +1455,13 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       })));
       const totalRecords = programs.reduce((sum, program) => sum + program.records.length, 0);
       if (!totalRecords) {
-        toast({ title: 'Nema poslanih dopisa u sva 3 programa za izabrani period.', status: 'warning', position: 'top-right' });
+        toast({ title: 'Nema poslanih dopisa u sva 4 programa za izabrani period.', status: 'warning', position: 'top-right' });
         return;
       }
       downloadCombinedLetterReportPdf({ programs, sentFrom, sentTo });
       toast({
         title: 'Zbirni PDF izvještaj je preuzet.',
-        description: `${totalRecords} dopisa iz sva 3 programa.`,
+        description: `${totalRecords} dopisa iz sva 4 programa.`,
         status: 'success',
         position: 'top-right',
       });
@@ -1470,12 +1479,17 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const availablePriorities = data.filters?.priorities || PRIORITIES;
   const ownershipFacets = data.filters?.ownershipTypes || OWNERSHIP_TYPES;
   const availableOwnershipTypes = OWNERSHIP_TYPES.filter((value) => ownershipFacets.includes(value));
-  const isFsApp = normalizeBrandCode(brandCode) === 'FS_APP';
-  const dimensionConfig = normalizeBrandCode(brandCode) === 'VISIOCAST'
+  const normalizedBrandCode = normalizeBrandCode(brandCode);
+  const isFsApp = normalizedBrandCode === 'FS_APP';
+  const isHaccpPublic = normalizedBrandCode === 'HACCP_PUBLIC';
+  const showOwnership = isFsApp || isHaccpPublic;
+  const dimensionConfig = normalizedBrandCode === 'VISIOCAST'
     ? { ariaLabel: 'Filter po gradu', placeholder: 'Svi gradovi', options: data.filters?.locations || [] }
-    : normalizeBrandCode(brandCode) === 'SAN_PEST'
+    : normalizedBrandCode === 'SAN_PEST'
       ? { ariaLabel: 'Filter po državi', placeholder: 'Sve države', options: data.filters?.countries || [] }
-      : { ariaLabel: 'Filter po vrsti', placeholder: 'Sve vrste', options: data.filters?.recordTypes || [] };
+      : isHaccpPublic
+        ? { ariaLabel: 'Filter po vrsti javnog subjekta', placeholder: 'Sve vrste javnih subjekata', options: data.filters?.recordTypes || [] }
+        : { ariaLabel: 'Filter po vrsti', placeholder: 'Sve vrste', options: data.filters?.recordTypes || [] };
   const rangeStart = total > 0 ? ((page - 1) * perPage) + 1 : 0;
   const rangeEnd = Math.min(page * perPage, total);
   const visiblePages = pageNumbers(page, Math.max(1, pages));
@@ -1488,6 +1502,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       <CommercialMailAutomation
         brandCode={brandCode}
         brandName={brand.name}
+        campaignDescription={brand.mailDescription}
+        formTitle={brand.mailFormTitle}
+        subjectPlaceholder={brand.mailSubjectPlaceholder}
         user={user}
         onChanged={changed}
       />
@@ -1548,17 +1565,17 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
               PDF izvještaj
             </Button>
             <Button
-              aria-label="Preuzmi zajednički PDF izvještaj za sva 3 programa"
+              aria-label="Preuzmi zajednički PDF izvještaj za sva 4 programa"
               minH="40px"
               leftIcon={<FaFilePdf />}
               colorScheme="purple"
               variant="outline"
               isLoading={exportingAllPdf}
               isDisabled={exportingPdf}
-              loadingText="Priprema sva 3..."
+              loadingText="Priprema sva 4..."
               onClick={downloadAllProgramsPdfReport}
             >
-              PDF sva 3 programa
+              PDF sva 4 programa
             </Button>
           </Flex>
         )}
@@ -1616,6 +1633,12 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
             {availableOwnershipTypes.map((value) => <option key={value} value={value}>{displayOwnership(value)}</option>)}
           </Select>
         )}
+        {isHaccpPublic && (
+          <HStack aria-label="Fiksni segment HACCP javnog sektora" minH="44px" px={3} border="1px solid" borderColor="blue.200" borderRadius="md" bg="blue.50" flexShrink={0}>
+            <Badge colorScheme="blue">Javni sektor</Badge>
+            <Badge colorScheme="purple">BiH</Badge>
+          </HStack>
+        )}
         <MultiSelectFilter
           ariaLabel={dimensionConfig.ariaLabel}
           placeholder={dimensionConfig.placeholder}
@@ -1670,7 +1693,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 isSendingLetter={sendingLetterId === record.id}
                 isTogglingAdminCall={togglingAdminCallId === record.id}
                 showLetterSentAt={lettersOnly}
-                showOwnership={isFsApp}
+                showOwnership={showOwnership}
               />
             ))}
           </VStack>
@@ -1689,7 +1712,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 isSendingLetter={sendingLetterId === record.id}
                 isTogglingAdminCall={togglingAdminCallId === record.id}
                 showLetterSentAt={lettersOnly}
-                showOwnership={isFsApp}
+                showOwnership={showOwnership}
               />
             ))}</Tbody>
             </Table>
@@ -2212,7 +2235,7 @@ export default function CommercialModule({ user }) {
       <Flex justify="space-between" align={{ base: 'start', lg: 'center' }} direction={{ base: 'column', lg: 'row' }} gap={3} mb={5}>
         <Box>
           <HStack><Icon as={FaBuilding} color={orange} boxSize={6} /><Heading size="lg">Komercijalni CRM</Heading></HStack>
-          <Text color="gray.600" mt={1}>Tri potpuno odvojene prodajne baze, dnevni fokus i evidencija kontakata.</Text>
+          <Text color="gray.600" mt={1}>Četiri potpuno odvojene prodajne baze, dnevni fokus i evidencija kontakata.</Text>
         </Box>
         <HStack><Badge colorScheme="green" px={3} py={2} borderRadius="full">Aktivan profil</Badge><Text fontSize="sm" color="gray.600">{user?.displayName || user?.display_name || user?.username}</Text></HStack>
       </Flex>
