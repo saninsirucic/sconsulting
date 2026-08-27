@@ -7,6 +7,7 @@ const CRM_STATUSES = new Set([
 ]);
 const CRM_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'LOW']);
 const OWNERSHIP_TYPES = new Set(['PUBLIC', 'PRIVATE', 'MIXED', 'UNKNOWN']);
+const HACCP_PUBLIC_BRAND_CODE = 'HACCP_PUBLIC';
 const ASSIGNMENT_STATUSES = new Set([
   'PENDING', 'APPROVED', 'COMPLETED', 'SKIPPED', ...CRM_STATUSES
 ]);
@@ -22,7 +23,14 @@ function normalizeBrandCode(value) {
     SANPEST: 'SAN_PEST',
     SAN_PEST: 'SAN_PEST',
     FSAPP: 'FS_APP',
-    FS_APP: 'FS_APP'
+    FS_APP: 'FS_APP',
+    HACCPPUBLIC: 'HACCP_PUBLIC',
+    HACCP_PUBLIC: 'HACCP_PUBLIC',
+    HACCPPUBLICBIH: 'HACCP_PUBLIC',
+    HACCP_PUBLIC_BIH: 'HACCP_PUBLIC',
+    HACCPJAVNISEKTOR: 'HACCP_PUBLIC',
+    HACCP_JAVNI_SEKTOR: 'HACCP_PUBLIC',
+    PUBLIC_BIH: 'HACCP_PUBLIC'
   };
   return aliases[normalized] || normalized;
 }
@@ -163,6 +171,32 @@ function numberOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function explicitSourceCountry(row) {
+  const source = parseJson(row && row.source_data_json, {});
+  for (const [key, rawValue] of Object.entries(source)) {
+    const normalizedKey = String(key).normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (!['drzava', 'country'].includes(normalizedKey)) continue;
+    const value = String(rawValue ?? '').trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function isBosniaAndHerzegovina(value) {
+  const normalized = String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return normalized === 'ba'
+    || /bosna|hercegovina|(^|\W)bih(\W|$)/.test(normalized);
+}
+
+function enforceHaccpPublicOwnership(brand, normalized) {
+  if (brand && brand.code === HACCP_PUBLIC_BRAND_CODE) normalized.ownership_type = 'PUBLIC';
+  return normalized;
 }
 
 function normalizeCalendarMeetingInput(body, existing = {}) {
@@ -589,13 +623,16 @@ async function updateCalendarMeeting(db, meeting, user, body) {
 async function createAccount(db, brand, user, body) {
   const id = uuidv4();
   const now = new Date();
-  const normalized = normalizeAccountInput(body || {});
+  const normalized = enforceHaccpPublicOwnership(brand, normalizeAccountInput(body || {}));
+  const sourceData = brand.code === HACCP_PUBLIC_BRAND_CODE
+    ? { source: 'MANUAL', country: 'Bosna i Hercegovina' }
+    : { source: 'MANUAL' };
   const row = {
     id,
     brand_id: brand.id,
     source_key: `MANUAL:${id}`,
     ...normalized,
-    source_data_json: JSON.stringify({ source: 'MANUAL' }),
+    source_data_json: JSON.stringify(sourceData),
     owner_user_id: user.authSource === 'db' ? user.id : null,
     created_by: user.id,
     updated_by: user.id,
@@ -616,7 +653,14 @@ async function accountWithBrand(db, id) {
 
 async function updateAccount(db, account, user, body) {
   if (account.archived_at) throw httpError(409, 'Arhivirani komitent se ne može mijenjati.');
-  const update = normalizeAccountInput(body || {}, account);
+  let brandCode = account.brand_code;
+  if (!brandCode) {
+    const brand = await db('crm_brands').where({ id: account.brand_id }).select('code').first();
+    brandCode = brand && brand.code;
+  }
+  const update = enforceHaccpPublicOwnership(
+    { code: brandCode }, normalizeAccountInput(body || {}, account)
+  );
   const changedFields = Object.keys(update).filter((key) => {
     const oldValue = account[key] instanceof Date ? account[key].toISOString() : account[key];
     const newValue = update[key] instanceof Date ? update[key].toISOString() : update[key];
@@ -663,6 +707,23 @@ async function transferAccount(db, account, targetBrand, user) {
     if (lockedAccount.archived_at) throw httpError(409, 'Arhivirani komitent se ne može prebaciti.');
     if (lockedAccount.brand_id !== account.brand_id) {
       throw httpError(409, 'Komitent je u međuvremenu prebačen. Osvježite prikaz.', 'ACCOUNT_TRANSFER_STALE');
+    }
+    if (targetBrand.code === HACCP_PUBLIC_BRAND_CODE) {
+      if (lockedAccount.ownership_type !== 'PUBLIC') {
+        throw httpError(
+          409,
+          'U HACCP javni sektor mogu se prebaciti samo javne ustanove i javna preduzeća.',
+          'HACCP_PUBLIC_OWNERSHIP_REQUIRED'
+        );
+      }
+      const explicitCountry = explicitSourceCountry(lockedAccount);
+      if (!explicitCountry || !isBosniaAndHerzegovina(explicitCountry)) {
+        throw httpError(
+          409,
+          'Za prebacivanje u HACCP javni sektor mora biti potvrđena država Bosna i Hercegovina.',
+          'HACCP_PUBLIC_COUNTRY_REQUIRED'
+        );
+      }
     }
     sourceBrand = await trx('crm_brands').where({ id: lockedAccount.brand_id }).first();
     if (!sourceBrand) throw httpError(404, 'Izvorna baza komitenta nije pronađena.', 'BRAND_NOT_FOUND');
@@ -1214,6 +1275,7 @@ module.exports = {
   ASSIGNMENT_STATUSES,
   CRM_PRIORITIES,
   CRM_STATUSES,
+  HACCP_PUBLIC_BRAND_CODE,
   OWNERSHIP_TYPES,
   accountWithBrand,
   addManualActivity,
@@ -1225,6 +1287,7 @@ module.exports = {
   dashboard,
   ensureDailyAssignments,
   extractLetterSentAt,
+  explicitSourceCountry,
   httpError,
   listAccessibleBrands,
   listAccounts,
@@ -1233,6 +1296,7 @@ module.exports = {
   normalizeAccountInput,
   normalizeCalendarMeetingInput,
   normalizeBrandCode,
+  isBosniaAndHerzegovina,
   resolveBrand,
   readDailyAssignments,
   serializeAccount,

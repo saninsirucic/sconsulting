@@ -30,7 +30,7 @@ function usage() {
     '  npm run manage-user -- --username komercijalista --display-name "Ime Prezime" --email korisnik@s-consulting.ba --generate-password',
     '  npm run manage-user -- --username komercijalista --password "PrivremenaLozinka9!"',
     '',
-    'Komanda kreira ili ažurira korisnika role komercijala i dodjeljuje sva 3 CRM brenda.',
+    'Komanda kreira ili ažurira korisnika role komercijala i dodjeljuje sve aktivne CRM brendove.',
     'Kod nove/izmijenjene lozinke must_change_password se postavlja na true.'
   ].join('\n');
 }
@@ -65,6 +65,7 @@ async function manageUser({ db, args, output = console.log }) {
   const passwordHash = plainPassword ? await bcrypt.hash(plainPassword, rounds) : null;
   const now = new Date();
   const userId = existing ? existing.id : uuidv4();
+  let activeBrandCodes = [];
 
   await db.transaction(async (trx) => {
     if (existing) {
@@ -101,7 +102,8 @@ async function manageUser({ db, args, output = console.log }) {
       });
     }
 
-    const brands = await trx('crm_brands').where({ active: true }).select('id');
+    const brands = await trx('crm_brands').where({ active: true }).select('id', 'code').orderBy('name');
+    activeBrandCodes = brands.map((brand) => brand.code);
     for (const brand of brands) {
       await trx('app_user_brand_access').insert({
         id: uuidv4(),
@@ -120,7 +122,7 @@ async function manageUser({ db, args, output = console.log }) {
   });
 
   output(`${existing ? 'Ažuriran' : 'Kreiran'} korisnik: ${username} (${userId})`);
-  output('Rola: komercijala | CRM pristup: VISIOCAST, SAN_PEST, FS_APP');
+  output(`Rola: komercijala | CRM pristup: ${activeBrandCodes.join(', ')}`);
   if (plainPassword) {
     output(`Privremena lozinka (prikazuje se samo sada): ${plainPassword}`);
     output('Korisnik mora promijeniti lozinku pri prvoj prijavi.');
