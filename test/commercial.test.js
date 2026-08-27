@@ -7,6 +7,7 @@ const tokenVersionMigration = require('../migrations/20260813130000_add_app_user
 const fsAppMigration = require('../migrations/20260817100000_import_fs_app_accounts');
 const adminCallMigration = require('../migrations/20260823130000_add_admin_call_request');
 const calendarMeetingsMigration = require('../migrations/20260825120000_create_crm_calendar_meetings');
+const ownershipTypeMigration = require('../migrations/20260827170000_add_account_ownership_type');
 const {
   allowRoles,
   authenticateCredentials,
@@ -47,6 +48,7 @@ async function testDb(t) {
   await fsAppMigration.up(db);
   await adminCallMigration.up(db);
   await calendarMeetingsMigration.up(db);
+  await ownershipTypeMigration.up(db);
   return db;
 }
 
@@ -527,6 +529,64 @@ test('oznaka Admin rekao zvati ostaje u bazi, ima poseban filter i audit', async
   assert.deepEqual(
     (await listActivities(db, created.id)).slice(0, 2).map((item) => item.activity_type),
     ['ADMIN_CALL_CLEARED', 'ADMIN_CALL_REQUESTED']
+  );
+});
+
+test('vlasništvo komitenta podržava provjerene vrijednosti, facet, filter i audit', async (t) => {
+  const db = await testDb(t);
+  const user = { id: 'env-director', role: 'direktor', authSource: 'env' };
+  const brand = await resolveBrand(db, user, 'FS_APP');
+  const publicAccount = await createAccount(db, brand, user, {
+    company_name: 'Javna testna ustanova',
+    ownership_type: 'PUBLIC'
+  });
+  const privateAccount = await createAccount(db, brand, user, {
+    company_name: 'Privatna testna ustanova',
+    ownershipType: 'private'
+  });
+  const unknownAccount = await createAccount(db, brand, user, {
+    company_name: 'Nepotvrđena testna ustanova'
+  });
+
+  assert.equal(publicAccount.ownership_type, 'PUBLIC');
+  assert.equal(privateAccount.ownership_type, 'PRIVATE');
+  assert.equal(unknownAccount.ownership_type, 'UNKNOWN');
+
+  const privateOnly = await listAccounts(db, brand, {
+    ownershipType: 'PRIVATE',
+    search: 'testna ustanova',
+    perPage: 100
+  });
+  assert.deepEqual(privateOnly.items.map((item) => item.id), [privateAccount.id]);
+
+  const publicAndPrivate = await listAccounts(db, brand, {
+    ownership_types: JSON.stringify(['PUBLIC', 'PRIVATE']),
+    search: 'testna ustanova',
+    perPage: 100
+  });
+  assert.deepEqual(
+    publicAndPrivate.items.map((item) => item.company_name).sort(),
+    ['Javna testna ustanova', 'Privatna testna ustanova']
+  );
+  assert.deepEqual(publicAndPrivate.filters.ownershipTypes, ['PRIVATE', 'PUBLIC', 'UNKNOWN']);
+
+  const updated = await updateAccount(
+    db,
+    await accountWithBrand(db, unknownAccount.id),
+    user,
+    { ownership_type: 'MIXED' }
+  );
+  assert.equal(updated.ownership_type, 'MIXED');
+  const latestActivity = (await listActivities(db, unknownAccount.id))[0];
+  assert.ok(latestActivity.metadata.changedFields.includes('ownership_type'));
+
+  await assert.rejects(
+    createAccount(db, brand, user, { company_name: 'Pogrešno vlasništvo', ownership_type: 'DRŽAVNO' }),
+    (error) => error.status === 400 && /Vlasništvo/.test(error.message)
+  );
+  await assert.rejects(
+    listAccounts(db, brand, { ownership_type: 'DRŽAVNO' }),
+    (error) => error.status === 400 && /vlasništva/.test(error.message)
   );
 });
 

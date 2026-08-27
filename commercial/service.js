@@ -6,6 +6,7 @@ const CRM_STATUSES = new Set([
   'INTERESTED', 'OFFER_SENT', 'FOLLOW_UP', 'WON', 'REJECTED'
 ]);
 const CRM_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'LOW']);
+const OWNERSHIP_TYPES = new Set(['PUBLIC', 'PRIVATE', 'MIXED', 'UNKNOWN']);
 const ASSIGNMENT_STATUSES = new Set([
   'PENDING', 'APPROVED', 'COMPLETED', 'SKIPPED', ...CRM_STATUSES
 ]);
@@ -107,6 +108,12 @@ function normalizeAccountInput(body, existing = {}) {
   if (!CRM_STATUSES.has(status)) throw httpError(400, 'Status komitenta nije podržan.');
   const priority = String(body.priority ?? existing.priority ?? 'MEDIUM').trim().toUpperCase();
   if (!CRM_PRIORITIES.has(priority)) throw httpError(400, 'Prioritet mora biti HIGH, MEDIUM ili LOW.');
+  const ownershipType = String(
+    body.ownership_type ?? body.ownershipType ?? existing.ownership_type ?? 'UNKNOWN'
+  ).trim().toUpperCase();
+  if (!OWNERSHIP_TYPES.has(ownershipType)) {
+    throw httpError(400, 'Vlasništvo mora biti PUBLIC, PRIVATE, MIXED ili UNKNOWN.');
+  }
   const sourceRowValue = Object.prototype.hasOwnProperty.call(body, 'source_row_number')
     ? body.source_row_number
     : (Object.prototype.hasOwnProperty.call(body, 'nr') ? body.nr : existing.source_row_number);
@@ -134,6 +141,7 @@ function normalizeAccountInput(body, existing = {}) {
     location: optionalString(body, 'location', existing, 250),
     status,
     priority,
+    ownership_type: ownershipType,
     comment: optionalString(body, 'comment', existing),
     notes: optionalString(body, 'notes', existing),
     raw_mail: optionalString(body, 'raw_mail', existing),
@@ -372,6 +380,14 @@ function applyAccountFilters(query, params) {
   const recordTypes = parseMultiFilter(params.recordTypes || params.record_types, 'vrste');
   const locations = parseMultiFilter(params.locations, 'grada');
   const countries = parseMultiFilter(params.countries, 'države', 100);
+  const ownershipTypes = parseMultiFilter(
+    params.ownershipTypes ?? params.ownership_types,
+    'vlasništva',
+    20
+  ).map((value) => value.toUpperCase());
+  if (ownershipTypes.some((value) => !OWNERSHIP_TYPES.has(value))) {
+    throw httpError(400, 'Filter vlasništva nije podržan.');
+  }
   if (recordTypes.length) query.whereIn('record_type', recordTypes);
   else if (params.record_type) query.where('record_type', String(params.record_type));
   if (locations.length) query.whereIn('location', locations);
@@ -384,6 +400,12 @@ function applyAccountFilters(query, params) {
     const country = String(params.country).trim();
     if (country.length > 100) throw httpError(400, 'Filter države nije podržan.');
     applyCountryFilter(query, [country]);
+  }
+  if (ownershipTypes.length) query.whereIn('ownership_type', ownershipTypes);
+  else if (params.ownershipType || params.ownership_type) {
+    const ownershipType = String(params.ownershipType || params.ownership_type).trim().toUpperCase();
+    if (!OWNERSHIP_TYPES.has(ownershipType)) throw httpError(400, 'Filter vlasništva nije podržan.');
+    query.where('ownership_type', ownershipType);
   }
   if (params.search) {
     const search = `%${String(params.search).trim().toLowerCase()}%`;
@@ -407,13 +429,13 @@ async function listAccounts(db, brand, params = {}) {
   const sortFields = new Set([
     'source_row_number', 'company_name', 'record_type', 'branch_count', 'total_amount',
     'profit_amount', 'location', 'status', 'priority', 'next_contact_at', 'updated_at',
-    'letter_sent_at', 'admin_call_requested_at'
+    'letter_sent_at', 'admin_call_requested_at', 'ownership_type'
   ]);
   const sortBy = sortFields.has(params.sortBy || params.sort_by)
     ? (params.sortBy || params.sort_by) : 'source_row_number';
   const sortDirection = String(params.sortDirection || params.sort_direction).toLowerCase() === 'desc' ? 'desc' : 'asc';
   const facets = await db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at')
-    .select('status', 'priority', 'location', 'record_type');
+    .select('status', 'priority', 'location', 'record_type', 'ownership_type');
   const unique = (key) => [...new Set(facets.map((row) => row[key]).filter(Boolean))].sort();
   const countries = [...new Set(facets.map((row) => countryFromLocation(row.location)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, 'bs'));
@@ -422,6 +444,7 @@ async function listAccounts(db, brand, params = {}) {
     priorities: unique('priority'),
     locations: unique('location'),
     recordTypes: unique('record_type'),
+    ownershipTypes: unique('ownership_type'),
     countries
   };
 
@@ -1191,6 +1214,7 @@ module.exports = {
   ASSIGNMENT_STATUSES,
   CRM_PRIORITIES,
   CRM_STATUSES,
+  OWNERSHIP_TYPES,
   accountWithBrand,
   addManualActivity,
   archiveAccount,
