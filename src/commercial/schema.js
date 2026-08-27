@@ -37,6 +37,15 @@ export const CRM_STATUSES = [
 
 export const PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'];
 
+export const OWNERSHIP_TYPES = ['PUBLIC', 'PRIVATE', 'MIXED', 'UNKNOWN'];
+
+export const OWNERSHIP_LABELS = {
+  PUBLIC: 'Javni sektor',
+  PRIVATE: 'Privatni sektor',
+  MIXED: 'Mješovito vlasništvo',
+  UNKNOWN: 'Nije potvrđeno',
+};
+
 export const STATUS_LABELS = {
   NEW: 'Novi',
   CALL_REQUIRED: 'Potrebno nazvati',
@@ -68,6 +77,7 @@ export const EDIT_FIELDS = [
   { key: 'location', label: 'Lokacija' },
   { key: 'status', label: 'CRM status', type: 'status' },
   { key: 'priority', label: 'Prioritet', type: 'priority' },
+  { key: 'ownership_type', label: 'Javni / privatni sektor', type: 'ownership' },
   { key: 'next_contact_at', label: 'Sljedeći kontakt', type: 'datetime-local' },
   { key: 'email', label: 'Glavni email za slanje', type: 'email', wide: true },
   { key: 'raw_mail', label: 'Izvorni mail podaci (arhiva)', type: 'textarea', wide: true, rows: 4 },
@@ -87,6 +97,10 @@ export function displayStatus(value) {
   if (!value) return 'Novi';
   if (STATUS_LABELS[value]) return STATUS_LABELS[value];
   return String(value).replaceAll('_', ' ').toLocaleLowerCase('bs-BA').replace(/^./, (letter) => letter.toUpperCase());
+}
+
+export function displayOwnership(value) {
+  return OWNERSHIP_LABELS[value] || OWNERSHIP_LABELS.UNKNOWN;
 }
 
 export function recordValue(record, ...keys) {

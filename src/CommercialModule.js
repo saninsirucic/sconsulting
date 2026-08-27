@@ -81,7 +81,9 @@ import {
   BRAND_DEFINITIONS,
   CRM_STATUSES,
   EDIT_FIELDS,
+  OWNERSHIP_TYPES,
   PRIORITIES,
+  displayOwnership,
   displayStatus,
   normalizeBrandCode,
   recordValue,
@@ -122,7 +124,7 @@ function EmptyState({ title, text }) {
 }
 
 function normalizeRecordForForm(record) {
-  if (!record) return { status: 'NEW', priority: 'MEDIUM' };
+  if (!record) return { status: 'NEW', priority: 'MEDIUM', ownership_type: 'UNKNOWN' };
   const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const nextContactDate = nextContact ? new Date(nextContact) : null;
   const localNextContact = nextContactDate && !Number.isNaN(nextContactDate.getTime())
@@ -145,8 +147,12 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const visibleFields = useMemo(() => {
-    if (normalizeBrandCode(brandCode) !== 'VISIOCAST') return EDIT_FIELDS;
-    return EDIT_FIELDS.filter((field) => !['unit_amount', 'total_amount', 'profit_amount'].includes(field.key));
+    const normalizedBrandCode = normalizeBrandCode(brandCode);
+    if (normalizedBrandCode === 'FS_APP') return EDIT_FIELDS;
+    const hiddenFields = normalizedBrandCode === 'VISIOCAST'
+      ? ['unit_amount', 'total_amount', 'profit_amount', 'ownership_type']
+      : ['ownership_type'];
+    return EDIT_FIELDS.filter((field) => !hiddenFields.includes(field.key));
   }, [brandCode]);
 
   useEffect(() => {
@@ -208,6 +214,10 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
                 ) : field.type === 'priority' ? (
                   <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
                     {PRIORITIES.map((priority) => <option key={priority} value={priority}>{displayStatus(priority)}</option>)}
+                  </Select>
+                ) : field.type === 'ownership' ? (
+                  <Select minH={{ base: '44px', md: '40px' }} value={form[field.key] || 'UNKNOWN'} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}>
+                    {OWNERSHIP_TYPES.map((ownership) => <option key={ownership} value={ownership}>{displayOwnership(ownership)}</option>)}
                   </Select>
                 ) : (
                   <Input minH={{ base: '44px', md: '40px' }} type={field.type || 'text'} step={field.step} isReadOnly={field.readOnly} bg={field.readOnly ? 'gray.50' : 'white'} value={form[field.key] ?? ''} onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))} />
@@ -907,10 +917,19 @@ function recordLetterBlockedReason(record) {
   return '';
 }
 
-function RecordDetailsGrid({ record }) {
+function ownershipColorScheme(value) {
+  if (value === 'PUBLIC') return 'blue';
+  if (value === 'PRIVATE') return 'green';
+  if (value === 'MIXED') return 'purple';
+  return 'gray';
+}
+
+function RecordDetailsGrid({ record, showOwnership = false }) {
   const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
   const adminCallRequestedAt = recordValue(record, 'admin_call_requested_at', 'adminCallRequestedAt');
+  const ownershipType = recordValue(record, 'ownership_type', 'ownershipType') || 'UNKNOWN';
   const details = [
+    ...(showOwnership ? [['Vlasništvo', displayOwnership(ownershipType)]] : []),
     ['Glavni email za slanje', recordValue(record, 'email')],
     ['Izvorni mail podaci', recordValue(record, 'raw_mail', 'rawMail', 'mail')],
     ['Kontakt', recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone')],
@@ -931,7 +950,7 @@ function RecordDetailsGrid({ record }) {
   );
 }
 
-function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt }) {
+function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt, showOwnership }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -942,6 +961,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
   const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
   const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
+  const ownershipType = recordValue(record, 'ownership_type', 'ownershipType') || 'UNKNOWN';
   const visual = statusVisual(recordStatus);
 
   return (
@@ -954,6 +974,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
         <VStack align="end" spacing={1} flexShrink={0}>
           <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
           <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
+          {showOwnership && <Badge colorScheme={ownershipColorScheme(ownershipType)}>{displayOwnership(ownershipType)}</Badge>}
           {adminCallRequested && <Badge colorScheme="purple">ADMIN REKAO ZVATI</Badge>}
         </VStack>
       </Flex>
@@ -1008,7 +1029,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
         {details.isOpen ? 'Sakrij detalje' : 'Detalji komitenta'}
       </Button>
       <Collapse in={details.isOpen} animateOpacity>
-        <Box mt={2} pt={4} borderTop="1px solid" borderColor="gray.100"><RecordDetailsGrid record={record} /></Box>
+        <Box mt={2} pt={4} borderTop="1px solid" borderColor="gray.100"><RecordDetailsGrid record={record} showOwnership={showOwnership} /></Box>
       </Collapse>
 
       <SimpleGrid columns={3} spacing={2} mt={4}>
@@ -1020,7 +1041,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
   );
 }
 
-function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt }) {
+function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt, showOwnership }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
@@ -1032,6 +1053,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
   const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
   const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
+  const ownershipType = recordValue(record, 'ownership_type', 'ownershipType') || 'UNKNOWN';
   const visual = statusVisual(recordStatus);
 
   return (
@@ -1064,6 +1086,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
           <VStack align="start" spacing={1}>
             <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
             <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
+            {showOwnership && <Badge colorScheme={ownershipColorScheme(ownershipType)}>{displayOwnership(ownershipType)}</Badge>}
           </VStack>
         </Td>
         <Td py={3}>
@@ -1092,7 +1115,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
       {details.isOpen && (
         <Tr bg={visual.hoverBg}>
           <Td colSpan={6} pt={0} pb={5} px={5}>
-            <Box borderTop="1px solid" borderColor={visual.borderColor} pt={4}><RecordDetailsGrid record={record} /></Box>
+            <Box borderTop="1px solid" borderColor={visual.borderColor} pt={4}><RecordDetailsGrid record={record} showOwnership={showOwnership} /></Box>
           </Td>
         </Tr>
       )}
@@ -1182,6 +1205,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
+  const [ownershipType, setOwnershipType] = useState('');
   const [dimensionFilters, setDimensionFilters] = useState([]);
   const [lettersOnly, setLettersOnly] = useState(false);
   const [adminCallOnly, setAdminCallOnly] = useState(false);
@@ -1211,8 +1235,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (normalizedBrandCode === 'VISIOCAST' && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'SAN_PEST' && dimensionFilters.length) params.countries = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'FS_APP' && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
+    if (normalizedBrandCode === 'FS_APP' && ownershipType) params.ownershipType = ownershipType;
     return params;
-  }, [adminCallOnly, brandCode, dimensionFilters, lettersOnly, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
+  }, [adminCallOnly, brandCode, dimensionFilters, lettersOnly, ownershipType, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1443,6 +1468,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const total = data.pagination?.total ?? items.length;
   const availableStatuses = data.filters?.statuses || CRM_STATUSES;
   const availablePriorities = data.filters?.priorities || PRIORITIES;
+  const ownershipFacets = data.filters?.ownershipTypes || OWNERSHIP_TYPES;
+  const availableOwnershipTypes = OWNERSHIP_TYPES.filter((value) => ownershipFacets.includes(value));
+  const isFsApp = normalizeBrandCode(brandCode) === 'FS_APP';
   const dimensionConfig = normalizeBrandCode(brandCode) === 'VISIOCAST'
     ? { ariaLabel: 'Filter po gradu', placeholder: 'Svi gradovi', options: data.filters?.locations || [] }
     : normalizeBrandCode(brandCode) === 'SAN_PEST'
@@ -1583,6 +1611,11 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         </HStack>
         <Select maxW={{ xl: '210px' }} placeholder="Svi statusi" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>{availableStatuses.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
         <Select maxW={{ xl: '180px' }} placeholder="Svi prioriteti" value={priority} onChange={(event) => { setPriority(event.target.value); setPage(1); }}>{availablePriorities.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
+        {isFsApp && (
+          <Select aria-label="Filter po vlasništvu" maxW={{ xl: '220px' }} placeholder="Svi sektori" value={ownershipType} onChange={(event) => { setOwnershipType(event.target.value); setPage(1); }}>
+            {availableOwnershipTypes.map((value) => <option key={value} value={value}>{displayOwnership(value)}</option>)}
+          </Select>
+        )}
         <MultiSelectFilter
           ariaLabel={dimensionConfig.ariaLabel}
           placeholder={dimensionConfig.placeholder}
@@ -1637,6 +1670,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 isSendingLetter={sendingLetterId === record.id}
                 isTogglingAdminCall={togglingAdminCallId === record.id}
                 showLetterSentAt={lettersOnly}
+                showOwnership={isFsApp}
               />
             ))}
           </VStack>
@@ -1655,6 +1689,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 isSendingLetter={sendingLetterId === record.id}
                 isTogglingAdminCall={togglingAdminCallId === record.id}
                 showLetterSentAt={lettersOnly}
+                showOwnership={isFsApp}
               />
             ))}</Tbody>
             </Table>

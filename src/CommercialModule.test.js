@@ -60,6 +60,7 @@ const record = {
   location: 'Sarajevo',
   status: 'NEW',
   priority: 'MEDIUM',
+  ownership_type: 'PRIVATE',
 };
 
 beforeEach(() => {
@@ -418,7 +419,7 @@ test('nudi poseban filter grada, države i vrste za svaku bazu', async () => {
       ? { locations: ['Sarajevo', 'Travnik'] }
       : brandCode === 'SAN_PEST'
         ? { countries: ['Hrvatska', 'Srbija'] }
-        : { recordTypes: ['Hotel', 'Restoran'] },
+        : { recordTypes: ['Hotel', 'Restoran'], ownershipTypes: ['PUBLIC', 'PRIVATE', 'MIXED', 'UNKNOWN'] },
   }));
   renderModule();
 
@@ -445,6 +446,8 @@ test('nudi poseban filter grada, države i vrste za svaku bazu', async () => {
   fireEvent.click(typeFilter);
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Restoran' }));
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('FS_APP', expect.objectContaining({ recordTypes: JSON.stringify(['Restoran']) })));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter po vlasništvu' }), { target: { value: 'PRIVATE' } });
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('FS_APP', expect.objectContaining({ ownershipType: 'PRIVATE' })));
 }, 45000);
 
 test('prikazuje samo brendove koje je backend dodijelio korisniku', async () => {
@@ -485,7 +488,11 @@ test('iz Današnjih 30 zakazuje samo već odobrene sa emailom nakon završne pot
   renderModule();
 
   fireEvent.click(await screen.findByRole('checkbox', { name: 'Prikaži Današnjih 30' }));
-  const sendButton = await screen.findByRole('button', { name: 'Zakaži odobrene (1)' });
+  const sendButton = await screen.findByRole(
+    'button',
+    { name: 'Zakaži odobrene (1)' },
+    { timeout: 5000 }
+  );
   expect(screen.getByRole('button', { name: 'Potvrdi i zakaži ranije označene (1)' })).toBeInTheDocument();
   expect(screen.getByText(/Odobreno bez ispravne glavne email adrese: 1/)).toBeInTheDocument();
   expect(screen.getAllByText('RANIJE OBRAĐENO').length).toBeGreaterThan(0);
