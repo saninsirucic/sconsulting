@@ -1,0 +1,42 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test",
+    "manage-user": "node scripts/manageUser.js",
+    "commercial-mail:tick": "node scripts/commercialMailTick.js"
+  },
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^5.5.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "multer": "^2.2.0",
+    "openai": "^6.48.0",
+    "pg": "^8.16.3",
+    "sanitize-html": "^2.17.6",
+    "uuid": "^11.1.1",
+    "zod": "^4.4.3"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "picomatch": "4.0.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "sqlite3": "^6.0.1"
+  },
+  "description": ""
+}
