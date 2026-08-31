@@ -901,6 +901,8 @@ function calendarPhone(record) {
 
 function calendarBrandScheme(code) {
   if (normalizeBrandCode(code) === 'SAN_PEST') return 'green';
+  if (normalizeBrandCode(code) === 'SAN_PEST_POLAND') return 'teal';
+  if (normalizeBrandCode(code) === 'SAN_PEST_CZECH') return 'cyan';
   if (normalizeBrandCode(code) === 'FS_APP') return 'blue';
   if (normalizeBrandCode(code) === 'HACCP_PUBLIC') return 'purple';
   return 'orange';
@@ -1239,7 +1241,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (sentFrom) params.sentFrom = sentFrom;
     if (sentTo) params.sentTo = sentTo;
     const normalizedBrandCode = normalizeBrandCode(brandCode);
-    if (normalizedBrandCode === 'VISIOCAST' && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
+    if (['VISIOCAST', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH'].includes(normalizedBrandCode) && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'SAN_PEST' && dimensionFilters.length) params.countries = JSON.stringify(dimensionFilters);
     if (['FS_APP', 'HACCP_PUBLIC'].includes(normalizedBrandCode) && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'FS_APP' && ownershipType) params.ownershipType = ownershipType;
@@ -1445,9 +1447,9 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const downloadAllProgramsPdfReport = async () => {
     setExportingAllPdf(true);
     try {
-      const expectedCodes = ['VISIOCAST', 'SAN_PEST', 'FS_APP', 'HACCP_PUBLIC'];
+      const expectedCodes = ['VISIOCAST', 'SAN_PEST', 'FS_APP', 'HACCP_PUBLIC', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH'];
       const reportBrands = expectedCodes.map((code) => brands.find((item) => normalizeBrandCode(item.code || item.slug) === code));
-      if (reportBrands.some((item) => !item)) throw new Error('Za zbirni izvještaj potreban je pristup sva 4 programa.');
+      if (reportBrands.some((item) => !item)) throw new Error(`Za zbirni izvještaj potreban je pristup svih ${expectedCodes.length} programa.`);
       const programs = await Promise.all(reportBrands.map(async (reportBrand) => ({
         brandCode: normalizeBrandCode(reportBrand.code || reportBrand.slug),
         brandName: reportBrand.name,
@@ -1455,13 +1457,13 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       })));
       const totalRecords = programs.reduce((sum, program) => sum + program.records.length, 0);
       if (!totalRecords) {
-        toast({ title: 'Nema poslanih dopisa u sva 4 programa za izabrani period.', status: 'warning', position: 'top-right' });
+        toast({ title: `Nema poslanih dopisa u svih ${expectedCodes.length} programa za izabrani period.`, status: 'warning', position: 'top-right' });
         return;
       }
       downloadCombinedLetterReportPdf({ programs, sentFrom, sentTo });
       toast({
         title: 'Zbirni PDF izvještaj je preuzet.',
-        description: `${totalRecords} dopisa iz sva 4 programa.`,
+        description: `${totalRecords} dopisa iz svih ${expectedCodes.length} programa.`,
         status: 'success',
         position: 'top-right',
       });
@@ -1482,14 +1484,17 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const normalizedBrandCode = normalizeBrandCode(brandCode);
   const isFsApp = normalizedBrandCode === 'FS_APP';
   const isHaccpPublic = normalizedBrandCode === 'HACCP_PUBLIC';
+  const isInternationalSanPest = ['SAN_PEST_POLAND', 'SAN_PEST_CZECH'].includes(normalizedBrandCode);
   const showOwnership = isFsApp || isHaccpPublic;
   const dimensionConfig = normalizedBrandCode === 'VISIOCAST'
     ? { ariaLabel: 'Filter po gradu', placeholder: 'Svi gradovi', options: data.filters?.locations || [] }
     : normalizedBrandCode === 'SAN_PEST'
       ? { ariaLabel: 'Filter po državi', placeholder: 'Sve države', options: data.filters?.countries || [] }
-      : isHaccpPublic
-        ? { ariaLabel: 'Filter po vrsti javnog subjekta', placeholder: 'Sve vrste javnih subjekata', options: data.filters?.recordTypes || [] }
-        : { ariaLabel: 'Filter po vrsti', placeholder: 'Sve vrste', options: data.filters?.recordTypes || [] };
+      : isInternationalSanPest
+        ? { ariaLabel: 'Filter po lokaciji', placeholder: 'Sve lokacije', options: data.filters?.locations || [] }
+        : isHaccpPublic
+          ? { ariaLabel: 'Filter po vrsti javnog subjekta', placeholder: 'Sve vrste javnih subjekata', options: data.filters?.recordTypes || [] }
+          : { ariaLabel: 'Filter po vrsti', placeholder: 'Sve vrste', options: data.filters?.recordTypes || [] };
   const rangeStart = total > 0 ? ((page - 1) * perPage) + 1 : 0;
   const rangeEnd = Math.min(page * perPage, total);
   const visiblePages = pageNumbers(page, Math.max(1, pages));
@@ -1565,17 +1570,17 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
               PDF izvještaj
             </Button>
             <Button
-              aria-label="Preuzmi zajednički PDF izvještaj za sva 4 programa"
+              aria-label="Preuzmi zajednički PDF izvještaj za svih 6 programa"
               minH="40px"
               leftIcon={<FaFilePdf />}
               colorScheme="purple"
               variant="outline"
               isLoading={exportingAllPdf}
               isDisabled={exportingPdf}
-              loadingText="Priprema sva 4..."
+              loadingText="Priprema svih 6..."
               onClick={downloadAllProgramsPdfReport}
             >
-              PDF sva 4 programa
+              PDF svih 6 programa
             </Button>
           </Flex>
         )}
@@ -2235,7 +2240,7 @@ export default function CommercialModule({ user }) {
       <Flex justify="space-between" align={{ base: 'start', lg: 'center' }} direction={{ base: 'column', lg: 'row' }} gap={3} mb={5}>
         <Box>
           <HStack><Icon as={FaBuilding} color={orange} boxSize={6} /><Heading size="lg">Komercijalni CRM</Heading></HStack>
-          <Text color="gray.600" mt={1}>Četiri potpuno odvojene prodajne baze, dnevni fokus i evidencija kontakata.</Text>
+          <Text color="gray.600" mt={1}>Šest potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.</Text>
         </Box>
         <HStack><Badge colorScheme="green" px={3} py={2} borderRadius="full">Aktivan profil</Badge><Text fontSize="sm" color="gray.600">{user?.displayName || user?.display_name || user?.username}</Text></HStack>
       </Flex>

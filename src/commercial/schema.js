@@ -30,6 +30,26 @@ export const BRAND_DEFINITIONS = [
     mailSubjectPlaceholder: 'Naslov HACCP ponude za javni sektor',
     ready: false,
   },
+  {
+    code: 'SAN_PEST_POLAND',
+    slug: 'san-pest-poljska',
+    name: 'SAN Pest Poljska',
+    subtitle: 'Odvojena DDD prodajna baza za tržište Poljske',
+    mailDescription: 'Ponuda je pripremljena na poljskom jeziku, uz završnu rečenicu koja potvrđuje da se dalja komunikacija može voditi na engleskom.',
+    mailFormTitle: 'Forma SAN Pest ponude – Poljska',
+    mailSubjectPlaceholder: 'Temat wiadomości po polsku',
+    ready: false,
+  },
+  {
+    code: 'SAN_PEST_CZECH',
+    slug: 'san-pest-ceska',
+    name: 'SAN Pest Češka',
+    subtitle: 'Odvojena DDD prodajna baza za tržište Češke',
+    mailDescription: 'Ponuda je pripremljena na češkom jeziku, uz završnu rečenicu koja potvrđuje da se dalja komunikacija može voditi na engleskom.',
+    mailFormTitle: 'Forma SAN Pest ponude – Češka',
+    mailSubjectPlaceholder: 'Předmět e-mailu v češtině',
+    ready: false,
+  },
 ];
 
 export const CRM_STATUSES = [

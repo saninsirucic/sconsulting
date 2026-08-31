@@ -25,7 +25,7 @@ test('kreira čitljiv PDF izvještaj sa programom, periodom i tabelom', () => {
   expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(10000);
 });
 
-test('kreira zajednički PDF sa pregledom i odvojenim dijelom za sva 4 programa', () => {
+test('kreira zajednički PDF sa pregledom i odvojenim dijelom za svih 6 programa', () => {
   const sentRecord = {
     company_name: 'Čistoća Živinice d.o.o.',
     email: 'info@cistoca.ba',
@@ -41,10 +41,12 @@ test('kreira zajednički PDF sa pregledom i odvojenim dijelom za sva 4 programa'
       { brandCode: 'SAN_PEST', brandName: 'SAN Pest', records: [{ ...sentRecord, company_name: 'SAN Pest komitent' }] },
       { brandCode: 'FS_APP', brandName: 'FS App', records: [] },
       { brandCode: 'HACCP_PUBLIC', brandName: 'HACCP javni sektor', records: [{ ...sentRecord, company_name: 'Javna ustanova' }] },
+      { brandCode: 'SAN_PEST_POLAND', brandName: 'SAN Pest Poljska', records: [{ ...sentRecord, company_name: 'Poljski DDD' }] },
+      { brandCode: 'SAN_PEST_CZECH', brandName: 'SAN Pest Češka', records: [{ ...sentRecord, company_name: 'Češki DDD' }] },
     ],
   });
 
-  expect(doc.getNumberOfPages()).toBe(5);
+  expect(doc.getNumberOfPages()).toBe(7);
   expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(10000);
-  expect(letterReportFilename('sva-4-programa', '2026-07-01', '2026-08-31')).toBe('izvjestaj-poslanih-dopisa-sva-4-programa-2026-07-01-2026-08-31.pdf');
+  expect(letterReportFilename('sva-6-programa', '2026-07-01', '2026-08-31')).toBe('izvjestaj-poslanih-dopisa-sva-6-programa-2026-07-01-2026-08-31.pdf');
 });
