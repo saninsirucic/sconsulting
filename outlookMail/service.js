@@ -21,6 +21,10 @@ const DETAIL_SELECT = `${MESSAGE_SELECT},bccRecipients,body`;
 // the generic attachment collection makes Microsoft Graph reject the whole
 // request with BadRequest, even for messages without attachments.
 const ATTACHMENT_SELECT = 'id,name,contentType,size,isInline';
+const TRUSTED_MAIL_IMAGE_URLS = new Set([
+  'https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-pl.png',
+  'https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-cz.png'
+]);
 
 function badRequest(message, code = 'OUTLOOK_INVALID_INPUT') {
   throw new OutlookError(message, { status: 400, code });
@@ -31,15 +35,21 @@ function sanitizeMessageHtml(value) {
     allowedTags: [
       'p', 'br', 'div', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'blockquote',
       'ul', 'ol', 'li', 'a', 'h1', 'h2', 'h3', 'h4', 'pre', 'code', 'hr',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td'
+      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img'
     ],
-    allowedAttributes: { a: ['href', 'title', 'rel', 'target'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'] },
+    allowedAttributes: {
+      a: ['href', 'title', 'rel', 'target'],
+      img: ['src', 'alt', 'width', 'height'],
+      td: ['colspan', 'rowspan'],
+      th: ['colspan', 'rowspan']
+    },
     allowedSchemes: ['http', 'https', 'mailto'],
     allowProtocolRelative: false,
     disallowedTagsMode: 'discard',
     transformTags: {
       a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer', target: '_blank' }, true)
-    }
+    },
+    exclusiveFilter: (frame) => frame.tag === 'img' && !TRUSTED_MAIL_IMAGE_URLS.has(frame.attribs.src)
   });
 }
 

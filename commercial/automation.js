@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const { createOutlookService } = require('../outlookMail/service');
+const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
 
@@ -16,6 +17,32 @@ const SCHEDULED_SEND_INTERVAL_MINUTES = 5;
 const MAX_CC_RECIPIENTS = 10;
 const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 const DEFAULT_MAX_ATTACHMENT_BYTES = 2500000;
+const SANPEST_ENGLISH_URL = 'https://www.s-consulting.ba/en/sanpest-platform';
+const SANPEST_MAIL_BANNERS = Object.freeze({
+  SAN_PEST_POLAND: Object.freeze({
+    src: 'https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-pl.png',
+    alt: 'SANpest Platform — Polish overview'
+  }),
+  SAN_PEST_CZECH: Object.freeze({
+    src: 'https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-cz.png',
+    alt: 'SANpest Platform — Czech overview'
+  })
+});
+
+function campaignBodyForBrand(brand, bodyText) {
+  const banner = SANPEST_MAIL_BANNERS[String(brand?.code || '').toUpperCase()];
+  if (!banner) return { body: String(bodyText || ''), bodyType: 'text' };
+  return {
+    body: [
+      escapePlainText(bodyText),
+      '<br><br>',
+      `<a href="${SANPEST_ENGLISH_URL}" title="Open the SANpest Platform page in English">`,
+      `<img src="${banner.src}" width="720" alt="${banner.alt}">`,
+      '</a>'
+    ].join(''),
+    bodyType: 'html'
+  };
+}
 
 function bool(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
@@ -1524,8 +1551,7 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
       to: [recipients.toEmail],
       cc: recipients.ccEmails,
       subject: claimed.subject,
-      body: claimed.body_text,
-      bodyType: 'text',
+      ...campaignBodyForBrand(brand, claimed.body_text),
       attachments: attachment ? [attachment] : []
     });
     accepted = true;
@@ -1776,8 +1802,7 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
         to: [recipients.toEmail],
         cc: recipients.ccEmails,
         subject: claimed.subject,
-        body: claimed.body_text,
-        bodyType: 'text',
+        ...campaignBodyForBrand(brand, claimed.body_text),
         attachments: attachment ? [attachment] : []
       });
       accepted = true;
@@ -1831,8 +1856,7 @@ async function sendNextScheduledMail(db, brand, options = {}) {
       to: [recipients.toEmail],
       cc: recipients.ccEmails,
       subject: claimed.subject,
-      body: claimed.body_text,
-      bodyType: 'text',
+      ...campaignBodyForBrand(brand, claimed.body_text),
       attachments: attachment ? [attachment] : []
     });
     accepted = true;
@@ -1869,8 +1893,7 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
       to: [recipients.toEmail],
       cc: recipients.ccEmails,
       subject: claimed.subject,
-      body: claimed.body_text,
-      bodyType: 'text',
+      ...campaignBodyForBrand(brand, claimed.body_text),
       attachments: attachment ? [attachment] : []
     });
     accepted = true;
@@ -2012,6 +2035,9 @@ async function runAutomationJob(db, options = {}) {
 module.exports = {
   EXCLUDED_CANDIDATE_STATUSES,
   QUEUE_STATUSES,
+  SANPEST_ENGLISH_URL,
+  SANPEST_MAIL_BANNERS,
+  campaignBodyForBrand,
   ensureAutomationSetting,
   getAutomationState,
   importApprovedDailyAssignments,

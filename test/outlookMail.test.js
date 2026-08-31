@@ -251,6 +251,7 @@ test('HTML sanitizer uklanja aktivni sadrzaj i zadrzava sigurne linkove', () => 
     '<script>alert(1)</script>',
     '<iframe src="https://evil.example"></iframe>',
     '<img src="https://tracker.example/pixel.gif" onerror="steal()">',
+    '<a href="https://www.s-consulting.ba/en/sanpest-platform"><img src="https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-pl.png" width="720" alt="SANpest Platform — Polish overview"></a>',
     '<a href="javascript:alert(2)">opasan</a>',
     '<a href="https://s-consulting.ba/ponuda" title="Ponuda">siguran</a>'
   ].join('');
@@ -260,7 +261,9 @@ test('HTML sanitizer uklanja aktivni sadrzaj i zadrzava sigurne linkove', () => 
   assert.match(clean, /href="https:\/\/s-consulting\.ba\/ponuda"/);
   assert.match(clean, /rel="noopener noreferrer"/);
   assert.match(clean, /target="_blank"/);
-  assert.doesNotMatch(clean, /<script|<iframe|<img/i);
+  assert.match(clean, /banner-pl\.png/);
+  assert.match(clean, /SANpest Platform — Polish overview/);
+  assert.doesNotMatch(clean, /<script|<iframe/i);
   assert.doesNotMatch(clean, /onclick|onerror|javascript:|tracker\.example/i);
 });
 

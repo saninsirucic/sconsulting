@@ -8,6 +8,11 @@ const scheduleReportMigration = require('../migrations/20260818100000_add_commer
 const ccMigration = require('../migrations/20260818130000_add_commercial_recipient_cc');
 const migration = require('../migrations/20260831170000_create_san_pest_poland_czech_brands');
 const seed = require('../data/sanPestPolandCzech20260831.json');
+const {
+  SANPEST_ENGLISH_URL,
+  SANPEST_MAIL_BANNERS,
+  campaignBodyForBrand
+} = require('../commercial/automation');
 const { ensureDailyAssignments, normalizeBrandCode } = require('../commercial/service');
 
 async function testDb(t) {
@@ -67,6 +72,25 @@ test('Excel snapshot je potpun, determinističan i odvojen po državama', () => 
   for (const alias of ['SAN_PEST_CZECH', 'san-pest-ceska', 'SANPESTCESKO']) {
     assert.equal(normalizeBrandCode(alias), 'SAN_PEST_CZECH');
   }
+});
+
+test('poljski i češki mail dobijaju svoj klikabilni banner prema engleskoj SANpest stranici', () => {
+  const polish = campaignBodyForBrand({ code: 'SAN_PEST_POLAND' }, 'Dzień dobry,\n<firma>');
+  const czech = campaignBodyForBrand({ code: 'SAN_PEST_CZECH' }, 'Dobrý den,');
+  const generic = campaignBodyForBrand({ code: 'FS_APP' }, 'Običan tekst');
+
+  assert.equal(polish.bodyType, 'html');
+  assert.match(polish.body, new RegExp(`href="${SANPEST_ENGLISH_URL}"`));
+  assert.match(polish.body, new RegExp(SANPEST_MAIL_BANNERS.SAN_PEST_POLAND.src));
+  assert.doesNotMatch(polish.body, /banner-cz\.png/);
+  assert.match(polish.body, /&lt;firma&gt;/);
+
+  assert.equal(czech.bodyType, 'html');
+  assert.match(czech.body, new RegExp(`href="${SANPEST_ENGLISH_URL}"`));
+  assert.match(czech.body, new RegExp(SANPEST_MAIL_BANNERS.SAN_PEST_CZECH.src));
+  assert.doesNotMatch(czech.body, /banner-pl\.png/);
+
+  assert.deepEqual(generic, { body: 'Običan tekst', bodyType: 'text' });
 });
 
 test('migracija uvozi 158 poljskih i 177 čeških zapisa sa pristupom i lokalizovanim mailovima', async (t) => {
