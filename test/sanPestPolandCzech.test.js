@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const knex = require('knex');
 const crmMigration = require('../migrations/20260813120000_create_commercial_crm');
 const mailMigration = require('../migrations/20260815120000_add_commercial_mail_automation');
@@ -11,6 +12,7 @@ const seed = require('../data/sanPestPolandCzech20260831.json');
 const {
   SANPEST_ENGLISH_URL,
   SANPEST_MAIL_BANNERS,
+  campaignAttachmentsForBrand,
   campaignBodyForBrand
 } = require('../commercial/automation');
 const { ensureDailyAssignments, normalizeBrandCode } = require('../commercial/service');
@@ -74,23 +76,56 @@ test('Excel snapshot je potpun, determinističan i odvojen po državama', () => 
   }
 });
 
-test('poljski i češki mail dobijaju svoj klikabilni banner prema engleskoj SANpest stranici', () => {
-  const polish = campaignBodyForBrand({ code: 'SAN_PEST_POLAND' }, 'Dzień dobry,\n<firma>');
-  const czech = campaignBodyForBrand({ code: 'SAN_PEST_CZECH' }, 'Dobrý den,');
+test('poljski i češki mail dobijaju svoj PNG prilog i link prema engleskoj SANpest stranici', () => {
+  const polish = campaignBodyForBrand(
+    { code: 'SAN_PEST_POLAND' },
+    `Dzień dobry,\n<firma>\n\n${migration.ENGLISH_COMMUNICATION_SENTENCE}`
+  );
+  const czech = campaignBodyForBrand(
+    { code: 'SAN_PEST_CZECH' },
+    `Dobrý den,\n\n${migration.ENGLISH_COMMUNICATION_SENTENCE}`
+  );
   const generic = campaignBodyForBrand({ code: 'FS_APP' }, 'Običan tekst');
 
   assert.equal(polish.bodyType, 'html');
   assert.match(polish.body, new RegExp(`href="${SANPEST_ENGLISH_URL}"`));
-  assert.match(polish.body, new RegExp(SANPEST_MAIL_BANNERS.SAN_PEST_POLAND.src));
-  assert.doesNotMatch(polish.body, /banner-cz\.png/);
+  assert.doesNotMatch(polish.body, /<img|banner-pl\.png|banner-cz\.png/i);
   assert.match(polish.body, /&lt;firma&gt;/);
+  assert.ok(polish.body.endsWith(migration.ENGLISH_COMMUNICATION_SENTENCE));
 
   assert.equal(czech.bodyType, 'html');
   assert.match(czech.body, new RegExp(`href="${SANPEST_ENGLISH_URL}"`));
-  assert.match(czech.body, new RegExp(SANPEST_MAIL_BANNERS.SAN_PEST_CZECH.src));
-  assert.doesNotMatch(czech.body, /banner-pl\.png/);
+  assert.doesNotMatch(czech.body, /<img|banner-pl\.png|banner-cz\.png/i);
+  assert.ok(czech.body.endsWith(migration.ENGLISH_COMMUNICATION_SENTENCE));
 
   assert.deepEqual(generic, { body: 'Običan tekst', bodyType: 'text' });
+
+  const polishAttachments = campaignAttachmentsForBrand({ code: 'SAN_PEST_POLAND' });
+  const czechAttachments = campaignAttachmentsForBrand({ code: 'SAN_PEST_CZECH' });
+  const savedAttachment = { name: 'ponuda.pdf', contentType: 'application/pdf', size: 3, contentBytes: 'YWJj' };
+  const polishWithSaved = campaignAttachmentsForBrand({ code: 'SAN_PEST_POLAND' }, savedAttachment);
+  const genericAttachments = campaignAttachmentsForBrand({ code: 'FS_APP' }, savedAttachment);
+
+  assert.equal(polishAttachments.length, 1);
+  assert.equal(polishAttachments[0].name, 'SANpest-Banner-PL.png');
+  assert.equal(polishAttachments[0].contentType, 'image/png');
+  assert.equal(polishAttachments[0].size, 1757440);
+  assert.equal(
+    crypto.createHash('sha256').update(Buffer.from(polishAttachments[0].contentBytes, 'base64')).digest('hex').toUpperCase(),
+    SANPEST_MAIL_BANNERS.SAN_PEST_POLAND.sha256
+  );
+
+  assert.equal(czechAttachments.length, 1);
+  assert.equal(czechAttachments[0].name, 'SANpest-Banner-CZ.png');
+  assert.equal(czechAttachments[0].contentType, 'image/png');
+  assert.equal(czechAttachments[0].size, 1717941);
+  assert.equal(
+    crypto.createHash('sha256').update(Buffer.from(czechAttachments[0].contentBytes, 'base64')).digest('hex').toUpperCase(),
+    SANPEST_MAIL_BANNERS.SAN_PEST_CZECH.sha256
+  );
+
+  assert.deepEqual(polishWithSaved.map((attachment) => attachment.name), ['ponuda.pdf', 'SANpest-Banner-PL.png']);
+  assert.deepEqual(genericAttachments, [savedAttachment]);
 });
 
 test('migracija uvozi 158 poljskih i 177 čeških zapisa sa pristupom i lokalizovanim mailovima', async (t) => {

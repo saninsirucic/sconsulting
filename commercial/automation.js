@@ -1,5 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { createOutlookService } = require('../outlookMail/service');
 const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
@@ -18,30 +20,64 @@ const MAX_CC_RECIPIENTS = 10;
 const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 const DEFAULT_MAX_ATTACHMENT_BYTES = 2500000;
 const SANPEST_ENGLISH_URL = 'https://www.s-consulting.ba/en/sanpest-platform';
+const ENGLISH_COMMUNICATION_SENTENCE = 'For any further communication, we would be happy to continue in English.';
 const SANPEST_MAIL_BANNERS = Object.freeze({
   SAN_PEST_POLAND: Object.freeze({
-    src: 'https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-pl.png',
-    alt: 'SANpest Platform — Polish overview'
+    path: path.join(__dirname, 'assets', 'sanpest-banner-pl.png'),
+    name: 'SANpest-Banner-PL.png',
+    sha256: 'AD6171B5ADC930397885A0CED665A5E2D5A72A69599E39E5630015789DC5FBDA'
   }),
   SAN_PEST_CZECH: Object.freeze({
-    src: 'https://saninsirucic.github.io/sconsulting/mail-assets/sanpest/banner-cz.png',
-    alt: 'SANpest Platform — Czech overview'
+    path: path.join(__dirname, 'assets', 'sanpest-banner-cz.png'),
+    name: 'SANpest-Banner-CZ.png',
+    sha256: 'D6E0C145A1C3B7DCF0177A5AC708104E9975814BC2F5CF32C39460D69D3BBF31'
   })
 });
+const bannerAttachmentCache = new Map();
 
 function campaignBodyForBrand(brand, bodyText) {
   const banner = SANPEST_MAIL_BANNERS[String(brand?.code || '').toUpperCase()];
   if (!banner) return { body: String(bodyText || ''), bodyType: 'text' };
+  const source = String(bodyText || '').trim();
+  const hasClosing = source.endsWith(ENGLISH_COMMUNICATION_SENTENCE);
+  const localizedBody = hasClosing ? source.slice(0, -ENGLISH_COMMUNICATION_SENTENCE.length).trim() : source;
   return {
     body: [
-      escapePlainText(bodyText),
+      escapePlainText(localizedBody),
       '<br><br>',
-      `<a href="${SANPEST_ENGLISH_URL}" title="Open the SANpest Platform page in English">`,
-      `<img src="${banner.src}" width="720" alt="${banner.alt}">`,
-      '</a>'
+      'Learn more about SANpest Platform in English: ',
+      `<a href="${SANPEST_ENGLISH_URL}">${SANPEST_ENGLISH_URL}</a>`,
+      hasClosing ? `<br><br>${escapePlainText(ENGLISH_COMMUNICATION_SENTENCE)}` : ''
     ].join(''),
     bodyType: 'html'
   };
+}
+
+function bannerAttachmentForBrand(brand) {
+  const code = String(brand?.code || '').toUpperCase();
+  const definition = SANPEST_MAIL_BANNERS[code];
+  if (!definition) return null;
+  if (!bannerAttachmentCache.has(code)) {
+    const content = fs.readFileSync(definition.path);
+    const sha256 = crypto.createHash('sha256').update(content).digest('hex').toUpperCase();
+    if (!content.length || content.length > DEFAULT_MAX_ATTACHMENT_BYTES || sha256 !== definition.sha256) {
+      throw httpError(500, `SANpest banner prilog za ${code} nije ispravan.`, 'SANPEST_BANNER_INVALID');
+    }
+    bannerAttachmentCache.set(code, Object.freeze({
+      name: definition.name,
+      contentType: 'image/png',
+      size: content.length,
+      contentBytes: content.toString('base64')
+    }));
+  }
+  return bannerAttachmentCache.get(code);
+}
+
+function campaignAttachmentsForBrand(brand, savedAttachment = null) {
+  const attachments = savedAttachment ? [savedAttachment] : [];
+  const banner = bannerAttachmentForBrand(brand);
+  if (banner) attachments.push(banner);
+  return attachments;
 }
 
 function bool(value, fallback = false) {
@@ -1552,7 +1588,7 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
       cc: recipients.ccEmails,
       subject: claimed.subject,
       ...campaignBodyForBrand(brand, claimed.body_text),
-      attachments: attachment ? [attachment] : []
+      attachments: campaignAttachmentsForBrand(brand, attachment)
     });
     accepted = true;
     const sentAt = new Date(nowProvider());
@@ -1803,7 +1839,7 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
         cc: recipients.ccEmails,
         subject: claimed.subject,
         ...campaignBodyForBrand(brand, claimed.body_text),
-        attachments: attachment ? [attachment] : []
+        attachments: campaignAttachmentsForBrand(brand, attachment)
       });
       accepted = true;
       const sentAt = new Date(nowProvider());
@@ -1857,7 +1893,7 @@ async function sendNextScheduledMail(db, brand, options = {}) {
       cc: recipients.ccEmails,
       subject: claimed.subject,
       ...campaignBodyForBrand(brand, claimed.body_text),
-      attachments: attachment ? [attachment] : []
+      attachments: campaignAttachmentsForBrand(brand, attachment)
     });
     accepted = true;
     await recordSuccessfulSend(db, brand, claimed, result, actor, outlook.config.mailbox, now);
@@ -1894,7 +1930,7 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
       cc: recipients.ccEmails,
       subject: claimed.subject,
       ...campaignBodyForBrand(brand, claimed.body_text),
-      attachments: attachment ? [attachment] : []
+      attachments: campaignAttachmentsForBrand(brand, attachment)
     });
     accepted = true;
     const sentAt = now;
@@ -2037,6 +2073,8 @@ module.exports = {
   QUEUE_STATUSES,
   SANPEST_ENGLISH_URL,
   SANPEST_MAIL_BANNERS,
+  bannerAttachmentForBrand,
+  campaignAttachmentsForBrand,
   campaignBodyForBrand,
   ensureAutomationSetting,
   getAutomationState,
