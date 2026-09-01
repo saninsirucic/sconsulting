@@ -12,8 +12,10 @@ const seed = require('../data/sanPestSaudiUae20260901.json');
 const {
   SANPEST_ENGLISH_URL,
   campaignAttachmentsForBrand,
-  campaignBodyForBrand
+  campaignBodyForBrand,
+  campaignSignatureForBrand
 } = require('../commercial/automation');
+const { buildSignatureHtml } = require('../outlookMail/signature');
 const { ensureDailyAssignments, normalizeBrandCode } = require('../commercial/service');
 
 async function testDb(t) {
@@ -93,6 +95,22 @@ test('Saudi i UAE kampanje dobijaju engleski link, ali nemaju banner prilog', ()
     assert.ok(result.body.endsWith(migration.ENGLISH_COMMUNICATION_SENTENCE));
     assert.doesNotMatch(result.body, /<img|banner/i);
     assert.deepEqual(campaignAttachmentsForBrand({ code }), []);
+  }
+});
+
+test('Saudi i UAE mailovi dobijaju engleski potpis prilagođen arapskim tržištima', () => {
+  for (const code of ['SAN_PEST_SAUDI', 'SAN_PEST_UAE']) {
+    const signature = campaignSignatureForBrand({ code });
+    assert.deepEqual(signature, {
+      greeting: 'Kind regards,',
+      title: 'Director | S-Consulting Group',
+      address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+    });
+    const html = buildSignatureHtml(signature);
+    assert.match(html, /Kind regards/);
+    assert.match(html, /Director \| S-Consulting Group/);
+    assert.match(html, /Bosnia and Herzegovina/);
+    assert.doesNotMatch(html, /Lijep pozdrav/);
   }
 });
 

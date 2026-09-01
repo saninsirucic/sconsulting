@@ -39,7 +39,33 @@ const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
   'SAN_PEST_SAUDI',
   'SAN_PEST_UAE'
 ]);
+const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
+  SAN_PEST_POLAND: Object.freeze({
+    greeting: 'Z poważaniem,',
+    title: 'Dyrektor | S-Consulting Group',
+    address: 'Tvornička 3, Sarajewo, Bośnia i Hercegowina'
+  }),
+  SAN_PEST_CZECH: Object.freeze({
+    greeting: 'S pozdravem,',
+    title: 'Ředitelka | S-Consulting Group',
+    address: 'Tvornička 3, Sarajevo, Bosna a Hercegovina'
+  }),
+  SAN_PEST_SAUDI: Object.freeze({
+    greeting: 'Kind regards,',
+    title: 'Director | S-Consulting Group',
+    address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+  }),
+  SAN_PEST_UAE: Object.freeze({
+    greeting: 'Kind regards,',
+    title: 'Director | S-Consulting Group',
+    address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+  })
+});
 const bannerAttachmentCache = new Map();
+
+function campaignSignatureForBrand(brand) {
+  return SANPEST_CAMPAIGN_SIGNATURES[String(brand?.code || '').toUpperCase()];
+}
 
 function campaignBodyForBrand(brand, bodyText) {
   const code = String(brand?.code || '').toUpperCase();
@@ -1594,7 +1620,8 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
       cc: recipients.ccEmails,
       subject: claimed.subject,
       ...campaignBodyForBrand(brand, claimed.body_text),
-      attachments: campaignAttachmentsForBrand(brand, attachment)
+      attachments: campaignAttachmentsForBrand(brand, attachment),
+      signature: campaignSignatureForBrand(brand)
     });
     accepted = true;
     const sentAt = new Date(nowProvider());
@@ -1845,7 +1872,8 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
         cc: recipients.ccEmails,
         subject: claimed.subject,
         ...campaignBodyForBrand(brand, claimed.body_text),
-        attachments: campaignAttachmentsForBrand(brand, attachment)
+        attachments: campaignAttachmentsForBrand(brand, attachment),
+        signature: campaignSignatureForBrand(brand)
       });
       accepted = true;
       const sentAt = new Date(nowProvider());
@@ -1899,7 +1927,8 @@ async function sendNextScheduledMail(db, brand, options = {}) {
       cc: recipients.ccEmails,
       subject: claimed.subject,
       ...campaignBodyForBrand(brand, claimed.body_text),
-      attachments: campaignAttachmentsForBrand(brand, attachment)
+      attachments: campaignAttachmentsForBrand(brand, attachment),
+      signature: campaignSignatureForBrand(brand)
     });
     accepted = true;
     await recordSuccessfulSend(db, brand, claimed, result, actor, outlook.config.mailbox, now);
@@ -1936,7 +1965,8 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
       cc: recipients.ccEmails,
       subject: claimed.subject,
       ...campaignBodyForBrand(brand, claimed.body_text),
-      attachments: campaignAttachmentsForBrand(brand, attachment)
+      attachments: campaignAttachmentsForBrand(brand, attachment),
+      signature: campaignSignatureForBrand(brand)
     });
     accepted = true;
     const sentAt = now;
@@ -2080,9 +2110,11 @@ module.exports = {
   SANPEST_ENGLISH_URL,
   SANPEST_MAIL_BANNERS,
   SANPEST_ENGLISH_CAMPAIGN_CODES,
+  SANPEST_CAMPAIGN_SIGNATURES,
   bannerAttachmentForBrand,
   campaignAttachmentsForBrand,
   campaignBodyForBrand,
+  campaignSignatureForBrand,
   ensureAutomationSetting,
   getAutomationState,
   importApprovedDailyAssignments,

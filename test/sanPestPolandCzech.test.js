@@ -13,8 +13,10 @@ const {
   SANPEST_ENGLISH_URL,
   SANPEST_MAIL_BANNERS,
   campaignAttachmentsForBrand,
-  campaignBodyForBrand
+  campaignBodyForBrand,
+  campaignSignatureForBrand
 } = require('../commercial/automation');
+const { buildSignatureHtml } = require('../outlookMail/signature');
 const { ensureDailyAssignments, normalizeBrandCode } = require('../commercial/service');
 
 async function testDb(t) {
@@ -126,6 +128,29 @@ test('poljski i češki mail dobijaju svoj PNG prilog i link prema engleskoj SAN
 
   assert.deepEqual(polishWithSaved.map((attachment) => attachment.name), ['ponuda.pdf', 'SANpest-Banner-PL.png']);
   assert.deepEqual(genericAttachments, [savedAttachment]);
+});
+
+test('poljski i češki mail dobijaju lokalizovan automatski potpis', () => {
+  const polish = campaignSignatureForBrand({ code: 'SAN_PEST_POLAND' });
+  const czech = campaignSignatureForBrand({ code: 'SAN_PEST_CZECH' });
+  assert.deepEqual(polish, {
+    greeting: 'Z poważaniem,',
+    title: 'Dyrektor | S-Consulting Group',
+    address: 'Tvornička 3, Sarajewo, Bośnia i Hercegowina'
+  });
+  assert.deepEqual(czech, {
+    greeting: 'S pozdravem,',
+    title: 'Ředitelka | S-Consulting Group',
+    address: 'Tvornička 3, Sarajevo, Bosna a Hercegovina'
+  });
+  const polishHtml = buildSignatureHtml(polish);
+  const czechHtml = buildSignatureHtml(czech);
+  assert.match(polishHtml, /Z poważaniem/);
+  assert.match(polishHtml, /Sarajewo, Bośnia i Hercegowina/);
+  assert.match(czechHtml, /S pozdravem/);
+  assert.match(czechHtml, /Ředitelka/);
+  assert.doesNotMatch(`${polishHtml}${czechHtml}`, /Lijep pozdrav/);
+  assert.equal(campaignSignatureForBrand({ code: 'FS_APP' }), undefined);
 });
 
 test('migracija uvozi 158 poljskih i 177 čeških zapisa sa pristupom i lokalizovanim mailovima', async (t) => {
