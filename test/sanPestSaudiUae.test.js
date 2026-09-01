@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const knex = require('knex');
 const crmMigration = require('../migrations/20260813120000_create_commercial_crm');
 const mailMigration = require('../migrations/20260815120000_add_commercial_mail_automation');
@@ -11,6 +12,7 @@ const mailCopyMigration = require('../migrations/20260901133000_polish_san_pest_
 const seed = require('../data/sanPestSaudiUae20260901.json');
 const {
   SANPEST_ENGLISH_URL,
+  SANPEST_MAIL_BANNERS,
   campaignAttachmentsForBrand,
   campaignBodyForBrand,
   campaignSignatureForBrand
@@ -84,7 +86,7 @@ test('Excel snapshot sadrži po 100 odvojenih zapisa za Saudijsku Arabiju i UAE'
   }
 });
 
-test('Saudi i UAE kampanje dobijaju engleski link, ali nemaju banner prilog', () => {
+test('Saudi i UAE kampanje dobijaju engleski link i isti EN banner samo kao prilog', () => {
   for (const code of ['SAN_PEST_SAUDI', 'SAN_PEST_UAE']) {
     const result = campaignBodyForBrand(
       { code },
@@ -94,7 +96,15 @@ test('Saudi i UAE kampanje dobijaju engleski link, ali nemaju banner prilog', ()
     assert.match(result.body, new RegExp(`href="${SANPEST_ENGLISH_URL}"`));
     assert.ok(result.body.endsWith(migration.ENGLISH_COMMUNICATION_SENTENCE));
     assert.doesNotMatch(result.body, /<img|banner/i);
-    assert.deepEqual(campaignAttachmentsForBrand({ code }), []);
+    const attachments = campaignAttachmentsForBrand({ code });
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].name, 'SANpest-Banner-EN.png');
+    assert.equal(attachments[0].contentType, 'image/png');
+    assert.equal(attachments[0].size, 1596868);
+    assert.equal(
+      crypto.createHash('sha256').update(Buffer.from(attachments[0].contentBytes, 'base64')).digest('hex').toUpperCase(),
+      SANPEST_MAIL_BANNERS[code].sha256
+    );
   }
 });
 

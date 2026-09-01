@@ -31,6 +31,16 @@ const SANPEST_MAIL_BANNERS = Object.freeze({
     path: path.join(__dirname, 'assets', 'sanpest-banner-cz.png'),
     name: 'SANpest-Banner-CZ.png',
     sha256: 'D6E0C145A1C3B7DCF0177A5AC708104E9975814BC2F5CF32C39460D69D3BBF31'
+  }),
+  SAN_PEST_SAUDI: Object.freeze({
+    path: path.join(__dirname, 'assets', 'sanpest-banner-en.png'),
+    name: 'SANpest-Banner-EN.png',
+    sha256: 'D16725C9838D3617E9EC68ABB0A4483DCFEE9A1D02B2DFEBD18AFD6B7EF87A37'
+  }),
+  SAN_PEST_UAE: Object.freeze({
+    path: path.join(__dirname, 'assets', 'sanpest-banner-en.png'),
+    name: 'SANpest-Banner-EN.png',
+    sha256: 'D16725C9838D3617E9EC68ABB0A4483DCFEE9A1D02B2DFEBD18AFD6B7EF87A37'
   })
 });
 const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
