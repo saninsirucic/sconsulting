@@ -70,6 +70,16 @@ export const BRAND_DEFINITIONS = [
     mailSubjectPlaceholder: 'Email subject in English',
     ready: false,
   },
+  {
+    code: 'SAN_PEST_BAHRAIN',
+    slug: 'san-pest-bahrain',
+    name: 'SAN Pest Bahrain',
+    subtitle: 'Odvojena DDD prodajna baza za tržište Bahreina',
+    mailDescription: 'Ponuda je pripremljena na engleskom jeziku za tržište Bahreina, uz link ka engleskoj SANpest stranici. Kampanja se šalje isključivo nakon ručnog izbora i potvrde.',
+    mailFormTitle: 'Forma SAN Pest ponude – Bahrain',
+    mailSubjectPlaceholder: 'Email subject in English',
+    ready: false,
+  },
 ];
 
 export const CRM_STATUSES = [
