@@ -41,13 +41,19 @@ const SANPEST_MAIL_BANNERS = Object.freeze({
     path: path.join(__dirname, 'assets', 'sanpest-banner-en.png'),
     name: 'SANpest-Banner-EN.png',
     sha256: 'D16725C9838D3617E9EC68ABB0A4483DCFEE9A1D02B2DFEBD18AFD6B7EF87A37'
+  }),
+  SAN_PEST_BAHRAIN: Object.freeze({
+    path: path.join(__dirname, 'assets', 'sanpest-banner-en.png'),
+    name: 'SANpest-Banner-EN.png',
+    sha256: 'D16725C9838D3617E9EC68ABB0A4483DCFEE9A1D02B2DFEBD18AFD6B7EF87A37'
   })
 });
 const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
   'SAN_PEST_POLAND',
   'SAN_PEST_CZECH',
   'SAN_PEST_SAUDI',
-  'SAN_PEST_UAE'
+  'SAN_PEST_UAE',
+  'SAN_PEST_BAHRAIN'
 ]);
 const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
   SAN_PEST_POLAND: Object.freeze({
@@ -66,6 +72,11 @@ const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
     address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
   }),
   SAN_PEST_UAE: Object.freeze({
+    greeting: 'Kind regards,',
+    title: 'Director | S-Consulting Group',
+    address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+  }),
+  SAN_PEST_BAHRAIN: Object.freeze({
     greeting: 'Kind regards,',
     title: 'Director | S-Consulting Group',
     address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
