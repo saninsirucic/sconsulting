@@ -50,6 +50,26 @@ export const BRAND_DEFINITIONS = [
     mailSubjectPlaceholder: 'Předmět e-mailu v češtině',
     ready: false,
   },
+  {
+    code: 'SAN_PEST_SAUDI',
+    slug: 'san-pest-saudijska-arabija',
+    name: 'SAN Pest Saudijska Arabija',
+    subtitle: 'Odvojena DDD prodajna baza za tržište Saudijske Arabije',
+    mailDescription: 'Ponuda je pripremljena na engleskom jeziku za tržište Saudijske Arabije, uz link ka engleskoj SANpest stranici. Kampanja se šalje isključivo nakon ručnog izbora i potvrde.',
+    mailFormTitle: 'Forma SAN Pest ponude – Saudijska Arabija',
+    mailSubjectPlaceholder: 'Email subject in English',
+    ready: false,
+  },
+  {
+    code: 'SAN_PEST_UAE',
+    slug: 'san-pest-uae',
+    name: 'SAN Pest UAE',
+    subtitle: 'Odvojena DDD prodajna baza za tržište UAE',
+    mailDescription: 'Ponuda je pripremljena na engleskom jeziku za tržište UAE, uz link ka engleskoj SANpest stranici. Kampanja se šalje isključivo nakon ručnog izbora i potvrde.',
+    mailFormTitle: 'Forma SAN Pest ponude – UAE',
+    mailSubjectPlaceholder: 'Email subject in English',
+    ready: false,
+  },
 ];
 
 export const CRM_STATUSES = [
