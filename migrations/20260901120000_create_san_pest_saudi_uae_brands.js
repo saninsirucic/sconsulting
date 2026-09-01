@@ -5,28 +5,43 @@ const MIGRATION_ID = '20260901120000_create_san_pest_saudi_uae_brands';
 const MIGRATION_ACTOR = 'migration-sanpest-gulf-20260901';
 const SOURCE_BRAND_CODE = 'SAN_PEST';
 const ENGLISH_COMMUNICATION_SENTENCE = 'For any further communication, we would be happy to continue in English.';
+const MAIL_SUBJECT = 'A smarter way to manage pest control operations – {{KOMITENT}}';
 
 const SAUDI_BODY = `Dear {{KOMITENT}} team,
 
-I am reaching out on behalf of S-Consulting Group regarding SANpest Platform, a digital operations system developed specifically for pest control companies.
+I am contacting you on behalf of S-Consulting Group to introduce SANpest, a digital platform developed specifically for pest control companies.
 
-SANpest brings the complete workflow into one place: customer and site records, contracts, treatment planning, team scheduling, mobile work orders, QR and GPS verification, chemical and stock records, service certificates, reports, invoicing and payment tracking.
+SANpest brings your day-to-day operations into one system, including:
+• customer, site and contract records
+• treatment planning and team scheduling
+• mobile work orders with QR and GPS verification
+• chemical, stock and equipment records
+• service certificates, reports, invoicing and payment tracking
 
-For companies operating in Saudi Arabia, the platform can support multi-branch and multi-team operations as well as English and Arabic operational documents.
+For pest control companies in Saudi Arabia, SANpest can support multi-branch and multi-team operations, with operational documents available in both Arabic and English.
 
-We would be pleased to arrange a short 15–20 minute online presentation and show how SANpest could fit your operating model. The presentation is informative and without obligation.
+We would be pleased to arrange a brief 15–20 minute online presentation tailored to {{KOMITENT}}. We can show you the platform and discuss how it could support your current workflow.
+
+The presentation is free of charge and without obligation.
 
 ${ENGLISH_COMMUNICATION_SENTENCE}`;
 
 const UAE_BODY = `Dear {{KOMITENT}} team,
 
-I am reaching out on behalf of S-Consulting Group regarding SANpest Platform, a digital operations system developed specifically for pest control companies.
+I am contacting you on behalf of S-Consulting Group to introduce SANpest, a digital platform developed specifically for pest control companies.
 
-SANpest brings the complete workflow into one place: customer and site records, AMC contracts, treatment planning, team scheduling, mobile work orders, QR and GPS verification, chemical and stock records, service certificates, reports, invoicing and payment tracking.
+SANpest brings your day-to-day operations into one system, including:
+• customer, site and AMC contract records
+• treatment planning and team scheduling
+• mobile work orders with QR and GPS verification
+• chemical, stock and equipment records
+• service certificates, reports, invoicing and payment tracking
 
-For companies operating in the UAE, the platform supports multi-site and multi-team operations with clear digital documentation for customers, technicians and management.
+For pest control companies in the UAE, SANpest can support AMC-based service delivery, multi-site contracts and multiple field teams, with clear digital documentation for customers, technicians and management.
 
-We would be pleased to arrange a short 15–20 minute online presentation and show how SANpest could fit your operating model. The presentation is informative and without obligation.
+We would be pleased to arrange a brief 15–20 minute online presentation tailored to {{KOMITENT}}. We can show you the platform and discuss how it could support your current workflow.
+
+The presentation is free of charge and without obligation.
 
 ${ENGLISH_COMMUNICATION_SENTENCE}`;
 
@@ -41,7 +56,7 @@ const BRAND_SPECS = Object.freeze([
     currency: 'SAR',
     accountPrefix: 'san-pest-sa',
     expectedCount: 100,
-    subject: 'Digitise your pest control operations with SANpest – {{KOMITENT}}',
+    subject: MAIL_SUBJECT,
     body: SAUDI_BODY
   }),
   Object.freeze({
@@ -54,7 +69,7 @@ const BRAND_SPECS = Object.freeze([
     currency: 'AED',
     accountPrefix: 'san-pest-uae',
     expectedCount: 100,
-    subject: 'Digitise your pest control operations with SANpest – {{KOMITENT}}',
+    subject: MAIL_SUBJECT,
     body: UAE_BODY
   })
 ]);
@@ -318,6 +333,7 @@ exports.BRAND_SPECS = BRAND_SPECS;
 exports.ENGLISH_COMMUNICATION_SENTENCE = ENGLISH_COMMUNICATION_SENTENCE;
 exports.MIGRATION_ACTOR = MIGRATION_ACTOR;
 exports.MIGRATION_ID = MIGRATION_ID;
+exports.MAIL_SUBJECT = MAIL_SUBJECT;
 exports.SAUDI_BODY = SAUDI_BODY;
 exports.UAE_BODY = UAE_BODY;
 exports.accountRows = accountRows;

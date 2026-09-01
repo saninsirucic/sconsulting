@@ -7,6 +7,7 @@ const manualCampaignMigration = require('../migrations/20260817130000_add_manual
 const scheduleReportMigration = require('../migrations/20260818100000_add_commercial_mail_schedule_reports');
 const ccMigration = require('../migrations/20260818130000_add_commercial_recipient_cc');
 const migration = require('../migrations/20260901120000_create_san_pest_saudi_uae_brands');
+const mailCopyMigration = require('../migrations/20260901133000_polish_san_pest_saudi_uae_english_mail');
 const seed = require('../data/sanPestSaudiUae20260901.json');
 const {
   SANPEST_ENGLISH_URL,
@@ -95,6 +96,45 @@ test('Saudi i UAE kampanje dobijaju engleski link, ali nemaju banner prilog', ()
   }
 });
 
+test('dorađeni engleski mail ažurira postavke i vraća neslani odobreni red na ručnu potvrdu', async (t) => {
+  const db = await testDb(t);
+  await migration.up(db);
+  const account = await db('crm_accounts').where({ brand_id: 'brand-san-pest-saudi' }).whereNotNull('email').first();
+  const now = new Date('2026-09-01T12:30:00.000Z');
+  await db('crm_mail_queue').insert({
+    id: 'saudi-mail-copy-test',
+    brand_id: 'brand-san-pest-saudi',
+    account_id: account.id,
+    queue_date: '2026-09-01',
+    sequence_number: 1,
+    recipient_email: account.email,
+    cc_emails_json: '[]',
+    subject: 'Old subject',
+    body_text: 'Old body',
+    status: 'APPROVED',
+    attempts: 0,
+    created_by: 'test',
+    created_at: now,
+    updated_at: now
+  });
+
+  await mailCopyMigration.up(db);
+  await mailCopyMigration.up(db);
+  const settings = await db('crm_mail_automation_settings').where({ brand_id: 'brand-san-pest-saudi' }).first();
+  const queued = await db('crm_mail_queue').where({ id: 'saudi-mail-copy-test' }).first();
+  assert.equal(settings.subject, migration.MAIL_SUBJECT);
+  assert.match(settings.body_text, /developed specifically for pest control companies/);
+  assert.match(settings.body_text, /Arabic and English/);
+  assert.ok(settings.body_text.endsWith(migration.ENGLISH_COMMUNICATION_SENTENCE));
+  assert.equal(Boolean(settings.enabled), false);
+  assert.equal(Boolean(settings.paused), true);
+  assert.equal(Boolean(settings.auto_send), false);
+  assert.equal(queued.status, 'PENDING');
+  assert.match(queued.subject, new RegExp(account.company_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(queued.subject, /\{\{KOMITENT\}\}/);
+  assert.match(queued.body_text, /The presentation is free of charge and without obligation/);
+});
+
 test('migracija uvozi i odvaja svih 200 zapisa, pristupe i ručne mail kampanje', async (t) => {
   const db = await testDb(t);
   await migration.up(db);
@@ -152,11 +192,11 @@ test('migracija uvozi i odvaja svih 200 zapisa, pristupe i ručne mail kampanje'
     assert.equal(Number(row.daily_limit), 30);
     assert.equal(Number(row.send_interval_minutes), 5);
     assert.equal(row.report_recipient, 'info@s-consulting.ba');
-    assert.match(row.subject, /Digitise your pest control operations/);
+    assert.equal(row.subject, migration.MAIL_SUBJECT);
     assert.ok(row.body_text.endsWith(migration.ENGLISH_COMMUNICATION_SENTENCE));
   }
-  assert.match(settings.find((row) => row.brand_id === saudi.id).body_text, /English and Arabic operational documents/);
-  assert.match(settings.find((row) => row.brand_id === uae.id).body_text, /AMC contracts/);
+  assert.match(settings.find((row) => row.brand_id === saudi.id).body_text, /Arabic and English/);
+  assert.match(settings.find((row) => row.brand_id === uae.id).body_text, /AMC-based service delivery/);
 
   for (const brand of brands) {
     const access = await db('app_user_brand_access').where({ user_id: 'commercial-user', brand_id: brand.id }).first();
