@@ -33,11 +33,17 @@ const SANPEST_MAIL_BANNERS = Object.freeze({
     sha256: 'D6E0C145A1C3B7DCF0177A5AC708104E9975814BC2F5CF32C39460D69D3BBF31'
   })
 });
+const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
+  'SAN_PEST_POLAND',
+  'SAN_PEST_CZECH',
+  'SAN_PEST_SAUDI',
+  'SAN_PEST_UAE'
+]);
 const bannerAttachmentCache = new Map();
 
 function campaignBodyForBrand(brand, bodyText) {
-  const banner = SANPEST_MAIL_BANNERS[String(brand?.code || '').toUpperCase()];
-  if (!banner) return { body: String(bodyText || ''), bodyType: 'text' };
+  const code = String(brand?.code || '').toUpperCase();
+  if (!SANPEST_ENGLISH_CAMPAIGN_CODES.has(code)) return { body: String(bodyText || ''), bodyType: 'text' };
   const source = String(bodyText || '').trim();
   const hasClosing = source.endsWith(ENGLISH_COMMUNICATION_SENTENCE);
   const localizedBody = hasClosing ? source.slice(0, -ENGLISH_COMMUNICATION_SENTENCE.length).trim() : source;
@@ -2073,6 +2079,7 @@ module.exports = {
   QUEUE_STATUSES,
   SANPEST_ENGLISH_URL,
   SANPEST_MAIL_BANNERS,
+  SANPEST_ENGLISH_CAMPAIGN_CODES,
   bannerAttachmentForBrand,
   campaignAttachmentsForBrand,
   campaignBodyForBrand,
