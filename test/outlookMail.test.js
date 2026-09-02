@@ -390,6 +390,25 @@ test('cursor je potpisan, vezan za kontekst i ne moze usmjeriti Graph na drugi m
   );
 });
 
+test('Graph nastavak prihvata kodirani i nekodirani oblik konfigurisanog mailboxa', () => {
+  const suffix = '/mailFolders/inbox/messages?$skiptoken=opaque-state';
+  const encoded = validateGraphUrl(mailboxUrl(suffix), FIXED_MAILBOX);
+  const unencoded = validateGraphUrl(
+    `https://graph.microsoft.com/v1.0/users/${FIXED_MAILBOX}${suffix}`,
+    FIXED_MAILBOX
+  );
+
+  assert.equal(encoded.searchParams.get('$skiptoken'), 'opaque-state');
+  assert.equal(unencoded.searchParams.get('$skiptoken'), 'opaque-state');
+  assert.throws(
+    () => validateGraphUrl(
+      `https://graph.microsoft.com/v1.0/users/director@s-consulting.ba${suffix}`,
+      FIXED_MAILBOX
+    ),
+    (error) => error.code === 'INVALID_CURSOR' && error.status === 400
+  );
+});
+
 test('getAccount cita samo Inbox i ne zahtijeva users mailbox root', async () => {
   const graphCalls = [];
   const graph = {

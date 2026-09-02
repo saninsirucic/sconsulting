@@ -118,13 +118,21 @@ function validateGraphUrl(value, mailbox) {
       code: 'INVALID_CURSOR'
     });
   }
-  const expectedRoot = `${GRAPH_VERSION_PATH}/users/${encodeURIComponent(mailbox)}`;
-  const normalizedPath = url.pathname.toLowerCase();
-  const normalizedRoot = expectedRoot.toLowerCase();
   if (/%(?:25|2e|2f|5c)/i.test(url.pathname)) {
     throw new OutlookError('Nevažeća Microsoft Graph putanja.', { status: 400, code: 'INVALID_CURSOR' });
   }
-  if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(`${normalizedRoot}/`)) {
+  const pathSegments = url.pathname.split('/');
+  let pathMailbox;
+  try {
+    pathMailbox = decodeURIComponent(pathSegments[3] || '').toLowerCase();
+  } catch (error) {
+    throw new OutlookError('Nevažeća Microsoft Graph putanja.', { status: 400, code: 'INVALID_CURSOR' });
+  }
+  const hasExpectedRoot = pathSegments[0] === ''
+    && String(pathSegments[1] || '').toLowerCase() === GRAPH_VERSION_PATH.slice(1)
+    && String(pathSegments[2] || '').toLowerCase() === 'users'
+    && pathMailbox === String(mailbox || '').toLowerCase();
+  if (!hasExpectedRoot) {
     throw new OutlookError('Nastavak stranice ne pripada konfigurisanom mailboxu.', {
       status: 400,
       code: 'INVALID_CURSOR'
