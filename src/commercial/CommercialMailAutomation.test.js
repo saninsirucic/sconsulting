@@ -165,6 +165,24 @@ test('HACCP javni sektor ima posebnu kopiju za klasičnu implementaciju i održa
   expect(commercialApi.getMailAutomation).toHaveBeenCalledWith('HACCP_PUBLIC');
 });
 
+test('SAN Pest Njemačka prikazuje kompletan njemački automatski potpis', async () => {
+  renderCampaign({
+    brandCode: 'SAN_PEST_GERMANY',
+    brandName: 'SAN Pest Njemačka',
+    campaignDescription: 'Ponuda, odredišna stranica i automatski potpis su na njemačkom jeziku.',
+    formTitle: 'Forma SAN Pest ponude – Njemačka',
+    subjectPlaceholder: 'Betreff der E-Mail auf Deutsch',
+  });
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+  expect(screen.getByText('Mit freundlichen Grüßen')).toBeInTheDocument();
+  expect(screen.getByText('Geschäftsführerin | S-Consulting Group')).toBeInTheDocument();
+  expect(screen.getByText('Tvornička 3, Sarajevo, Bosnien und Herzegowina')).toBeInTheDocument();
+  expect(screen.getByText(/www\.s-consulting\.ba\/de/)).toBeInTheDocument();
+  expect(screen.queryByText('Lijep pozdrav,')).not.toBeInTheDocument();
+  expect(commercialApi.getMailAutomation).toHaveBeenCalledWith('SAN_PEST_GERMANY');
+});
+
 test('sprema kompletne parametre automatskog slanja bez diranja ručnog workflowa', async () => {
   renderCampaign();
   fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));

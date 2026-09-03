@@ -32,7 +32,7 @@ import {
   VStack,
 } from '@chakra-ui/react';
 import { FaCheck, FaEnvelope, FaPaperPlane, FaPaperclip, FaRedo, FaSave, FaTimes, FaTrash } from 'react-icons/fa';
-import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL } from '../outlook/signature';
+import { EMAIL_SIGNATURE_LOGO_URL, emailSignatureForBrand } from '../outlook/signature';
 import { commercialApi } from './api';
 import MailRecipientsEditor, { normalizeCcEmails } from './MailRecipientsEditor';
 
@@ -236,8 +236,8 @@ function isCandidateApproved(candidate) {
   return candidate?.status === 'APPROVED';
 }
 
-function AutomaticSignaturePreview() {
-  const signature = DEFAULT_EMAIL_SIGNATURE;
+function AutomaticSignaturePreview({ brandCode }) {
+  const signature = emailSignatureForBrand(brandCode);
 
   return (
     <Box
@@ -891,7 +891,7 @@ export default function CommercialMailAutomation({
                       <Textarea minH={{ base: '220px', md: '280px' }} resize="vertical" value={form.body} placeholder="Unesite sadržaj maila. Možete koristiti {{KOMITENT}} za naziv primaoca." onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
                       <Text mt={1} fontSize="xs" color="gray.500">Oznaka {'{{KOMITENT}}'} automatski se zamjenjuje nazivom komitenta.</Text>
                     </FormControl>
-                    <AutomaticSignaturePreview />
+                    <AutomaticSignaturePreview brandCode={brandCode} />
                     <FormControl>
                       <FormLabel>Attachment / prilog maila</FormLabel>
                       <Input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg" p={1.5} minH="44px" onChange={chooseAttachment} isDisabled={busy === 'file'} />

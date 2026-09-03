@@ -14,6 +14,16 @@ export const BRAND_DEFINITIONS = [
     ready: false,
   },
   {
+    code: 'SAN_PEST_GERMANY',
+    slug: 'san-pest-njemacka',
+    name: 'SAN Pest Njemačka',
+    subtitle: 'Odvojena DDD prodajna baza za tržište Njemačke',
+    mailDescription: 'Ponuda, odredišna stranica i automatski potpis su na njemačkom jeziku. Dostavljeni njemački banner automatski se dodaje svakom mailu kao prilog, a kampanja se šalje isključivo nakon ručnog izbora i potvrde.',
+    mailFormTitle: 'Forma SAN Pest ponude – Njemačka',
+    mailSubjectPlaceholder: 'Betreff der E-Mail auf Deutsch',
+    ready: false,
+  },
+  {
     code: 'FS_APP',
     slug: 'fs-app',
     name: 'FS App',

@@ -68,6 +68,7 @@ beforeEach(() => {
   commercialApi.getBrands.mockResolvedValue({ items: [
     { code: 'VISIOCAST', name: 'Visiocast', record_count: 1 },
     { code: 'SAN_PEST', name: 'SAN Pest', record_count: 0 },
+    { code: 'SAN_PEST_GERMANY', name: 'SAN Pest Njemačka', record_count: 255 },
     { code: 'FS_APP', name: 'FS App', record_count: 0 },
     { code: 'HACCP_PUBLIC', name: 'HACCP javni sektor', record_count: 0 },
     { code: 'SAN_PEST_POLAND', name: 'SAN Pest Poljska', record_count: 158 },
@@ -118,7 +119,7 @@ beforeEach(() => {
   commercialApi.sendNextMailAutomation.mockResolvedValue({ sent: true });
 });
 
-test('prikazuje devet baza fiksnim redom, uključujući odvojene međunarodne SAN Pest baze', async () => {
+test('prikazuje deset baza fiksnim redom, uključujući odvojenu SAN Pest bazu za Njemačku', async () => {
   renderModule();
   expect((await screen.findAllByText('Primjer d.o.o.')).length).toBeGreaterThan(0);
   expect(screen.getAllByText('Nazvati u petak').length).toBeGreaterThan(0);
@@ -133,7 +134,9 @@ test('prikazuje devet baza fiksnim redom, uključujući odvojene međunarodne SA
   fireEvent.click(screen.getByRole('tab', { name: /FS App/ }));
   expect(await screen.findByText('Digitalni HACCP')).toBeInTheDocument();
   const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
-  expect(tabs).toEqual(['Kalendar', 'Visiocast', 'SAN Pest', 'FS App(Digitalni HACCP)', 'HACCP javni sektor', 'SAN Pest Poljska', 'SAN Pest Češka', 'SAN Pest Saudijska Arabija', 'SAN Pest UAE', 'SAN Pest Bahrain']);
+  expect(tabs).toEqual(['Kalendar', 'Visiocast', 'SAN Pest', 'SAN Pest Njemačka', 'FS App(Digitalni HACCP)', 'HACCP javni sektor', 'SAN Pest Poljska', 'SAN Pest Češka', 'SAN Pest Saudijska Arabija', 'SAN Pest UAE', 'SAN Pest Bahrain']);
+  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Njemačka' }));
+  expect(await screen.findByText(/Ponuda, odredišna stranica i automatski potpis su na njemačkom jeziku/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('tab', { name: 'HACCP javni sektor' }));
   expect(await screen.findByText('Klasična implementacija i održavanje HACCP-a za javni sektor u BiH')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Poljska' }));
@@ -146,7 +149,7 @@ test('prikazuje devet baza fiksnim redom, uključujući odvojene međunarodne SA
   expect(await screen.findByText(/Ponuda je pripremljena na engleskom jeziku za tržište UAE/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Bahrain' }));
   expect(await screen.findByText(/Ponuda je pripremljena na engleskom jeziku za tržište Bahreina/)).toBeInTheDocument();
-  expect(screen.getByText('Devet potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.')).toBeInTheDocument();
+  expect(screen.getByText('10 potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.')).toBeInTheDocument();
 });
 
 test('omogućava pregled velikih baza kroz kompaktne kolone, sortiranje i izbor broja zapisa', async () => {
@@ -283,10 +286,11 @@ test('PDF izvještaj preuzima sve stranice za izabrani program i period', async 
   })));
 });
 
-test('zbirni PDF preuzima dopise iz svih 9 programa za isti period', async () => {
+test('zbirni PDF preuzima dopise iz svih 10 programa za isti period', async () => {
   const sentByBrand = {
     VISIOCAST: { ...record, id: 'visi-1', company_name: 'Visiocast komitent', status: 'EMAIL_SENT', letter_sent_at: '2026-08-20T10:00:00' },
     SAN_PEST: { ...record, id: 'san-1', company_name: 'SAN Pest komitent', status: 'INTERESTED', letter_sent_at: '2026-08-21T11:00:00' },
+    SAN_PEST_GERMANY: { ...record, id: 'san-de-1', company_name: 'Njemački DDD', status: 'EMAIL_SENT', letter_sent_at: '2026-08-21T12:00:00' },
     FS_APP: { ...record, id: 'fs-1', company_name: 'FS App komitent', status: 'MEETING_SCHEDULED', letter_sent_at: '2026-08-22T12:00:00' },
     HACCP_PUBLIC: { ...record, id: 'haccp-public-1', company_name: 'Javna ustanova', ownership_type: 'PUBLIC', status: 'EMAIL_SENT', letter_sent_at: '2026-08-23T12:00:00' },
     SAN_PEST_POLAND: { ...record, id: 'san-pl-1', company_name: 'Poljski DDD', status: 'EMAIL_SENT', letter_sent_at: '2026-08-24T12:00:00' },
@@ -306,9 +310,9 @@ test('zbirni PDF preuzima dopise iz svih 9 programa za isti period', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Prikaži poslane dopise od 1. jula' }));
   fireEvent.change(await screen.findByLabelText('Dopis poslan od datuma'), { target: { value: '2026-08-01' } });
   fireEvent.change(screen.getByLabelText('Dopis poslan do datuma'), { target: { value: '2026-08-31' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Preuzmi zajednički PDF izvještaj za svih 9 programa' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preuzmi zajednički PDF izvještaj za svih 10 programa' }));
 
-  for (const brandCode of ['VISIOCAST', 'SAN_PEST', 'FS_APP', 'HACCP_PUBLIC', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN']) {
+  for (const brandCode of ['VISIOCAST', 'SAN_PEST', 'SAN_PEST_GERMANY', 'FS_APP', 'HACCP_PUBLIC', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN']) {
     await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith(brandCode, expect.objectContaining({
       page: 1,
       perPage: 100,
@@ -326,6 +330,7 @@ test('zbirni PDF preuzima dopise iz svih 9 programa za isti period', async () =>
     programs: [
       expect.objectContaining({ brandCode: 'VISIOCAST', records: [sentByBrand.VISIOCAST] }),
       expect.objectContaining({ brandCode: 'SAN_PEST', records: [sentByBrand.SAN_PEST] }),
+      expect.objectContaining({ brandCode: 'SAN_PEST_GERMANY', records: [sentByBrand.SAN_PEST_GERMANY] }),
       expect.objectContaining({ brandCode: 'FS_APP', records: [sentByBrand.FS_APP] }),
       expect.objectContaining({ brandCode: 'HACCP_PUBLIC', records: [sentByBrand.HACCP_PUBLIC] }),
       expect.objectContaining({ brandCode: 'SAN_PEST_POLAND', records: [sentByBrand.SAN_PEST_POLAND] }),
