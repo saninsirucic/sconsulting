@@ -20,6 +20,7 @@ const MAX_CC_RECIPIENTS = 10;
 const DEFAULT_REPORT_RECIPIENT = 'info@s-consulting.ba';
 const DEFAULT_MAX_ATTACHMENT_BYTES = 2500000;
 const SANPEST_ENGLISH_URL = 'https://www.s-consulting.ba/en/sanpest-platform';
+const SANPEST_GERMAN_URL = 'https://www.s-consulting.ba/de/sanpest-plattform';
 const ENGLISH_COMMUNICATION_SENTENCE = 'For any further communication, we would be happy to continue in English.';
 const SANPEST_MAIL_BANNERS = Object.freeze({
   SAN_PEST_POLAND: Object.freeze({
@@ -46,6 +47,11 @@ const SANPEST_MAIL_BANNERS = Object.freeze({
     path: path.join(__dirname, 'assets', 'sanpest-banner-en.png'),
     name: 'SANpest-Banner-EN.png',
     sha256: 'D16725C9838D3617E9EC68ABB0A4483DCFEE9A1D02B2DFEBD18AFD6B7EF87A37'
+  }),
+  SAN_PEST_GERMANY: Object.freeze({
+    path: path.join(__dirname, 'assets', 'sanpest-banner-de.png'),
+    name: 'SANpest-Banner-DE.png',
+    sha256: 'C9DE3C89694ED086D79CC948509E8B9BAC41A0B4563175C248FA943CA95A1264'
   })
 });
 const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
@@ -80,6 +86,12 @@ const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
     greeting: 'Kind regards,',
     title: 'Director | S-Consulting Group',
     address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+  }),
+  SAN_PEST_GERMANY: Object.freeze({
+    greeting: 'Mit freundlichen Grüßen',
+    title: 'Geschäftsführerin | S-Consulting Group',
+    website: 'www.s-consulting.ba/de',
+    address: 'Tvornička 3, Sarajevo, Bosnien und Herzegowina'
   })
 });
 const bannerAttachmentCache = new Map();
@@ -90,6 +102,21 @@ function campaignSignatureForBrand(brand) {
 
 function campaignBodyForBrand(brand, bodyText) {
   const code = String(brand?.code || '').toUpperCase();
+  if (code === 'SAN_PEST_GERMANY') {
+    const source = String(bodyText || '').trim();
+    let html = escapePlainText(source);
+    const link = `<a href="${SANPEST_GERMAN_URL}">${SANPEST_GERMAN_URL}</a>`;
+    if (source.includes(SANPEST_GERMAN_URL)) {
+      html = html.split(SANPEST_GERMAN_URL).join(link);
+    } else {
+      html = [
+        html,
+        '<br><br>Weitere Informationen finden Sie auf unserer deutschsprachigen Seite: ',
+        link
+      ].join('');
+    }
+    return { body: html, bodyType: 'html' };
+  }
   if (!SANPEST_ENGLISH_CAMPAIGN_CODES.has(code)) return { body: String(bodyText || ''), bodyType: 'text' };
   const source = String(bodyText || '').trim();
   const hasClosing = source.endsWith(ENGLISH_COMMUNICATION_SENTENCE);
@@ -2129,6 +2156,7 @@ module.exports = {
   EXCLUDED_CANDIDATE_STATUSES,
   QUEUE_STATUSES,
   SANPEST_ENGLISH_URL,
+  SANPEST_GERMAN_URL,
   SANPEST_MAIL_BANNERS,
   SANPEST_ENGLISH_CAMPAIGN_CODES,
   SANPEST_CAMPAIGN_SIGNATURES,
