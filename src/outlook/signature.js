@@ -20,7 +20,7 @@ export const GERMAN_EMAIL_SIGNATURE = Object.freeze({
 });
 
 export function emailSignatureForBrand(brandCode) {
-  return String(brandCode || '').trim().toUpperCase() === 'SAN_PEST_GERMANY'
+  return ['SAN_PEST_GERMANY', 'SAN_PEST_AUSTRIA'].includes(String(brandCode || '').trim().toUpperCase())
     ? GERMAN_EMAIL_SIGNATURE
     : DEFAULT_EMAIL_SIGNATURE;
 }
