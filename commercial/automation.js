@@ -97,12 +97,13 @@ const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
 const bannerAttachmentCache = new Map();
 
 function campaignSignatureForBrand(brand) {
-  return SANPEST_CAMPAIGN_SIGNATURES[String(brand?.code || '').toUpperCase()];
+  const code = String(brand?.code || '').toUpperCase();
+  return SANPEST_CAMPAIGN_SIGNATURES[code === 'SAN_PEST_AUSTRIA' ? 'SAN_PEST_GERMANY' : code];
 }
 
 function campaignBodyForBrand(brand, bodyText) {
   const code = String(brand?.code || '').toUpperCase();
-  if (code === 'SAN_PEST_GERMANY') {
+  if (code === 'SAN_PEST_GERMANY' || code === 'SAN_PEST_AUSTRIA') {
     const source = String(bodyText || '').trim();
     let html = escapePlainText(source);
     const link = `<a href="${SANPEST_GERMAN_URL}">${SANPEST_GERMAN_URL}</a>`;
@@ -135,7 +136,7 @@ function campaignBodyForBrand(brand, bodyText) {
 
 function bannerAttachmentForBrand(brand) {
   const code = String(brand?.code || '').toUpperCase();
-  const definition = SANPEST_MAIL_BANNERS[code];
+  const definition = SANPEST_MAIL_BANNERS[code === 'SAN_PEST_AUSTRIA' ? 'SAN_PEST_GERMANY' : code];
   if (!definition) return null;
   if (!bannerAttachmentCache.has(code)) {
     const content = fs.readFileSync(definition.path);
