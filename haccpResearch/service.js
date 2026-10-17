@@ -1,6 +1,6 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { httpError } = require('../commercial/service');
-const { CATEGORIES, MUNICIPALITIES, configuration, publicUrl, researchWeb } = require('./provider');
+const { CATEGORIES, MUNICIPALITIES, SOURCE_PLAN, configuration, publicUrl, researchWeb } = require('./provider');
 
 const SETTINGS_ID = 'sarajevo-food';
 const STATUSES = ['NEW', 'READY', 'CONTACTED', 'INTERESTED', 'REJECTED', 'DO_NOT_CONTACT'];
@@ -26,6 +26,7 @@ async function getState(db, config = configuration()) {
   const runs = await db('haccp_research_runs').orderBy('started_at', 'desc').limit(10);
   const totals = await db('haccp_research_leads').select('status').count({ count: '*' }).groupBy('status');
   return {
+    source_plan: SOURCE_PLAN.map(({ id, label, channels }) => ({ id, label, channels })),
     settings: { enabled: Boolean(settings.enabled), interval_hours: settings.interval_hours,
       lookback_days: settings.lookback_days, max_results: settings.max_results,
       next_run_at: iso(settings.next_run_at), last_started_at: iso(settings.last_started_at) },

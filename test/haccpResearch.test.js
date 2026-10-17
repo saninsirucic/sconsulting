@@ -167,15 +167,44 @@ test('provider forces bounded live web search and extracts only with explicit so
   const found = await researchWeb({ settings: defaults, client, config });
   assert.equal(found.leads.length, 1);
   assert.equal(calls[0].tool_choice, 'required');
-  assert.equal(calls[0].max_tool_calls, 8);
+  const searches = calls.filter(c => c.tools);
+  assert.equal(searches.length, 3);
+  assert.equal(searches.reduce((n, c) => n + c.max_tool_calls, 0), 8);
+  assert.deepEqual(searches[1].tools[0].filters.allowed_domains, ['facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'linkedin.com', 'x.com', 'twitter.com']);
+  assert.match(searches[2].instructions, /Google Maps/);
+  assert.match(JSON.parse(searches[2].input).discovery_notes[0].notes, /Test restoran/);
   assert.equal(calls[0].tools[0].external_web_access, true);
   assert.equal(calls[0].store, false);
-  assert.equal(calls[1].store, false);
-  assert.match(calls[1].input, /supplied_sources/);
-  assert.equal(calls[1].text.format.type, 'json_schema');
+  assert.equal(calls[3].store, false);
+  assert.match(calls[3].input, /supplied_sources/);
+  assert.equal(calls[3].text.format.type, 'json_schema');
+  assert.equal(found.sources.length, 2);
+  assert.equal(found.usage.coverage.length, 3);
+  assert.equal(found.usage.search_calls, 3);
+  assert.ok(found.usage.coverage.every(c => c.status === 'COMPLETED'));
   client.responses.create = async () => ({ status: 'completed', output_text: 'Unsourced memory.', output: [] });
   await assert.rejects(researchWeb({ settings: defaults, client, config }), /nije završena/);
   assert.deepEqual(collectSources({ output: [{ type: 'message', content: [{ annotations: [{ type: 'url_citation', url: contactUrl, title: 'Kontakt' }] }] }] }), [{ url: contactUrl, title: 'Kontakt' }]);
+});
+
+test('unavailable social search is reported while usable web evidence survives', async () => {
+  const client = { responses: {
+    create: async request => {
+      if (request.tools[0].filters) throw Object.assign(new Error('secret-provider-key'), { status: 403 });
+      return { id: 'web-id', status: 'completed', output_text: 'Test restoran; javni kontakt.', output: [
+        { type: 'web_search_call', status: 'completed', action: { type: 'search', sources } },
+      ] };
+    },
+    parse: async request => {
+      assert.equal(JSON.parse(request.input).coverage.find(c => c.id === 'social').status, 'UNAVAILABLE');
+      return { id: 'extract-id', status: 'completed', output_parsed: { leads: [rawLead()], notes: 'Ograničeni javni izvori.' } };
+    },
+  } };
+  const found = await researchWeb({ settings: defaults, client, config });
+  assert.equal(found.leads.length, 1);
+  assert.match(found.notes, /Nepotpuna provjera.*Društvene mreže/);
+  assert.equal(found.usage.coverage.find(c => c.id === 'social').source_count, 0);
+  assert.doesNotMatch(JSON.stringify(found), /secret-provider-key/);
 });
 
 test('HTTP routes enforce role and FS_APP access, and return 202 before research completes', async t => {
