@@ -13,6 +13,8 @@ const {
 } = require('./aiEmail/auth');
 const { createAiEmailRouter } = require('./aiEmail/router');
 const { createCommercialRouter } = require('./commercial/router');
+const { createHaccpResearchRouter } = require('./haccpResearch/router');
+const { startScheduler: startHaccpResearchScheduler } = require('./haccpResearch/service');
 const { createOutlookRouter } = require('./outlookMail/router');
 const {
   createLoginAttemptLimiter,
@@ -131,6 +133,7 @@ app.use('/api/commercial', commercialJsonParser, createCommercialRouter({ db }))
 
 // Sve ostale poslovne rute zadržavaju postojeći limit od 1 MB.
 app.use(standardJsonParser);
+app.use('/api/haccp-research', createHaccpResearchRouter({ db }));
 
 // Mail ostaje direktor-only do zasebno odobrene Outlook integracije.
 app.use('/api/ai-email', allowRoles('direktor'), createAiEmailRouter({ db }));
@@ -637,4 +640,4 @@ app.use((error, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✅ Backend server radi na portu ${PORT}`));
+app.listen(PORT, () => { console.log(`✅ Backend server radi na portu ${PORT}`); startHaccpResearchScheduler(db); });

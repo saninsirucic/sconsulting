@@ -6,7 +6,8 @@
     "start": "node index.js",
     "test": "node --test",
     "manage-user": "node scripts/manageUser.js",
-    "commercial-mail:tick": "node scripts/commercialMailTick.js"
+    "commercial-mail:tick": "node scripts/commercialMailTick.js",
+    "haccp-research:tick": "node scripts/haccpResearchTick.js"
   },
   "engines": {
     "node": "20.x",
