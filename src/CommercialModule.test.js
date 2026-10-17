@@ -4,6 +4,8 @@ import CommercialModule, { statusVisual } from './CommercialModule';
 import { commercialApi } from './commercial/api';
 import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 
+jest.mock('./commercial/HaccpResearch', () => () => <div data-testid="haccp-research-panel">Istraživački panel</div>);
+
 jest.mock('./commercial/letterReportPdf', () => ({
   downloadCombinedLetterReportPdf: jest.fn(),
   downloadLetterReportPdf: jest.fn(),
@@ -152,6 +154,20 @@ test('prikazuje deset baza fiksnim redom, uključujući odvojenu SAN Pest bazu z
   fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Bahrain' }));
   expect(await screen.findByText(/Ponuda je pripremljena na engleskom jeziku za tržište Bahreina/)).toBeInTheDocument();
   expect(screen.getByText('10 potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.')).toBeInTheDocument();
+});
+
+test('otvara HACCP istraživanje kroz vidljivo dugme i prikazuje ga samo uz FS App pristup', async () => {
+  const view = renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getByRole('button', { name: 'HACCP istraživanje' }));
+  expect(await screen.findByTestId('haccp-research-panel')).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'HACCP istraživanje' })).toHaveAttribute('aria-selected', 'true');
+  view.unmount();
+  commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'VISIOCAST', name: 'Visiocast', record_count: 1 }] });
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  expect(screen.queryByRole('button', { name: 'HACCP istraživanje' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'HACCP istraživanje' })).not.toBeInTheDocument();
 });
 
 test('omogućava pregled velikih baza kroz kompaktne kolone, sortiranje i izbor broja zapisa', async () => {

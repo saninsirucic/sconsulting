@@ -75,6 +75,7 @@ import {
 } from 'react-icons/fa';
 import { commercialApi } from './commercial/api';
 import CommercialMailAutomation from './commercial/CommercialMailAutomation';
+import HaccpResearch from './commercial/HaccpResearch';
 import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 import MailRecipientsEditor, { normalizeCcEmails } from './commercial/MailRecipientsEditor';
 import {
@@ -2219,6 +2220,7 @@ function mergeBrands(remoteItems, useStaticFallback = false) {
 }
 
 export default function CommercialModule({ user }) {
+  const [activeTab, setActiveTab] = useState(1);
   const [remoteBrands, setRemoteBrands] = useState([]);
   const [brandError, setBrandError] = useState('');
   const [brandsLoading, setBrandsLoading] = useState(true);
@@ -2246,7 +2248,7 @@ export default function CommercialModule({ user }) {
           <HStack><Icon as={FaBuilding} color={orange} boxSize={6} /><Heading size="lg">Komercijalni CRM</Heading></HStack>
           <Text color="gray.600" mt={1}>{BRAND_DEFINITIONS.length} potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.</Text>
         </Box>
-        <HStack><Badge colorScheme="green" px={3} py={2} borderRadius="full">Aktivan profil</Badge><Text fontSize="sm" color="gray.600">{user?.displayName || user?.display_name || user?.username}</Text></HStack>
+        <HStack flexWrap="wrap">{brands.some(brand => brand.code === 'FS_APP') && <Button size="sm" colorScheme="orange" variant="outline" onClick={() => setActiveTab(brands.length + 1)}>HACCP istraživanje</Button>}<Badge colorScheme="green" px={3} py={2} borderRadius="full">Aktivan profil</Badge><Text fontSize="sm" color="gray.600">{user?.displayName || user?.display_name || user?.username}</Text></HStack>
       </Flex>
 
       {brandError && <Box mb={4}><Alert status="warning" borderRadius="lg"><AlertIcon /><AlertDescription>Spisak brendova nije učitan; prikazana je lokalna struktura. {brandError}</AlertDescription></Alert></Box>}
@@ -2254,14 +2256,16 @@ export default function CommercialModule({ user }) {
       {brandsLoading ? <Loading label="Učitavanje dostupnih komercijalnih baza..." /> : brands.length === 0 ? (
         <EmptyState title="Nema dodijeljenih komercijalnih baza" text="Vašem profilu trenutno nije dodijeljen pristup nijednoj komercijalnoj bazi. Obratite se direktoru." />
       ) : (
-        <Tabs colorScheme="orange" variant="enclosed" isLazy defaultIndex={1}>
+        <Tabs colorScheme="orange" variant="enclosed" isLazy index={activeTab} onChange={setActiveTab}>
           <TabList overflowX="auto" overflowY="hidden" sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
             <Tab flexShrink={0} minH="44px" fontWeight="bold"><Icon as={FaCalendarCheck} mr={2} />Kalendar</Tab>
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
+            {brands.some(brand => brand.code === 'FS_APP') && <Tab flexShrink={0} minH="44px" fontWeight="bold">HACCP istraživanje</Tab>}
           </TabList>
           <TabPanels>
             <TabPanel px={{ base: 0, md: 1 }} py={5}><CallCalendar brands={brands} globalRefreshKey={globalRefreshKey} onChanged={() => setGlobalRefreshKey((value) => value + 1)} /></TabPanel>
             {brands.map((brand) => <TabPanel key={brand.code} px={{ base: 0, md: 1 }} py={5}>{brand.ready ? <BrandPanel brand={brand} brands={brands} user={user} globalRefreshKey={globalRefreshKey} onGlobalChanged={() => setGlobalRefreshKey((value) => value + 1)} /> : <WaitingBrand brand={brand} />}</TabPanel>)}
+            {brands.some(brand => brand.code === 'FS_APP') && <TabPanel px={{ base: 0, md: 1 }} py={5}><HaccpResearch user={user} /></TabPanel>}
           </TabPanels>
         </Tabs>
       )}
