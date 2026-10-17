@@ -157,6 +157,22 @@ export default function HaccpResearch({ user }) {
         </Flex>
       </Box>}
 
+      {!!state?.source_plan?.length && <Box as="details" mb={5} p={4} bg="white" border="1px solid" borderColor="gray.200" borderRadius="xl">
+        <Text as="summary" cursor="pointer" fontWeight="semibold">Gdje agent traži · web, društvene mreže i poslovni profili</Text>
+        <SimpleGrid columns={{ base: 1, lg: 3 }} gap={4} mt={4}>
+          {state.source_plan.map(group => {
+            const coverage = lastRun?.usage?.coverage?.find(item => item.id === group.id);
+            return <Box key={group.id}>
+              <Text fontWeight="semibold">{group.label}</Text>
+              <Text fontSize="sm" color="gray.600" mt={1}>{group.channels.join(', ')}</Text>
+              {coverage && <Box mt={2}><Badge colorScheme={coverage.status === 'COMPLETED' ? 'green' : 'yellow'}>{coverage.status === 'COMPLETED' ? 'Pretraga izvršena' : 'Pretraga nedostupna'}</Badge>
+                <Text fontSize="xs" mt={1} overflowWrap="anywhere">Izvori iz zadnje provjere: {coverage.domains?.length ? `${coverage.domains.slice(0, 12).join(', ')}${coverage.domains.length > 12 ? ` i još ${coverage.domains.length - 12}` : ''}` : 'nema dostupnih izvora'}</Text></Box>}
+            </Box>;
+          })}
+        </SimpleGrid>
+        <Text fontSize="sm" color="gray.600" mt={3}>Ovo su ciljani izvori. Agent pretražuje javno dostupne i indeksirane stranice; ne vidi privatne profile, zatvorene grupe ni objave koje traže prijavu. Izvršena pretraga ne znači da su sve objave ili sve platforme bile dostupne. Google Maps se provjerava putem javnih web rezultata.</Text>
+      </Box>}
+
       {lastRun && <Box mb={5} fontSize="sm"><Text>Zadnja provjera: {dateTime(lastRun.started_at)} · <strong>{RUN_LABELS[lastRun.status]}</strong>{lastRun.status === 'COMPLETED' && ` · ${lastRun.new_count} novih, ${lastRun.updated_count} dopunjenih, ${lastRun.skipped_count} izostavljenih`}</Text>{lastRun.error && <Text color="red.700" mt={1}>{lastRun.error}</Text>}{lastRun.notes && <Text color="gray.600" mt={1}>{lastRun.notes}</Text>}</Box>}
 
       <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} gap={3} mb={4}>

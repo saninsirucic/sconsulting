@@ -60,3 +60,18 @@ test('starts a background run and edits notes without sending email', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj napomenu' }));
   await waitFor(() => expect(researchApi.updateLead).toHaveBeenCalledWith('one', { notes: 'Nazvati u ponedjeljak.' }));
 });
+
+test('distinguishes planned platforms from unavailable searches and actual source domains', async () => {
+  researchApi.state.mockResolvedValue({ ...state,
+    source_plan: [{ id: 'web', label: 'Portali i web', channels: ['Klix'] }, { id: 'social', label: 'Društvene mreže', channels: ['Facebook', 'Instagram', 'TikTok'] }],
+    runs: [{ id: 'last', status: 'COMPLETED', new_count: 0, updated_count: 0, skipped_count: 0, usage: { coverage: [
+      { id: 'web', status: 'COMPLETED', domains: ['klix.ba'] }, { id: 'social', status: 'UNAVAILABLE', domains: [] },
+    ] } }],
+  });
+  renderPanel();
+  fireEvent.click(await screen.findByText(/Gdje agent traži/));
+  expect(screen.getByText('Facebook, Instagram, TikTok')).toBeInTheDocument();
+  expect(screen.getByText('Pretraga nedostupna')).toBeInTheDocument();
+  expect(screen.getByText('Izvori iz zadnje provjere: klix.ba')).toBeInTheDocument();
+  expect(screen.getByText(/ne vidi privatne profile/)).toBeInTheDocument();
+});
