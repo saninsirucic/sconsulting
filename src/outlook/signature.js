@@ -19,8 +19,19 @@ export const GERMAN_EMAIL_SIGNATURE = Object.freeze({
   address: 'Tvornička 3, Sarajevo, Bosnien und Herzegowina',
 });
 
+const SANIN_ENGLISH_EMAIL_SIGNATURE = Object.freeze({
+  ...DEFAULT_EMAIL_SIGNATURE,
+  greeting: 'Kind regards,',
+  name: 'Sanin Siručić',
+  title: 'CEO | S-Consulting Group',
+  mobile: '+387 62 366 515 (Viber / WhatsApp)',
+  address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina',
+});
+
 export function emailSignatureForBrand(brandCode) {
-  return ['SAN_PEST_GERMANY', 'SAN_PEST_AUSTRIA'].includes(String(brandCode || '').trim().toUpperCase())
+  const code = String(brandCode || '').trim().toUpperCase();
+  if (code === 'SAN_PEST_SINGAPORE_MALAYSIA') return SANIN_ENGLISH_EMAIL_SIGNATURE;
+  return ['SAN_PEST_GERMANY', 'SAN_PEST_AUSTRIA'].includes(code)
     ? GERMAN_EMAIL_SIGNATURE
     : DEFAULT_EMAIL_SIGNATURE;
 }
