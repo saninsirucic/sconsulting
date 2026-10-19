@@ -1246,7 +1246,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (sentFrom) params.sentFrom = sentFrom;
     if (sentTo) params.sentTo = sentTo;
     const normalizedBrandCode = normalizeBrandCode(brandCode);
-    if (['VISIOCAST', 'SAN_PEST_GERMANY', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN'].includes(normalizedBrandCode) && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
+    if (['VISIOCAST', 'SAN_PEST_GERMANY', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN', 'SAN_PEST_SINGAPORE_MALAYSIA'].includes(normalizedBrandCode) && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'SAN_PEST' && dimensionFilters.length) params.countries = JSON.stringify(dimensionFilters);
     if (['FS_APP', 'HACCP_PUBLIC'].includes(normalizedBrandCode) && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'FS_APP' && ownershipType) params.ownershipType = ownershipType;
@@ -1489,7 +1489,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const normalizedBrandCode = normalizeBrandCode(brandCode);
   const isFsApp = normalizedBrandCode === 'FS_APP';
   const isHaccpPublic = normalizedBrandCode === 'HACCP_PUBLIC';
-  const isInternationalSanPest = ['SAN_PEST_GERMANY', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN'].includes(normalizedBrandCode);
+  const isInternationalSanPest = ['SAN_PEST_GERMANY', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN', 'SAN_PEST_SINGAPORE_MALAYSIA'].includes(normalizedBrandCode);
   const showOwnership = isFsApp || isHaccpPublic;
   const dimensionConfig = normalizedBrandCode === 'VISIOCAST'
     ? { ariaLabel: 'Filter po gradu', placeholder: 'Svi gradovi', options: data.filters?.locations || [] }

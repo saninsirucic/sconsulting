@@ -90,6 +90,13 @@ export const BRAND_DEFINITIONS = [
     mailSubjectPlaceholder: 'Email subject in English',
     ready: false,
   },
+  {
+    code: 'SAN_PEST_SINGAPORE_MALAYSIA',
+    slug: 'san-pest-singapur-malezija',
+    name: 'SAN Pest Singapur i Malezija',
+    subtitle: 'Zajednička baza za Singapur i Maleziju, uključujući partnere i dobavljače',
+    ready: false,
+  },
 ];
 
 export const CRM_STATUSES = [
