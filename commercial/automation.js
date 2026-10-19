@@ -62,6 +62,13 @@ const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
   'SAN_PEST_BAHRAIN'
 ]);
 const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
+  SAN_PEST_SINGAPORE_MALAYSIA: Object.freeze({
+    greeting: 'Kind regards,',
+    name: 'Sanin Siručić',
+    title: 'CEO | S-Consulting Group',
+    mobile: '+387 62 366 515 (Viber / WhatsApp)',
+    address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+  }),
   SAN_PEST_POLAND: Object.freeze({
     greeting: 'Z poważaniem,',
     title: 'Dyrektor | S-Consulting Group',
