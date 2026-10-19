@@ -2257,7 +2257,7 @@ export default function CommercialModule({ user }) {
         <EmptyState title="Nema dodijeljenih komercijalnih baza" text="Vašem profilu trenutno nije dodijeljen pristup nijednoj komercijalnoj bazi. Obratite se direktoru." />
       ) : (
         <Tabs colorScheme="orange" variant="enclosed" isLazy index={activeTab} onChange={setActiveTab}>
-          <TabList overflowX="auto" overflowY="hidden" sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
+          <TabList aria-label="Prodajne baze" flexWrap="wrap" gap={1} pb={2} sx={{ '& > [role="tab"]': { maxWidth: '100%', marginBottom: 0 } }}>
             <Tab flexShrink={0} minH="44px" fontWeight="bold"><Icon as={FaCalendarCheck} mr={2} />Kalendar</Tab>
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
             {brands.some(brand => brand.code === 'FS_APP') && <Tab flexShrink={0} minH="44px" fontWeight="bold">HACCP istraživanje</Tab>}
