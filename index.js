@@ -16,6 +16,7 @@ const { createCommercialRouter } = require('./commercial/router');
 const { createHaccpResearchRouter } = require('./haccpResearch/router');
 const { startScheduler: startHaccpResearchScheduler } = require('./haccpResearch/service');
 const { createOutlookRouter } = require('./outlookMail/router');
+const { createUnsubscribeRouter } = require('./commercial/unsubscribe');
 const {
   createLoginAttemptLimiter,
   limiterOptionsFromEnv,
@@ -66,6 +67,9 @@ const corsOptions = {
   },
   optionsSuccessStatus: 200
 };
+
+// Public opt-out page must work without a CRM login, including same-origin form POST.
+app.use('/unsubscribe', createUnsubscribeRouter({ db }));
 
 // PRVO postavi cors middleware
 app.use(cors(corsOptions));
@@ -126,7 +130,7 @@ app.post(
 app.use('/api', authenticateRequest, refreshAuthenticatedUser(db), requirePasswordChangeCompleted);
 
 // Outlook ima vlastiti, veći JSON parser tek iza JWT zaštite zbog base64 priloga.
-app.use('/api/outlook', createOutlookRouter());
+app.use('/api/outlook', createOutlookRouter({ db }));
 
 // Komercijala prima jedan trajni base64 prilog do 2,5 MB, tek iza JWT zaštite.
 app.use('/api/commercial', commercialJsonParser, createCommercialRouter({ db }));

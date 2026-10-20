@@ -1369,7 +1369,7 @@ function dailyReportMessage(brand, report) {
 async function sendDailyReport(db, brand, settings, options = {}) {
   const now = options.now || new Date();
   const date = options.date || businessDate('Europe/Sarajevo', now);
-  const outlook = options.outlookService || createOutlookService();
+  const outlook = options.outlookService || createOutlookService({ db });
   assertOutlookReady(outlook);
   const claimed = await claimDailyReport(db, brand, settings, date, now);
   if (!claimed) return { sent: false, reason: 'Dnevni izvještaj je već obrađen.' };
@@ -1671,7 +1671,7 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
   const identifier = String(accountId || '').trim();
   if (!identifier) throw httpError(400, 'Komitent je obavezan.', 'ACCOUNT_ID_REQUIRED');
   const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
-  const outlook = options.outlookService || createOutlookService();
+  const outlook = options.outlookService || createOutlookService({ db });
   assertOutlookReady(outlook);
   const nowProvider = typeof options.now === 'function' ? options.now : () => (options.now || new Date());
   await markStaleClaims(db, brand.id, new Date(nowProvider()));
@@ -1918,7 +1918,7 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
   const ids = [...new Set((Array.isArray(accountIds) ? accountIds : []).map((value) => String(value || '').trim()).filter(Boolean))];
   if (!ids.length) throw httpError(400, 'Označite najmanje jednog kandidata.', 'CAMPAIGN_SELECTION_REQUIRED');
   const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
-  const outlook = options.outlookService || createOutlookService();
+  const outlook = options.outlookService || createOutlookService({ db });
   assertOutlookReady(outlook);
   const nowProvider = typeof options.now === 'function' ? options.now : () => (options.now || new Date());
   const firstNow = new Date(nowProvider());
@@ -1979,7 +1979,7 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
 async function sendNextScheduledMail(db, brand, options = {}) {
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-scheduler', username: 'Zakazano slanje' };
-  const outlook = options.outlookService || createOutlookService();
+  const outlook = options.outlookService || createOutlookService({ db });
   assertOutlookReady(outlook);
   await markStaleClaims(db, brand.id, now);
   const claimed = await claimNextScheduled(db, brand, now);
@@ -2017,7 +2017,7 @@ async function sendNextScheduledMail(db, brand, options = {}) {
 async function sendNextAutomatedMail(db, brand, options = {}) {
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-bot', username: 'Automatska komercijala' };
-  const outlook = options.outlookService || createOutlookService();
+  const outlook = options.outlookService || createOutlookService({ db });
   assertOutlookReady(outlook);
   await markStaleClaims(db, brand.id, now);
   const claimed = await claimNext(db, brand, now, { ignoreInterval: options.ignoreInterval === true });
@@ -2054,7 +2054,7 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
 
 async function runAutomationTick(db, options = {}) {
   const now = options.now || new Date();
-  const outlook = options.outlookService || createOutlookService();
+  const outlook = options.outlookService || createOutlookService({ db });
   const { weekday, time } = sarajevoParts(now);
   const date = businessDate('Europe/Sarajevo', now);
   const scheduledRows = await db({ q: 'crm_mail_queue' })

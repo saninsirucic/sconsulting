@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const sanitizeHtml = require('sanitize-html');
 const { OutlookError, createGraphClient, createOutlookConfig } = require('./graphClient');
 const { appendAutomaticSignature, escapePlainText } = require('./signature');
+const { assertRecipientsNotSuppressed } = require('../commercial/unsubscribe');
 
 const FOLDERS = Object.freeze({
   inbox: 'Inbox',
@@ -484,9 +485,16 @@ function createOutlookService(options = {}) {
     }
   }
 
-  async function sendDraft(draft, attachments) {
+  async function checkSuppression(recipients) {
+    if (options.db) {
+      await assertRecipientsNotSuppressed(options.db, recipients.map((recipient) => recipient.emailAddress?.address));
+    }
+  }
+
+  async function sendDraft(draft, attachments, recipients = []) {
     const draftId = validateId(draft.id, 'ID nacrta');
     await addAttachments(draftId, attachments);
+    await checkSuppression(recipients);
     await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(draftId)}/send`), { method: 'POST', idempotent: false });
     return { success: true, accepted: true, id: draftId, conversationId: draft.conversationId || null };
   }
@@ -504,8 +512,10 @@ function createOutlookService(options = {}) {
       ccRecipients: normalizeRecipients(payload.cc),
       bccRecipients: normalizeRecipients(payload.bcc)
     };
+    const recipients = [...message.toRecipients, ...message.ccRecipients, ...message.bccRecipients];
+    await checkSuppression(recipients);
     const { data: draft } = await graph.request(graph.mailboxPath('/messages'), { method: 'POST', body: message, idempotent: false });
-    return sendDraft(draft, attachments);
+    return sendDraft(draft, attachments, recipients);
   }
 
   async function respond(kind, id, payload = {}) {
@@ -520,6 +530,9 @@ function createOutlookService(options = {}) {
     else if (payload.to !== undefined) badRequest('Polje to nije dozvoljeno za reply akciju.');
     const requestedCc = payload.cc !== undefined ? normalizeRecipients(payload.cc) : undefined;
     const requestedBcc = payload.bcc !== undefined ? normalizeRecipients(payload.bcc) : undefined;
+    const forwardRecipients = kind === 'forward'
+      ? [...requestedTo, ...(requestedCc || []), ...(requestedBcc || [])] : [];
+    if (kind === 'forward') await checkSuppression(forwardRecipients);
     const { data: draft } = await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}/${action}`), {
       method: 'POST', body: {}, idempotent: false
     });
@@ -542,7 +555,7 @@ function createOutlookService(options = {}) {
     const { data: updatedDraft } = await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(validateId(draft.id, 'ID nacrta'))}`), {
       method: 'PATCH', body: patch, idempotent: false
     });
-    return sendDraft(updatedDraft || draft, attachments);
+    return sendDraft(updatedDraft || draft, attachments, forwardRecipients);
   }
 
   return {
