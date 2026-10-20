@@ -3,7 +3,7 @@ const sanitizeHtml = require('sanitize-html');
 const { OutlookError, createGraphClient, createOutlookConfig } = require('./graphClient');
 const { appendAutomaticSignature, escapePlainText } = require('./signature');
 const { assertRecipientsNotSuppressed } = require('../commercial/unsubscribe');
-const { renderUsaEmail, BANNER_CID } = require('../commercial/usaMail');
+const { renderUsaEmail, BANNER_NAME } = require('../commercial/usaMail');
 
 const FOLDERS = Object.freeze({
   inbox: 'Inbox',
@@ -521,8 +521,8 @@ function createOutlookService(options = {}) {
     const signature = normalizeEditableSignature(payload.signature);
     if (payload.layout === 'sanpest-usa' && (
       body.contentType !== 'HTML'
-      || !attachments.some((attachment) => attachment.isInline && attachment.contentId === BANNER_CID)
-    )) badRequest('USA predložak zahtijeva HTML i ugrađeni SANpest banner.', 'OUTLOOK_INVALID_LAYOUT');
+      || !attachments.some((attachment) => !attachment.isInline && attachment.name === BANNER_NAME && attachment.contentType === 'image/png')
+    )) badRequest('USA predložak zahtijeva HTML i SANpest sliku kao prilog.', 'OUTLOOK_INVALID_LAYOUT');
     const message = {
       subject,
       body: payload.layout === 'sanpest-usa'

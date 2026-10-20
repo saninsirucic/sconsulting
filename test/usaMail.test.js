@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { campaignBodyForBrand, campaignSignatureForBrand, campaignAttachmentsForBrand } = require('../commercial/automation');
-const { DISCLOSURE, UNSUBSCRIBE, POSTAL_ADDRESS, BANNER_CID } = require('../commercial/usaMail');
+const { DISCLOSURE, UNSUBSCRIBE, POSTAL_ADDRESS, BANNER_NAME } = require('../commercial/usaMail');
 const { createOutlookService, normalizeAttachments } = require('../outlookMail/service');
 const { createOutlookConfig } = require('../outlookMail/graphClient');
 const { SIGNATURE_MARKER } = require('../outlookMail/signature');
@@ -19,7 +19,7 @@ test('USA offers retain disclosure, full opt-out and address after editing, esca
   assert.equal(signature.email, 'sales@s-consulting.ba');
 });
 
-test('USA send embeds the exact provided banner, retains safe layout and includes one signature and opt-out', async () => {
+test('USA sends the exact provided image as a regular attachment with no inline banner and retains signature and opt-out', async () => {
   const brand = { code: 'SAN_PEST_USA' };
   const attachments = campaignAttachmentsForBrand(brand);
   const calls = [];
@@ -42,7 +42,8 @@ test('USA send embeds the exact provided banner, retains safe layout and include
   });
   assert.equal(calls.length, 3);
   const html = calls[0].options.body.body.content;
-  assert.match(html, new RegExp(`src="cid:${BANNER_CID}"`));
+  assert.doesNotMatch(html, /src="cid:/);
+  assert.doesNotMatch(html, /Your operation\. Connected/);
   assert.match(html, /max-width:720px/);
   assert.match(html, /<ul style=/);
   assert.doesNotMatch(html, /<script/);
@@ -50,8 +51,9 @@ test('USA send embeds the exact provided banner, retains safe layout and include
   assert.equal(html.split('Unsubscribe:').length - 1, 1);
   assert.ok(html.indexOf('Unsubscribe:') > html.indexOf(SIGNATURE_MARKER));
   assert.equal(calls[1].url, '/messages/usa-layout-draft/attachments');
-  assert.equal(calls[1].options.body.isInline, true);
-  assert.equal(calls[1].options.body.contentId, BANNER_CID);
+  assert.equal(calls[1].options.body.name, BANNER_NAME);
+  assert.notEqual(calls[1].options.body.isInline, true);
+  assert.equal(calls[1].options.body.contentId, undefined);
   assert.equal(calls[1].options.body.contentBytes, attachments[0].contentBytes);
   assert.equal(calls[2].url, '/messages/usa-layout-draft/send');
   assert.equal(require('node:crypto').createHash('sha256').update(Buffer.from(attachments[0].contentBytes, 'base64')).digest('hex'),
@@ -60,7 +62,7 @@ test('USA send embeds the exact provided banner, retains safe layout and include
 
 test('missing banner and invalid inline metadata are rejected before sending', async () => {
   const config = { ...createOutlookConfig({}), writeEnabled: true };
-  const attachment = campaignAttachmentsForBrand({ code: 'SAN_PEST_USA' })[0];
+  const attachment = { ...campaignAttachmentsForBrand({ code: 'SAN_PEST_USA' })[0], isInline: true, contentId: 'test-inline-image' };
   for (const invalid of [
     { ...attachment, contentId: 'bad"><script>' },
     { ...attachment, contentType: 'text/html' },
