@@ -6,7 +6,7 @@ const { createOutlookService } = require('../outlookMail/service');
 const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
-const { usaCampaignBody } = require('./usaMail');
+const { usaCampaignBody, BANNER_CID } = require('./usaMail');
 
 const QUEUE_STATUSES = new Set([
   'PENDING', 'APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
@@ -24,6 +24,12 @@ const SANPEST_ENGLISH_URL = 'https://www.s-consulting.ba/en/sanpest-platform';
 const SANPEST_GERMAN_URL = 'https://www.s-consulting.ba/de/sanpest-plattform';
 const ENGLISH_COMMUNICATION_SENTENCE = 'For any further communication, we would be happy to continue in English.';
 const SANPEST_MAIL_BANNERS = Object.freeze({
+  SAN_PEST_USA: Object.freeze({
+    path: path.join(__dirname, 'assets', 'sanpest-usa-email-20261020.png'),
+    name: 'SANpest-EN-email.png',
+    sha256: '1B1E47295A2D9809894DEB4EC63CE8FEE0266F5344BEE351E87188BCB36C865D',
+    contentId: BANNER_CID
+  }),
   SAN_PEST_POLAND: Object.freeze({
     path: path.join(__dirname, 'assets', 'sanpest-banner-pl.png'),
     name: 'SANpest-Banner-PL.png',
@@ -165,7 +171,8 @@ function bannerAttachmentForBrand(brand) {
       name: definition.name,
       contentType: 'image/png',
       size: content.length,
-      contentBytes: content.toString('base64')
+      contentBytes: content.toString('base64'),
+      ...(definition.contentId ? { isInline: true, contentId: definition.contentId } : {})
     }));
   }
   return bannerAttachmentCache.get(code);

@@ -3,6 +3,7 @@ const sanitizeHtml = require('sanitize-html');
 const { OutlookError, createGraphClient, createOutlookConfig } = require('./graphClient');
 const { appendAutomaticSignature, escapePlainText } = require('./signature');
 const { assertRecipientsNotSuppressed } = require('../commercial/unsubscribe');
+const { renderUsaEmail, BANNER_CID } = require('../commercial/usaMail');
 
 const FOLDERS = Object.freeze({
   inbox: 'Inbox',
@@ -182,7 +183,7 @@ function safeFilename(value) {
 
 function parseAttachment(input, config) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) badRequest('Prilog nije važeći.', 'OUTLOOK_INVALID_ATTACHMENT');
-  assertPayloadKeys(input, ['name', 'contentType', 'size', 'contentBytes']);
+  assertPayloadKeys(input, ['name', 'contentType', 'size', 'contentBytes', 'isInline', 'contentId']);
   const name = safeFilename(input.name);
   const contentType = String(input.contentType || 'application/octet-stream').trim().toLowerCase();
   if (!contentType || contentType.length > 100 || /[\r\n]/.test(contentType)) badRequest('Tip priloga nije važeći.', 'OUTLOOK_INVALID_ATTACHMENT');
@@ -198,12 +199,20 @@ function parseAttachment(input, config) {
     });
   }
   if (input.size !== undefined && Number(input.size) !== bytes.length) badRequest('Veličina priloga ne odgovara sadržaju.', 'OUTLOOK_INVALID_ATTACHMENT');
+  if (input.isInline !== undefined && typeof input.isInline !== 'boolean') badRequest('Inline prilog mora imati boolean isInline.', 'OUTLOOK_INVALID_ATTACHMENT');
+  if (input.isInline === true && (
+    !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(contentType)
+    || typeof input.contentId !== 'string'
+    || !/^[a-z0-9][a-z0-9._@-]{0,127}$/i.test(input.contentId)
+  )) badRequest('Inline slika mora imati ispravan tip i contentId.', 'OUTLOOK_INVALID_ATTACHMENT');
+  if (input.isInline !== true && input.contentId !== undefined) badRequest('contentId je dozvoljen samo za inline sliku.', 'OUTLOOK_INVALID_ATTACHMENT');
   return {
     '@odata.type': '#microsoft.graph.fileAttachment',
     name,
     contentType,
     contentBytes: bytes.toString('base64'),
-    size: bytes.length
+    size: bytes.length,
+    ...(input.isInline === true ? { isInline: true, contentId: input.contentId } : {})
   };
 }
 
@@ -214,6 +223,8 @@ function normalizeAttachments(value, config) {
     throw new OutlookError(`Dozvoljeno je najviše ${config.maxAttachments} priloga.`, { status: 413, code: 'OUTLOOK_TOO_MANY_ATTACHMENTS' });
   }
   const attachments = value.map((item) => parseAttachment(item, config));
+  const inlineIds = attachments.filter((item) => item.isInline).map((item) => item.contentId);
+  if (new Set(inlineIds).size !== inlineIds.length) badRequest('Inline slike moraju imati različite contentId vrijednosti.', 'OUTLOOK_INVALID_ATTACHMENT');
   const total = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
   if (total > config.maxTotalAttachmentBytes) {
     throw new OutlookError(`Prilozi ukupno mogu imati najviše ${config.maxTotalAttachmentBytes} bajtova.`, {
@@ -501,13 +512,22 @@ function createOutlookService(options = {}) {
 
   async function send(payload = {}) {
     requireWrites(config);
-    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'subject', 'body', 'bodyType', 'contentType', 'attachments', 'signature']);
+    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'subject', 'body', 'bodyType', 'contentType', 'attachments', 'signature', 'layout']);
     const subject = String(payload.subject || '').trim();
     if (!subject || subject.length > 255 || /[\r\n]/.test(subject)) badRequest('Naslov poruke je obavezan i može imati najviše 255 znakova.');
     const attachments = normalizeAttachments(payload.attachments, config);
+    if (payload.layout !== undefined && payload.layout !== 'sanpest-usa') badRequest('Predložak poruke nije podržan.', 'OUTLOOK_INVALID_LAYOUT');
+    const body = normalizeBody(payload);
+    const signature = normalizeEditableSignature(payload.signature);
+    if (payload.layout === 'sanpest-usa' && (
+      body.contentType !== 'HTML'
+      || !attachments.some((attachment) => attachment.isInline && attachment.contentId === BANNER_CID)
+    )) badRequest('USA predložak zahtijeva HTML i ugrađeni SANpest banner.', 'OUTLOOK_INVALID_LAYOUT');
     const message = {
       subject,
-      body: appendAutomaticSignature(normalizeBody(payload), normalizeEditableSignature(payload.signature)),
+      body: payload.layout === 'sanpest-usa'
+        ? { contentType: 'HTML', content: renderUsaEmail(body.content, signature) }
+        : appendAutomaticSignature(body, signature),
       toRecipients: normalizeRecipients(payload.to, { required: true }),
       ccRecipients: normalizeRecipients(payload.cc),
       bccRecipients: normalizeRecipients(payload.bcc)
