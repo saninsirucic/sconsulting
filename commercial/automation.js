@@ -6,6 +6,7 @@ const { createOutlookService } = require('../outlookMail/service');
 const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
+const { usaCampaignBody } = require('./usaMail');
 
 const QUEUE_STATUSES = new Set([
   'PENDING', 'APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
@@ -62,6 +63,14 @@ const SANPEST_ENGLISH_CAMPAIGN_CODES = new Set([
   'SAN_PEST_BAHRAIN'
 ]);
 const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
+  SAN_PEST_USA: Object.freeze({
+    greeting: 'Kind regards,',
+    name: 'Sanin Siručić',
+    title: 'CEO | S-Consulting Group',
+    mobile: '+387 62 366 515 (Viber / WhatsApp)',
+    email: 'sales@s-consulting.ba',
+    address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
+  }),
   SAN_PEST_SINGAPORE_MALAYSIA: Object.freeze({
     greeting: 'Kind regards,',
     name: 'Sanin Siručić',
@@ -110,6 +119,7 @@ function campaignSignatureForBrand(brand) {
 
 function campaignBodyForBrand(brand, bodyText) {
   const code = String(brand?.code || '').toUpperCase();
+  if (code === 'SAN_PEST_USA') return usaCampaignBody(bodyText);
   if (code === 'SAN_PEST_GERMANY' || code === 'SAN_PEST_AUSTRIA') {
     const source = String(bodyText || '').trim();
     let html = escapePlainText(source);
