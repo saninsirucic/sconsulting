@@ -72,7 +72,7 @@ const SANPEST_CAMPAIGN_SIGNATURES = Object.freeze({
     greeting: 'Kind regards,',
     name: 'Sanin Siručić',
     title: 'CEO | S-Consulting Group',
-    mobile: '+387 62 366 515 (Viber / WhatsApp)',
+    mobile: '+387 62 528 870 (Viber / WhatsApp)',
     email: 'sales@s-consulting.ba',
     address: 'Tvornička 3, Sarajevo, Bosnia and Herzegovina'
   }),
