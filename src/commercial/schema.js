@@ -102,7 +102,7 @@ export const BRAND_DEFINITIONS = [
     slug: 'san-pest-usa',
     name: 'SAN Pest USA',
     subtitle: 'Američka baza sa sačuvanim izvorima i provjerom kontakata',
-    mailDescription: 'Engleska ponuda s oznakom reklame, poštanskom adresom i odjavom na sales@s-consulting.ba. Pristigle odjave treba odmah unijeti u centralnu listu zabrane slanja, najkasnije za 10 radnih dana. Sandučić mora primati odjave najmanje 30 dana nakon slanja. P1 označava objavu i MX, ne saglasnost ni pravnu provjeru izvora.',
+    mailDescription: 'Engleska ponuda s oznakom reklame, poštanskom adresom i linkom na obrazac odjave. Odjava putem obrasca odmah blokira adresu u svim marketinškim kampanjama i prikazuje zahvalu. Odjave pristigle odgovorom na sales@s-consulting.ba treba ručno evidentirati, najkasnije za 10 radnih dana. P1 označava objavu i MX, ne saglasnost ni pravnu provjeru izvora.',
     mailFormTitle: 'SANpest ponuda – USA',
     mailSubjectPlaceholder: 'Accurate email subject in English',
     ready: false,
