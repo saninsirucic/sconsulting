@@ -97,6 +97,16 @@ export const BRAND_DEFINITIONS = [
     subtitle: 'Zajednička baza za Singapur i Maleziju, uključujući partnere i dobavljače',
     ready: false,
   },
+  {
+    code: 'SAN_PEST_USA',
+    slug: 'san-pest-usa',
+    name: 'SAN Pest USA',
+    subtitle: 'Američka baza sa sačuvanim izvorima i provjerom kontakata',
+    mailDescription: 'Engleska ponuda s oznakom reklame, poštanskom adresom i odjavom na sales@s-consulting.ba. Pristigle odjave treba odmah unijeti u centralnu listu zabrane slanja, najkasnije za 10 radnih dana. Sandučić mora primati odjave najmanje 30 dana nakon slanja. P1 označava objavu i MX, ne saglasnost ni pravnu provjeru izvora.',
+    mailFormTitle: 'SANpest ponuda – USA',
+    mailSubjectPlaceholder: 'Accurate email subject in English',
+    ready: false,
+  },
 ];
 
 export const CRM_STATUSES = [

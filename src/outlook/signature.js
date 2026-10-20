@@ -30,6 +30,7 @@ const SANIN_ENGLISH_EMAIL_SIGNATURE = Object.freeze({
 
 export function emailSignatureForBrand(brandCode) {
   const code = String(brandCode || '').trim().toUpperCase();
+  if (code === 'SAN_PEST_USA') return { ...SANIN_ENGLISH_EMAIL_SIGNATURE, email: 'sales@s-consulting.ba' };
   if (code === 'SAN_PEST_SINGAPORE_MALAYSIA') return SANIN_ENGLISH_EMAIL_SIGNATURE;
   return ['SAN_PEST_GERMANY', 'SAN_PEST_AUSTRIA'].includes(code)
     ? GERMAN_EMAIL_SIGNATURE
