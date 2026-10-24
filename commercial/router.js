@@ -1,5 +1,9 @@
 const express = require('express');
+const multer = require('multer');
 const { allowRoles } = require('../aiEmail/auth');
+const {
+  MAX_FILE_BYTES, requireImportBrand, previewAccountImport, commitAccountImport
+} = require('./accountImport');
 const {
   getAutomationState,
   importApprovedDailyAssignments,
@@ -51,6 +55,35 @@ function createCommercialRouter({ db, outlookService }) {
     req.params.code || req.query.brand,
     { write }
   );
+
+  const importUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_FILE_BYTES, files: 1, fields: 0, parts: 2 },
+    fileFilter: (req, file, next) => next(/\.xlsx$/i.test(file.originalname)
+      ? null : httpError(400, 'Podržane su samo XLSX datoteke.', 'IMPORT_FILE_INVALID'), true)
+  }).single('file');
+  const authorizeImport = asyncRoute(async (req, res, next) => {
+    req.importBrand = await getBrand(req, true);
+    requireImportBrand(req.importBrand);
+    next();
+  });
+  const uploadImport = (req, res, next) => importUpload(req, res, (error) => {
+    if (error && error.code === 'LIMIT_FILE_SIZE') {
+      return next(httpError(413, 'XLSX datoteka smije imati najviše 5 MB.', 'IMPORT_FILE_TOO_LARGE'));
+    }
+    if (error && error.name === 'MulterError') error.status = 400;
+    return next(error);
+  });
+
+  // Authorize the brand before multer reads any uploaded file into memory.
+  router.post('/brands/:code/accounts/import/preview', authorizeImport, uploadImport,
+    asyncRoute(async (req, res) => {
+      res.json(await previewAccountImport(db, req.importBrand, req.user, req.file));
+    }));
+  router.post('/brands/:code/accounts/import/commit', authorizeImport,
+    asyncRoute(async (req, res) => {
+      res.json(await commitAccountImport(db, req.importBrand, req.user, req.body && req.body.import_token));
+    }));
 
   const getAccount = async (req, write = false) => {
     const account = await accountWithBrand(db, req.params.id);

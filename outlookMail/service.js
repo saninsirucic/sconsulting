@@ -4,6 +4,7 @@ const { OutlookError, createGraphClient, createOutlookConfig } = require('./grap
 const { appendAutomaticSignature, escapePlainText } = require('./signature');
 const { assertRecipientsNotSuppressed } = require('../commercial/unsubscribe');
 const { renderUsaEmail, BANNER_NAME } = require('../commercial/usaMail');
+const { defaultSignatureForMailbox } = require('./mailboxScope');
 
 const FOLDERS = Object.freeze({
   inbox: 'Inbox',
@@ -329,7 +330,7 @@ function decodeCursor(cursor, secret, context, graphClient) {
 }
 
 function createOutlookService(options = {}) {
-  const config = options.config || createOutlookConfig(options.env);
+  const config = options.config || createOutlookConfig(options.env, { mailbox: options.mailbox });
   const graph = options.graphClient || createGraphClient({ ...options, config });
   const now = options.now || Date.now;
   const folderCache = new Map();
@@ -518,7 +519,7 @@ function createOutlookService(options = {}) {
     const attachments = normalizeAttachments(payload.attachments, config);
     if (payload.layout !== undefined && payload.layout !== 'sanpest-usa') badRequest('Predložak poruke nije podržan.', 'OUTLOOK_INVALID_LAYOUT');
     const body = normalizeBody(payload);
-    const signature = normalizeEditableSignature(payload.signature);
+    const signature = normalizeEditableSignature(payload.signature || defaultSignatureForMailbox(config.mailbox));
     if (payload.layout === 'sanpest-usa' && (
       body.contentType !== 'HTML'
       || !attachments.some((attachment) => !attachment.isInline && attachment.name === BANNER_NAME && attachment.contentType === 'image/png')
@@ -544,7 +545,7 @@ function createOutlookService(options = {}) {
     const messageId = validateId(id, 'ID poruke');
     const action = kind === 'reply-all' ? 'createReplyAll' : (kind === 'forward' ? 'createForward' : 'createReply');
     const attachments = normalizeAttachments(payload.attachments, config);
-    const requestedBody = appendAutomaticSignature(normalizeBody(payload), normalizeEditableSignature(payload.signature));
+    const requestedBody = appendAutomaticSignature(normalizeBody(payload), normalizeEditableSignature(payload.signature || defaultSignatureForMailbox(config.mailbox)));
     let requestedTo;
     if (kind === 'forward') requestedTo = normalizeRecipients(payload.to, { required: true });
     else if (payload.to !== undefined) badRequest('Polje to nije dozvoljeno za reply akciju.');

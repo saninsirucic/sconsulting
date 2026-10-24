@@ -5,6 +5,7 @@ const knex = require('knex');
 const { v4: uuidv4 } = require('uuid');
 const configs = require('../knexfile');
 const { normalizeUsername, validateNewPassword } = require('../aiEmail/auth');
+const { DEFAULT_MAILBOX, SUPPORTED_MAILBOXES, normalizeMailbox, brandMailbox } = require('../outlookMail/mailboxScope');
 
 function parseArgs(argv) {
   const result = {};
@@ -29,8 +30,10 @@ function usage() {
     'Korištenje:',
     '  npm run manage-user -- --username komercijalista --display-name "Ime Prezime" --email korisnik@s-consulting.ba --generate-password',
     '  npm run manage-user -- --username komercijalista --password "PrivremenaLozinka9!"',
+    '  npm run manage-user -- --username javne-ustanove --display-name "Javne ustanove" --brands JAVNE_USTANOVE --mailbox prodaja@s-consulting.ba --generate-password',
     '',
-    'Komanda kreira ili ažurira korisnika role komercijala i dodjeljuje sve aktivne CRM brendove.',
+    'Komanda kreira ili ažurira korisnika role komercijala. --brands zamjenjuje pristup tačno navedenim brendovima.',
+    'Bez --brands dodjeljuje standardne brendove; izdvojeni sandučići zahtijevaju izričit --brands i --mailbox.',
     'Kod nove/izmijenjene lozinke must_change_password se postavlja na true.'
   ].join('\n');
 }
@@ -52,6 +55,17 @@ async function manageUser({ db, args, output = console.log }) {
   }
 
   const existing = await db('app_users').where({ username_normalized: normalized }).first();
+  const hasMailboxColumn = await db.schema.hasColumn('app_users', 'outlook_mailbox');
+  const mailboxSpecified = Object.prototype.hasOwnProperty.call(args, 'mailbox');
+  const mailbox = normalizeMailbox(mailboxSpecified ? args.mailbox : existing?.outlook_mailbox) || DEFAULT_MAILBOX;
+  if (!SUPPORTED_MAILBOXES.includes(mailbox)) throw new Error('Sandučić nije podržan.');
+  if (mailboxSpecified && !hasMailboxColumn) throw new Error('Prvo pokrenite migracije za povezivanje sandučića.');
+  const brandsSpecified = Object.prototype.hasOwnProperty.call(args, 'brands');
+  const requestedBrandCodes = brandsSpecified
+    ? [...new Set(String(args.brands).split(',').map((code) => code.trim().toUpperCase()).filter(Boolean))]
+    : null;
+  if (brandsSpecified && !requestedBrandCodes.length) throw new Error('--brands mora sadržavati najmanje jedan brend.');
+  if (mailbox !== DEFAULT_MAILBOX && !brandsSpecified) throw new Error('Izdvojeni sandučić zahtijeva izričit --brands.');
   let plainPassword = null;
   if (args.generatePassword) plainPassword = generatePassword();
   else if (args.password) plainPassword = String(args.password);
@@ -68,6 +82,20 @@ async function manageUser({ db, args, output = console.log }) {
   let activeBrandCodes = [];
 
   await db.transaction(async (trx) => {
+    let brands = await trx('crm_brands').where({ active: true }).select('*').orderBy('name');
+    if (brandsSpecified) {
+      brands = brands.filter((brand) => requestedBrandCodes.includes(brand.code));
+      if (brands.length !== requestedBrandCodes.length) throw new Error('--brands sadrži nepostojeći ili neaktivan brend.');
+    } else {
+      brands = brands.filter((brand) => brandMailbox(brand) === DEFAULT_MAILBOX);
+    }
+    if (brands.some((brand) => brandMailbox(brand) !== mailbox)) {
+      throw new Error('Odabrani brendovi moraju pripadati sandučiću profila.');
+    }
+    if (mailbox !== DEFAULT_MAILBOX) {
+      const other = await trx('app_users').where({ outlook_mailbox: mailbox }).whereNot({ id: userId }).first('id');
+      if (other) throw new Error('Ovaj sandučić već je povezan s drugim profilom.');
+    }
     if (existing) {
       const update = {
         username,
@@ -78,6 +106,7 @@ async function manageUser({ db, args, output = console.log }) {
       };
       if (Object.prototype.hasOwnProperty.call(args, 'displayName')) update.display_name = args.displayName || null;
       if (Object.prototype.hasOwnProperty.call(args, 'email')) update.email = args.email || null;
+      if (mailboxSpecified) update.outlook_mailbox = mailbox === DEFAULT_MAILBOX ? null : mailbox;
       if (passwordHash) {
         update.password_hash = passwordHash;
         update.must_change_password = true;
@@ -93,6 +122,7 @@ async function manageUser({ db, args, output = console.log }) {
         password_hash: passwordHash,
         display_name: args.displayName || username,
         email: args.email || null,
+        ...(hasMailboxColumn ? { outlook_mailbox: mailbox === DEFAULT_MAILBOX ? null : mailbox } : {}),
         role: 'komercijala',
         active: args.inactive ? false : true,
         must_change_password: true,
@@ -102,7 +132,7 @@ async function manageUser({ db, args, output = console.log }) {
       });
     }
 
-    const brands = await trx('crm_brands').where({ active: true }).select('id', 'code').orderBy('name');
+    if (brandsSpecified) await trx('app_user_brand_access').where({ user_id: userId }).delete();
     activeBrandCodes = brands.map((brand) => brand.code);
     for (const brand of brands) {
       await trx('app_user_brand_access').insert({

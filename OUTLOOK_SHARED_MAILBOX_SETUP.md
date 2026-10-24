@@ -1,8 +1,26 @@
 # Shared Outlook mailbox setup
 
-The `/api/outlook` API uses Microsoft Graph application permissions for one fixed
-mailbox: `sales@s-consulting.ba`. It does not store user OAuth tokens and it does
+The `/api/outlook` API uses Microsoft Graph application permissions. Existing
+profiles use `sales@s-consulting.ba`; the separately bound **Javne ustanove** profile
+uses `prodaja@s-consulting.ba`. The server resolves the mailbox from the authenticated
+DB user, never a request parameter. It does not store user OAuth tokens and it does
 not change the separate AI email/campaign module.
+
+The `20261024120000_add_public_institutions_profile` migration creates an empty
+`JAVNE_USTANOVE` CRM database with sending paused and no recipient or user grants.
+After migrating, provision its one permitted profile with:
+
+```powershell
+npm run manage-user -- --username javne-ustanove --display-name "Javne ustanove" --brands JAVNE_USTANOVE --mailbox prodaja@s-consulting.ba --generate-password
+```
+
+The command prints the generated temporary password once; do not save it in source
+control. The user changes it at first login. Explicit `--brands` replaces that
+user's brand grants. The default user-management path excludes separately bound
+mailbox brands. A second user cannot acquire the same separate mailbox binding.
+Campaigns resolve the sender from their database's mailbox binding and reject
+manual sending, scheduling or enabling by any differently bound profile, including
+directors. Workers preserve that sender for previously approved scheduled work.
 
 ## Microsoft 365 configuration
 
@@ -44,8 +62,13 @@ Microsoft's authoritative procedure and role list:
 ## Backend variables
 
 Set `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, and
-`MICROSOFT_CLIENT_SECRET`. Keep both `OUTLOOK_MAILBOX_ADDRESS` and
-`OUTLOOK_ALLOWED_MAILBOXES` equal to `sales@s-consulting.ba`. Production also
+`MICROSOFT_CLIENT_SECRET`. Keep `OUTLOOK_MAILBOX_ADDRESS` and `MAIL_SENDER_ADDRESS`
+equal to `sales@s-consulting.ba`. `OUTLOOK_ALLOWED_MAILBOXES` defaults to that
+mailbox only. To activate Javne ustanove, first verify Graph read/write/send access
+to `prodaja@s-consulting.ba` under the tenant's existing restricted application
+policy, then explicitly set `OUTLOOK_ALLOWED_MAILBOXES` to
+`sales@s-consulting.ba,prodaja@s-consulting.ba`. Also verify that an unrelated
+mailbox remains inaccessible. Do not broaden access to the whole tenant. Production also
 needs `JWT_SECRET` or a separate `OUTLOOK_CURSOR_SECRET`.
 
 `OUTLOOK_MAIL_WRITES_ENABLED` defaults to `false`. With that value the inbox,

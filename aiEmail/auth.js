@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { userMailbox } = require('../outlookMail/mailboxScope');
 
 const DEVELOPMENT_PASSWORD_HASH = '$2b$10$4bmJNbqSbjzCpnvmvPfpr.tyGaGkEh6ePSskKHC3AudDqDr5fo01W';
 
@@ -48,6 +49,7 @@ function publicUser(user, authSource) {
     username: user.username,
     displayName: user.display_name || user.displayName || user.username,
     email: user.email || null,
+    outlookMailbox: userMailbox(user),
     role: user.role || 'komercijala',
     mustChangePassword: Boolean(user.must_change_password ?? user.mustChangePassword),
     tokenVersion: Number(user.token_version ?? user.tokenVersion ?? 0),

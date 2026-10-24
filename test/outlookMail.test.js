@@ -72,6 +72,7 @@ function signCursor(payload, secret) {
 }
 
 async function listenWithRouter(t, service, options = {}) {
+  service.config = { mailbox: FIXED_MAILBOX, ...service.config };
   const app = express();
   app.use((req, res, next) => {
     req.user = { id: 'test-user', role: req.get('x-test-role') || 'direktor' };

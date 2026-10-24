@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { strictEmailAddress } = require('./email');
+const { brandMailbox } = require('../outlookMail/mailboxScope');
 
 const CRM_STATUSES = new Set([
   'NEW', 'CALL_REQUIRED', 'CONTACTED', 'EMAIL_SENT', 'MEETING_SCHEDULED',
@@ -77,6 +78,7 @@ function serializeBrand(brand) {
     code: brand.code,
     slug: brand.slug,
     name: brand.name,
+    sender_email: brandMailbox(brand),
     daily_limit: Number(brand.daily_limit),
     active: Boolean(brand.active),
     record_count: Number(brand.record_count || 0)

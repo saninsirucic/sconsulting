@@ -1,9 +1,10 @@
 const { ConfidentialClientApplication } = require('@azure/msal-node');
+const { DEFAULT_MAILBOX, SUPPORTED_MAILBOXES, normalizeMailbox } = require('./mailboxScope');
 
 const GRAPH_ORIGIN = 'https://graph.microsoft.com';
 const GRAPH_VERSION_PATH = '/v1.0';
 const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
-const FIXED_MAILBOX = 'sales@s-consulting.ba';
+const FIXED_MAILBOX = DEFAULT_MAILBOX;
 
 class OutlookError extends Error {
   constructor(message, options = {}) {
@@ -26,7 +27,9 @@ function exactBoolean(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
 
-function createOutlookConfig(env = process.env) {
+function createOutlookConfig(env = process.env, options = {}) {
+  // The requested mailbox comes from authenticated server-side bindings, never request parameters.
+  const mailbox = normalizeMailbox(options.mailbox) || FIXED_MAILBOX;
   const requestedMailbox = String(env.OUTLOOK_MAILBOX_ADDRESS || FIXED_MAILBOX).trim().toLowerCase();
   const allowedMailboxes = String(env.OUTLOOK_ALLOWED_MAILBOXES || FIXED_MAILBOX)
     .split(',')
@@ -38,10 +41,12 @@ function createOutlookConfig(env = process.env) {
   const configuredSender = String(env.MAIL_SENDER_ADDRESS || FIXED_MAILBOX).trim().toLowerCase();
   const cursorSecret = String(env.OUTLOOK_CURSOR_SECRET || env.JWT_SECRET || '').trim()
     || (env.NODE_ENV === 'production' ? '' : 'sconsulting-outlook-development-only-secret');
-  const mailboxAllowed = requestedMailbox === FIXED_MAILBOX
+  const mailboxAllowed = SUPPORTED_MAILBOXES.includes(mailbox)
+    && requestedMailbox === FIXED_MAILBOX
     && configuredSender === FIXED_MAILBOX
-    && allowedMailboxes.length === 1
-    && allowedMailboxes[0] === FIXED_MAILBOX;
+    && allowedMailboxes.length > 0
+    && allowedMailboxes.every((address) => SUPPORTED_MAILBOXES.includes(address))
+    && allowedMailboxes.includes(mailbox);
   const credentialsPresent = Boolean(tenantId && clientId && clientSecret);
   let configurationMessage = null;
   if (!mailboxAllowed) configurationMessage = 'Outlook mailbox konfiguracija nije dozvoljena.';
@@ -49,7 +54,7 @@ function createOutlookConfig(env = process.env) {
   else if (!cursorSecret) configurationMessage = 'Outlook cursor potpis nije konfigurisan.';
 
   return {
-    mailbox: FIXED_MAILBOX,
+    mailbox,
     tenantId,
     clientId,
     clientSecret,
@@ -142,7 +147,7 @@ function validateGraphUrl(value, mailbox) {
 }
 
 function createGraphClient(options = {}) {
-  const config = options.config || createOutlookConfig(options.env);
+  const config = options.config || createOutlookConfig(options.env, { mailbox: options.mailbox });
   const fetchImpl = options.fetchImpl || global.fetch;
   const sleep = options.sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   let msalClient = options.msalClient || null;

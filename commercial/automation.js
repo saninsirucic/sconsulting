@@ -7,6 +7,7 @@ const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
 const { usaCampaignBody, BANNER_NAME } = require('./usaMail');
+const { brandMailbox, assertBrandMailboxAccess, defaultSignatureForMailbox } = require('../outlookMail/mailboxScope');
 
 const QUEUE_STATUSES = new Set([
   'PENDING', 'APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
@@ -119,7 +120,8 @@ const bannerAttachmentCache = new Map();
 
 function campaignSignatureForBrand(brand) {
   const code = String(brand?.code || '').toUpperCase();
-  return SANPEST_CAMPAIGN_SIGNATURES[code === 'SAN_PEST_AUSTRIA' ? 'SAN_PEST_GERMANY' : code];
+  return defaultSignatureForMailbox(brandMailbox(brand))
+    || SANPEST_CAMPAIGN_SIGNATURES[code === 'SAN_PEST_AUSTRIA' ? 'SAN_PEST_GERMANY' : code];
 }
 
 function campaignBodyForBrand(brand, bodyText) {
@@ -504,6 +506,7 @@ async function automationSettingRow(db, brandId) {
 }
 
 async function updateAutomationSettings(db, brand, actor, input = {}) {
+  assertBrandMailboxAccess(brand, actor);
   await ensureAutomationSetting(db, brand);
   let attachment = null;
   if (hasOwn(input, 'attachment') && input.attachment) {
@@ -769,7 +772,7 @@ async function getAutomationState(db, brand, options = {}) {
     .first();
   const counts = Object.fromEntries([...QUEUE_STATUSES].map((status) => [status, 0]));
   rows.forEach((row) => { counts[row.status] = (counts[row.status] || 0) + 1; });
-  const sender = 'sales@s-consulting.ba';
+  const sender = brandMailbox(brand);
   const candidates = rows.filter((row) => !['SENT', 'SKIPPED', 'NOT_APPROVED'].includes(row.status)).map((row) => ({
     id: row.account_id,
     candidate_id: row.id,
@@ -1373,10 +1376,11 @@ function dailyReportMessage(brand, report) {
 }
 
 async function sendDailyReport(db, brand, settings, options = {}) {
+  if (options.actor) assertBrandMailboxAccess(brand, options.actor);
   const now = options.now || new Date();
   const date = options.date || businessDate('Europe/Sarajevo', now);
-  const outlook = options.outlookService || createOutlookService({ db });
-  assertOutlookReady(outlook);
+  const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
+  assertOutlookReady(outlook, brand);
   const claimed = await claimDailyReport(db, brand, settings, date, now);
   if (!claimed) return { sent: false, reason: 'Dnevni izvještaj je već obrađen.' };
   const message = dailyReportMessage(brand, claimed);
@@ -1544,12 +1548,12 @@ async function recordFailedSend(db, brand, claimed, error, now) {
   });
 }
 
-function assertOutlookReady(outlook) {
+function assertOutlookReady(outlook, brand) {
   if (!outlook?.config?.writeEnabled) {
     throw httpError(503, 'Outlook slanje je isključeno na serveru.', 'OUTLOOK_WRITES_DISABLED');
   }
-  if (String(outlook.config.mailbox || '').trim().toLowerCase() !== 'sales@s-consulting.ba') {
-    throw httpError(503, 'Pošiljalac mora biti sales@s-consulting.ba.', 'OUTLOOK_SENDER_MISMATCH');
+  if (String(outlook.config.mailbox || '').trim().toLowerCase() !== brandMailbox(brand)) {
+    throw httpError(503, 'Pošiljalac ne odgovara sandučiću ove baze.', 'OUTLOOK_SENDER_MISMATCH');
   }
 }
 
@@ -1671,14 +1675,15 @@ async function claimImmediateAccountMail(db, brand, accountId, actor, now) {
 }
 
 async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
+  assertBrandMailboxAccess(brand, options.actor);
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
   }
   const identifier = String(accountId || '').trim();
   if (!identifier) throw httpError(400, 'Komitent je obavezan.', 'ACCOUNT_ID_REQUIRED');
   const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
-  const outlook = options.outlookService || createOutlookService({ db });
-  assertOutlookReady(outlook);
+  const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
+  assertOutlookReady(outlook, brand);
   const nowProvider = typeof options.now === 'function' ? options.now : () => (options.now || new Date());
   await markStaleClaims(db, brand.id, new Date(nowProvider()));
   let claimed = null;
@@ -1723,6 +1728,7 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
 }
 
 async function scheduleSelectedMails(db, brand, accountIds, options = {}) {
+  assertBrandMailboxAccess(brand, options.actor);
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite zakazivanje sa confirm: true.', 'SCHEDULE_CONFIRMATION_REQUIRED');
   }
@@ -1918,14 +1924,15 @@ async function claimSelectedQueueItem(db, brand, identifier, now) {
 }
 
 async function sendSelectedMails(db, brand, accountIds, options = {}) {
+  assertBrandMailboxAccess(brand, options.actor);
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
   }
   const ids = [...new Set((Array.isArray(accountIds) ? accountIds : []).map((value) => String(value || '').trim()).filter(Boolean))];
   if (!ids.length) throw httpError(400, 'Označite najmanje jednog kandidata.', 'CAMPAIGN_SELECTION_REQUIRED');
   const actor = options.actor || { id: 'commercial-mail-user', username: 'Komercijala' };
-  const outlook = options.outlookService || createOutlookService({ db });
-  assertOutlookReady(outlook);
+  const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
+  assertOutlookReady(outlook, brand);
   const nowProvider = typeof options.now === 'function' ? options.now : () => (options.now || new Date());
   const firstNow = new Date(nowProvider());
   await markStaleClaims(db, brand.id, firstNow);
@@ -1983,10 +1990,11 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
 }
 
 async function sendNextScheduledMail(db, brand, options = {}) {
+  if (options.actor) assertBrandMailboxAccess(brand, options.actor);
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-scheduler', username: 'Zakazano slanje' };
-  const outlook = options.outlookService || createOutlookService({ db });
-  assertOutlookReady(outlook);
+  const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
+  assertOutlookReady(outlook, brand);
   await markStaleClaims(db, brand.id, now);
   const claimed = await claimNextScheduled(db, brand, now);
   if (!claimed) return { sent: false, reason: 'Nema zakazane poruke spremne za slanje.' };
@@ -2021,10 +2029,11 @@ async function sendNextScheduledMail(db, brand, options = {}) {
 }
 
 async function sendNextAutomatedMail(db, brand, options = {}) {
+  if (options.actor) assertBrandMailboxAccess(brand, options.actor);
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-bot', username: 'Automatska komercijala' };
-  const outlook = options.outlookService || createOutlookService({ db });
-  assertOutlookReady(outlook);
+  const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
+  assertOutlookReady(outlook, brand);
   await markStaleClaims(db, brand.id, now);
   const claimed = await claimNext(db, brand, now, { ignoreInterval: options.ignoreInterval === true });
   if (!claimed) return { sent: false, reason: 'Nema poruke spremne za slanje.' };
@@ -2060,7 +2069,15 @@ async function sendNextAutomatedMail(db, brand, options = {}) {
 
 async function runAutomationTick(db, options = {}) {
   const now = options.now || new Date();
-  const outlook = options.outlookService || createOutlookService({ db });
+  const services = new Map();
+  const serviceForBrand = (brand) => {
+    if (options.outlookService) return options.outlookService;
+    const mailbox = brandMailbox(brand);
+    if (!services.has(mailbox)) {
+      services.set(mailbox, (options.outlookServiceFactory || createOutlookService)({ db, mailbox }));
+    }
+    return services.get(mailbox);
+  };
   const { weekday, time } = sarajevoParts(now);
   const date = businessDate('Europe/Sarajevo', now);
   const scheduledRows = await db({ q: 'crm_mail_queue' })
@@ -2071,6 +2088,7 @@ async function runAutomationTick(db, options = {}) {
   const scheduledResults = [];
   for (const brand of scheduledRows) {
     try {
+      const outlook = serviceForBrand(brand);
       const result = await sendNextScheduledMail(db, brand, { now, outlookService: outlook });
       scheduledResults.push({
         brand: brand.code,
@@ -2089,6 +2107,7 @@ async function runAutomationTick(db, options = {}) {
   const results = [];
   for (const brand of rows) {
     try {
+      const outlook = serviceForBrand(brand);
       let state = await getAutomationState(db, brand, { date });
       if (!state.settings.workdays.includes(weekday)) {
         results.push({ brand: brand.code, sent: false, reason: 'Nije radni dan.' });
