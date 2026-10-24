@@ -438,7 +438,7 @@ function SignatureLine({ label, field, value, onChange, fontWeight, type = 'text
   );
 }
 
-function EditableSignature({ signature, onChange, onReset }) {
+function EditableSignature({ signature, onChange, onReset, showMobile = true }) {
   return (
     <Box data-testid="editable-email-signature" bg="blue.50" borderTop="1px solid" borderColor="blue.100" px={{ base: 3, sm: 5 }} py={4}>
       <Flex align={{ base: 'start', sm: 'center' }} justify="space-between" gap={3} mb={3} direction={{ base: 'column', sm: 'row' }}>
@@ -457,7 +457,7 @@ function EditableSignature({ signature, onChange, onReset }) {
         <Divider maxW="520px" my={3} borderColor="#f97316" borderWidth="1px" />
         <SignatureLine field="name" value={signature.name} onChange={onChange} fontWeight="bold" placeholder="Ime i prezime" />
         <SignatureLine field="title" value={signature.title} onChange={onChange} placeholder="Funkcija | kompanija" />
-        <SignatureLine label="M" field="mobile" value={signature.mobile} onChange={onChange} placeholder="Mobilni telefon" />
+        {showMobile && <SignatureLine label="M" field="mobile" value={signature.mobile} onChange={onChange} placeholder="Mobilni telefon" />}
         <SignatureLine label="T" field="phone" value={signature.phone} onChange={onChange} placeholder="Telefon" />
         <Grid templateColumns={{ base: '1fr', lg: '1fr 1fr' }} gap={{ base: 0, lg: 4 }}>
           <SignatureLine label="E" field="email" type="email" value={signature.email} onChange={onChange} placeholder="E-mail" />
@@ -581,6 +581,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
                 <Textarea aria-label="Tekst poruke" minH={{ base: '200px', md: '260px' }} resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} border="0" borderRadius="0" p={{ base: 3, sm: 5 }} _focusVisible={{ boxShadow: 'none' }} />
                 <EditableSignature
                   signature={form.signature}
+                  showMobile={Boolean(emailSignatureForMailbox(status.mailbox).mobile)}
                   onChange={updateSignature}
                   onReset={() => setForm((current) => ({ ...current, signature: { ...emailSignatureForMailbox(status.mailbox) } }))}
                 />

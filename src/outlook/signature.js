@@ -42,6 +42,7 @@ export const PUBLIC_INSTITUTIONS_EMAIL_SIGNATURE = Object.freeze({
   ...DEFAULT_EMAIL_SIGNATURE,
   name: 'S-Consulting',
   title: 'Javne ustanove',
+  mobile: '',
   email: 'prodaja@s-consulting.ba',
 });
 

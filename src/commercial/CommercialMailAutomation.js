@@ -289,7 +289,7 @@ function AutomaticSignaturePreview({ brandCode }) {
         <Box w="420px" maxW="100%" borderTop="2px solid" borderColor="orange.400" my={3} />
         <Text mb={1} fontWeight="bold">{signature.name}</Text>
         <Text mb={2}>{signature.title}</Text>
-        <Text mb={1} overflowWrap="anywhere"><Text as="span" fontWeight="bold">M:</Text> {signature.mobile}</Text>
+        {signature.mobile && <Text mb={1} overflowWrap="anywhere"><Text as="span" fontWeight="bold">M:</Text> {signature.mobile}</Text>}
         <Text mb={1} overflowWrap="anywhere"><Text as="span" fontWeight="bold">T:</Text> {signature.phone}</Text>
         <Text mb={1} overflowWrap="anywhere">
           <Text as="span" fontWeight="bold">E:</Text> {signature.email}
