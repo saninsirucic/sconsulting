@@ -72,6 +72,16 @@ beforeEach(() => {
   });
 });
 
+test('Javne ustanove prikazuje pošiljaoca iz API-ja i odgovarajući potpis', async () => {
+  commercialApi.getMailAutomation.mockResolvedValue({ ...campaignState, sender_email: 'prodaja@s-consulting.ba' });
+  renderCampaign({ brandCode: 'JAVNE_USTANOVE', brandName: 'Javne ustanove' });
+  fireEvent.click(await screen.findByRole('button', { name: 'Otvori kampanju' }));
+  expect(await screen.findByDisplayValue('prodaja@s-consulting.ba')).toBeInTheDocument();
+  expect(screen.getByTestId('automatic-signature-preview')).toHaveTextContent('prodaja@s-consulting.ba');
+  expect(screen.getByTestId('automatic-signature-preview')).toHaveTextContent('Javne ustanove');
+  expect(screen.queryByDisplayValue('sales@s-consulting.ba')).not.toBeInTheDocument();
+});
+
 test('normalizira novi i prethodni oblik odgovora te uklanja već poslane kandidate', () => {
   const state = normalizeMailAutomationState({
     settings: {

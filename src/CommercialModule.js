@@ -76,6 +76,7 @@ import {
 import { commercialApi } from './commercial/api';
 import CommercialMailAutomation from './commercial/CommercialMailAutomation';
 import HaccpResearch from './commercial/HaccpResearch';
+import AccountImport from './commercial/AccountImport';
 import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 import MailRecipientsEditor, { normalizeCcEmails } from './commercial/MailRecipientsEditor';
 import {
@@ -1452,7 +1453,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const downloadAllProgramsPdfReport = async () => {
     setExportingAllPdf(true);
     try {
-      const expectedCodes = BRAND_DEFINITIONS.map((definition) => definition.code);
+      const expectedCodes = brands.map((definition) => definition.code);
       const reportBrands = expectedCodes.map((code) => brands.find((item) => normalizeBrandCode(item.code || item.slug) === code));
       if (reportBrands.some((item) => !item)) throw new Error(`Za zbirni izvještaj potreban je pristup svih ${expectedCodes.length} programa.`);
       const programs = await Promise.all(reportBrands.map(async (reportBrand) => ({
@@ -1508,6 +1509,8 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   return (
     <VStack align="stretch" spacing={5}>
       <DashboardCards dashboard={dashboard} />
+
+      {normalizedBrandCode === 'JAVNE_USTANOVE' && <AccountImport brandCode={brandCode} onImported={changed} />}
 
       <CommercialMailAutomation
         brandCode={brandCode}
@@ -1575,17 +1578,17 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
               PDF izvještaj
             </Button>
             <Button
-              aria-label={`Preuzmi zajednički PDF izvještaj za svih ${BRAND_DEFINITIONS.length} programa`}
+              aria-label={`Preuzmi zajednički PDF izvještaj za svih ${brands.length} programa`}
               minH="40px"
               leftIcon={<FaFilePdf />}
               colorScheme="purple"
               variant="outline"
               isLoading={exportingAllPdf}
               isDisabled={exportingPdf}
-              loadingText={`Priprema svih ${BRAND_DEFINITIONS.length}...`}
+              loadingText={`Priprema svih ${brands.length}...`}
               onClick={downloadAllProgramsPdfReport}
             >
-              PDF svih {BRAND_DEFINITIONS.length} programa
+              PDF svih {brands.length} programa
             </Button>
           </Flex>
         )}
@@ -2206,16 +2209,14 @@ function WaitingBrand({ brand }) {
   );
 }
 
-function mergeBrands(remoteItems, useStaticFallback = false) {
-  const definitions = useStaticFallback
-    ? BRAND_DEFINITIONS
-    : BRAND_DEFINITIONS.filter((definition) => remoteItems.some(
+function mergeBrands(remoteItems) {
+  const definitions = BRAND_DEFINITIONS.filter((definition) => remoteItems.some(
       (item) => normalizeBrandCode(item.code || item.slug) === definition.code
     ));
   return definitions.map((definition) => {
     const remote = remoteItems.find((item) => normalizeBrandCode(item.code || item.slug) === definition.code);
     const remoteCount = Number(remote?.record_count ?? remote?.count ?? remote?.total ?? 0);
-    return { ...definition, ...(remote || {}), code: definition.code, ready: definition.code === 'VISIOCAST' || remoteCount > 0 };
+    return { ...definition, ...(remote || {}), code: definition.code, ready: ['VISIOCAST', 'JAVNE_USTANOVE'].includes(definition.code) || remoteCount > 0 };
   });
 }
 
@@ -2224,19 +2225,17 @@ export default function CommercialModule({ user }) {
   const [remoteBrands, setRemoteBrands] = useState([]);
   const [brandError, setBrandError] = useState('');
   const [brandsLoading, setBrandsLoading] = useState(true);
-  const [useStaticFallback, setUseStaticFallback] = useState(false);
   const [globalRefreshKey, setGlobalRefreshKey] = useState(0);
-  const brands = useMemo(() => mergeBrands(remoteBrands, useStaticFallback), [remoteBrands, useStaticFallback]);
+  const brands = useMemo(() => mergeBrands(remoteBrands), [remoteBrands]);
 
   useEffect(() => {
     commercialApi.getBrands()
       .then((result) => {
         setRemoteBrands(Array.isArray(result) ? result : result?.items || []);
-        setUseStaticFallback(false);
       })
       .catch((error) => {
         setBrandError(error.message);
-        setUseStaticFallback(true);
+        setRemoteBrands([]);
       })
       .finally(() => setBrandsLoading(false));
   }, []);
@@ -2246,12 +2245,12 @@ export default function CommercialModule({ user }) {
       <Flex justify="space-between" align={{ base: 'start', lg: 'center' }} direction={{ base: 'column', lg: 'row' }} gap={3} mb={5}>
         <Box>
           <HStack><Icon as={FaBuilding} color={orange} boxSize={6} /><Heading size="lg">Komercijalni CRM</Heading></HStack>
-          <Text color="gray.600" mt={1}>{BRAND_DEFINITIONS.length} potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.</Text>
+          <Text color="gray.600" mt={1}>{brands.length === 1 ? 'Vaša odvojena baza, dnevni fokus i evidencija kontakata.' : `${brands.length} potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.`}</Text>
         </Box>
         <HStack flexWrap="wrap">{brands.some(brand => brand.code === 'FS_APP') && <Button size="sm" colorScheme="orange" variant="outline" onClick={() => setActiveTab(brands.length + 1)}>HACCP istraživanje</Button>}<Badge colorScheme="green" px={3} py={2} borderRadius="full">Aktivan profil</Badge><Text fontSize="sm" color="gray.600">{user?.displayName || user?.display_name || user?.username}</Text></HStack>
       </Flex>
 
-      {brandError && <Box mb={4}><Alert status="warning" borderRadius="lg"><AlertIcon /><AlertDescription>Spisak brendova nije učitan; prikazana je lokalna struktura. {brandError}</AlertDescription></Alert></Box>}
+      {brandError && <Box mb={4}><Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>Dostupne baze nije moguće učitati. Osvježite stranicu i pokušajte ponovo. {brandError}</AlertDescription></Alert></Box>}
 
       {brandsLoading ? <Loading label="Učitavanje dostupnih komercijalnih baza..." /> : brands.length === 0 ? (
         <EmptyState title="Nema dodijeljenih komercijalnih baza" text="Vašem profilu trenutno nije dodijeljen pristup nijednoj komercijalnoj bazi. Obratite se direktoru." />

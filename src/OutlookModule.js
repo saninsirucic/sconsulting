@@ -61,7 +61,7 @@ import {
   FaTrash,
 } from 'react-icons/fa';
 import { composePayload, outlookApi } from './outlook/api';
-import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL } from './outlook/signature';
+import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL, emailSignatureForMailbox } from './outlook/signature';
 import {
   addressesToText,
   attachmentFileKey,
@@ -487,12 +487,12 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
       bcc: '',
       subject: message ? replySubject(message.subject, forward) : '',
       body: '',
-      signature: { ...DEFAULT_EMAIL_SIGNATURE },
+      signature: { ...emailSignatureForMailbox(status.mailbox) },
     });
     setShowCopies(replyAll);
     setFiles([]);
     setError('');
-  }, [isOpen, message, mode]);
+  }, [isOpen, message, mode, status.mailbox]);
 
   const addFiles = (event) => {
     const incoming = Array.from(event.target.files || []);
@@ -582,7 +582,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
                 <EditableSignature
                   signature={form.signature}
                   onChange={updateSignature}
-                  onReset={() => setForm((current) => ({ ...current, signature: { ...DEFAULT_EMAIL_SIGNATURE } }))}
+                  onReset={() => setForm((current) => ({ ...current, signature: { ...emailSignatureForMailbox(status.mailbox) } }))}
                 />
               </Box>
               <Text fontSize="xs" color="gray.500" mt={2}>Prikazani podaci se šalju kao potpis ove poruke. Logo se dodaje automatski i potpis se neće duplirati.</Text>

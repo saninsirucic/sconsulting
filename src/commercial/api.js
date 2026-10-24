@@ -5,6 +5,14 @@ const brandPath = (code) => `${base}/brands/${encodeURIComponent(code)}`;
 
 export const commercialApi = {
   getBrands: () => apiRequest(`${base}/brands`),
+  previewAccountImport: (code, file) => {
+    const body = new FormData();
+    body.append('file', file);
+    return apiRequest(`${brandPath(code)}/accounts/import/preview`, { method: 'POST', body });
+  },
+  commitAccountImport: (code, importToken) => apiRequest(`${brandPath(code)}/accounts/import/commit`, {
+    method: 'POST', body: { import_token: importToken },
+  }),
   getCallCalendar: (params = {}) => {
     const query = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {

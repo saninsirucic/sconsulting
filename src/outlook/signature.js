@@ -30,9 +30,23 @@ const SANIN_ENGLISH_EMAIL_SIGNATURE = Object.freeze({
 
 export function emailSignatureForBrand(brandCode) {
   const code = String(brandCode || '').trim().toUpperCase();
+  if (code === 'JAVNE_USTANOVE') return PUBLIC_INSTITUTIONS_EMAIL_SIGNATURE;
   if (code === 'SAN_PEST_USA') return { ...SANIN_ENGLISH_EMAIL_SIGNATURE, email: 'sales@s-consulting.ba' };
   if (code === 'SAN_PEST_SINGAPORE_MALAYSIA') return SANIN_ENGLISH_EMAIL_SIGNATURE;
   return ['SAN_PEST_GERMANY', 'SAN_PEST_AUSTRIA'].includes(code)
     ? GERMAN_EMAIL_SIGNATURE
+    : DEFAULT_EMAIL_SIGNATURE;
+}
+
+export const PUBLIC_INSTITUTIONS_EMAIL_SIGNATURE = Object.freeze({
+  ...DEFAULT_EMAIL_SIGNATURE,
+  name: 'S-Consulting',
+  title: 'Javne ustanove',
+  email: 'prodaja@s-consulting.ba',
+});
+
+export function emailSignatureForMailbox(mailbox) {
+  return String(mailbox || '').trim().toLowerCase() === 'prodaja@s-consulting.ba'
+    ? PUBLIC_INSTITUTIONS_EMAIL_SIGNATURE
     : DEFAULT_EMAIL_SIGNATURE;
 }

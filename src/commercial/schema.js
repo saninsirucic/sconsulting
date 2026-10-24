@@ -1,5 +1,15 @@
 export const BRAND_DEFINITIONS = [
   {
+    code: 'JAVNE_USTANOVE',
+    slug: 'javne-ustanove',
+    name: 'Javne ustanove',
+    subtitle: 'Odvojena baza javnih ustanova i evidencija dopisa',
+    mailDescription: 'Dopisi javnim ustanovama sa adrese prodaja@s-consulting.ba.',
+    mailFormTitle: 'Forma dopisa javnim ustanovama',
+    mailSubjectPlaceholder: 'Naslov dopisa',
+    ready: true,
+  },
+  {
     code: 'VISIOCAST',
     slug: 'visiocast',
     name: 'Visiocast',

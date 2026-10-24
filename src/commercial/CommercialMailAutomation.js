@@ -316,6 +316,7 @@ export default function CommercialMailAutomation({
   const canManage = role === 'direktor' || role === 'komercijala';
   const [open, setOpen] = useState(false);
   const [state, setState] = useState(() => normalizeMailAutomationState(null));
+  const senderEmail = state.sender_email;
   const [form, setForm] = useState(EMPTY_FORM);
   const [automationForm, setAutomationForm] = useState(EMPTY_AUTOMATION_FORM);
   const [draftAttachment, setDraftAttachment] = useState(null);
@@ -489,7 +490,7 @@ export default function CommercialMailAutomation({
       toast({
         title: automationForm.enabled ? `Automatsko slanje za ${brandName} je uključeno.` : `Automatsko slanje za ${brandName} je pauzirano.`,
         description: automationForm.enabled
-          ? `Mailovi se šalju sa ${SENDER_EMAIL} prema sačuvanoj satnici.`
+          ? `Mailovi se šalju sa ${senderEmail} prema sačuvanoj satnici.`
           : 'Nova automatska slanja su odmah zaustavljena.',
         status: 'success',
         position: 'top-right',
@@ -593,7 +594,7 @@ export default function CommercialMailAutomation({
     if (!selectedCandidates.length) return;
 
     const confirmed = window.confirm(
-      `Zakazati ${selectedCandidates.length} ${selectedCandidates.length === 1 ? 'odobreni mail' : 'odobrenih mailova'} za ${brandName} sa ${SENDER_EMAIL}? Server će poslati jednu poruku svakih 5 minuta; browser ne mora ostati otvoren.`
+      `Zakazati ${selectedCandidates.length} ${selectedCandidates.length === 1 ? 'odobreni mail' : 'odobrenih mailova'} za ${brandName} sa ${senderEmail}? Server će poslati jednu poruku svakih 5 minuta; browser ne mora ostati otvoren.`
     );
     if (!confirmed) return;
 
@@ -692,7 +693,7 @@ export default function CommercialMailAutomation({
                         </Badge>
                       </HStack>
                       <Text mt={1} fontSize="sm" color="gray.600">
-                        Sve poruke se šalju sa <Text as="span" fontWeight="bold">{SENDER_EMAIL}</Text>.
+                        Sve poruke se šalju sa <Text as="span" fontWeight="bold">{senderEmail}</Text>.
                       </Text>
                     </Box>
                     <FormControl
@@ -879,7 +880,7 @@ export default function CommercialMailAutomation({
                   <VStack align="stretch" spacing={4}>
                     <FormControl>
                       <FormLabel>Pošiljalac</FormLabel>
-                      <Input value={SENDER_EMAIL} isReadOnly bg="gray.50" fontWeight="semibold" />
+                      <Input value={senderEmail} isReadOnly bg="gray.50" fontWeight="semibold" />
                       <Text mt={1} fontSize="xs" color="gray.500">Adresa je fiksna i ne može se promijeniti u ovoj formi.</Text>
                     </FormControl>
                     <FormControl isRequired>

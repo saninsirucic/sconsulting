@@ -124,6 +124,24 @@ beforeEach(() => {
   commercialApi.sendNextMailAutomation.mockResolvedValue({ sent: true });
 });
 
+test('Javne ustanove prikazuje praznu dodijeljenu bazu i uvoz bez drugih profila', async () => {
+  commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'JAVNE_USTANOVE', name: 'Javne ustanove', record_count: 0 }] });
+  commercialApi.getRecords.mockResolvedValue({ items: [], pagination: { total: 0, pages: 1 }, filters: {} });
+  renderModule();
+  expect(await screen.findByText('Uvoz baze javnih ustanova')).toBeInTheDocument();
+  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Kalendar', 'Javne ustanove']);
+  expect(screen.queryByText('Tabela još nije dostavljena')).not.toBeInTheDocument();
+  expect(screen.getByText('Vaša odvojena baza, dnevni fokus i evidencija kontakata.')).toBeInTheDocument();
+});
+
+test('ne prikazuje druge baze ako učitavanje dodijeljenih baza ne uspije', async () => {
+  commercialApi.getBrands.mockRejectedValue(new Error('Privremena greška'));
+  renderModule();
+  expect(await screen.findByText(/Dostupne baze nije moguće učitati/)).toBeInTheDocument();
+  expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  expect(commercialApi.getRecords).not.toHaveBeenCalled();
+});
+
 test('prikazuje dvanaest baza fiksnim redom, uključujući USA bazu', async () => {
   renderModule();
   expect((await screen.findAllByText('Primjer d.o.o.')).length).toBeGreaterThan(0);

@@ -103,6 +103,19 @@ test('odgovara na poruku kroz shared mailbox', async () => {
   expect(outlookApi.reply.mock.calls[0][1].body).not.toMatch(/Ermina|S-Consulting Group|logo-wordmark/);
 });
 
+test('Javne ustanove koristi dodijeljeni mailbox i neutralni potpis', async () => {
+  outlookApi.getStatus.mockResolvedValue({ configured: true, writeEnabled: true, mailbox: 'prodaja@s-consulting.ba' });
+  outlookApi.getAccount.mockResolvedValue({ mailbox: 'prodaja@s-consulting.ba', displayName: 'Javne ustanove', inbox: {} });
+  renderModule();
+  await screen.findByText('Ponuda za HACCP');
+  fireEvent.click(screen.getByRole('button', { name: 'Nova poruka' }));
+  expect(screen.getByText('Šalje se sa prodaja@s-consulting.ba')).toBeInTheDocument();
+  expect(screen.getByLabelText('Potpis - name')).toHaveValue('S-Consulting');
+  expect(screen.getByLabelText('Potpis - title')).toHaveValue('Javne ustanove');
+  expect(screen.getByLabelText('Potpis - email')).toHaveValue('prodaja@s-consulting.ba');
+  expect(outlookApi.send).not.toHaveBeenCalled();
+});
+
 test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => {
   renderModule();
   await screen.findByText('Ponuda za HACCP');
