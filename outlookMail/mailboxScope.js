@@ -27,6 +27,7 @@ function defaultSignatureForMailbox(mailbox) {
   return mailbox === PUBLIC_INSTITUTIONS_MAILBOX ? {
     name: 'S-Consulting',
     title: 'Javne ustanove',
+    mobile: '',
     email: PUBLIC_INSTITUTIONS_MAILBOX
   } : undefined;
 }
