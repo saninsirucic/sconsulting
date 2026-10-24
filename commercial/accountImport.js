@@ -1,6 +1,9 @@
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
+const path = require('node:path');
 const ExcelJS = require('exceljs');
+const JSZip = require('jszip');
+const { SaxesParser } = require('saxes');
 const { strictEmailAddress } = require('./email');
 const { httpError, normalizeAccountInput, resolveBrand } = require('./service');
 
@@ -21,13 +24,17 @@ const HEADER_ALIASES = {
   name: ['name', 'company', 'company name', 'company_name', 'institution', 'institution name',
     'naziv', 'naziv ustanove', 'naziv javne ustanove', 'naziv institucije', 'naziv komitenta', 'naziv firme',
     'naziv ustanove / institucije', 'naziv institucije / ustanove', 'naziv organizacije',
-    'naziv poslovnog subjekta', 'ustanova', 'institucija', 'firma', 'organizacija', 'organization'],
-  email: ['email', 'e-mail', 'mail', 'e-mail adresa', 'kontakt email', 'email address', 'adresa elektronske poste'],
-  phone: ['phone', 'phone number', 'telephone', 'telefon', 'tel', 'broj telefona', 'kontakt telefon', 'mobitel', 'mobile'],
-  city: ['city', 'town', 'grad', 'mjesto', 'opcina', 'opstina', 'municipality'],
+    'naziv poslovnog subjekta', 'ustanova', 'institucija', 'firma', 'organizacija', 'organization',
+    'Institucija / organizaciona jedinica'],
+  email: ['email', 'e-mail', 'mail', 'e-mail adresa', 'kontakt email', 'email address', 'adresa elektronske poste', 'E-mail ustanove'],
+  phone: ['phone', 'phone number', 'telephone', 'telefon', 'tel', 'broj telefona', 'kontakt telefon', 'mobitel', 'mobile', 'Telefon / telefoni'],
+  city: ['city', 'town', 'grad', 'mjesto', 'opcina', 'opstina', 'municipality', 'Grad / općina'],
   address: ['address', 'street address', 'adresa', 'ulica', 'ulica i broj', 'adresa sjedista', 'sjediste'],
   contact_person: ['contact person', 'contact_person', 'contact name', 'kontakt osoba',
-    'kontakt', 'ime i prezime', 'odgovorna osoba', 'ime kontakt osobe']
+    'kontakt', 'ime i prezime', 'odgovorna osoba', 'ime kontakt osobe', 'Kontakt / služba iz javnog izvora'],
+  record_type: ['record type', 'record_type', 'Vrsta institucije'],
+  website: ['website', 'web', 'Web-stranica'],
+  notes: ['notes', 'napomena', 'Obrazloženje / napomena za kontakt']
 };
 const normalizeHeader = (value) => canonical(value).replace(/[^a-z0-9]/g, '');
 const HEADER_FIELDS = new Map(Object.entries(HEADER_ALIASES)
@@ -164,9 +171,92 @@ function validateArchive(buffer) {
   if (offset !== centralEnd) throw invalid();
 }
 
+const SPREADSHEET_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const DOCUMENT_REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const DEFAULT_ELEMENT_NAMESPACES = new Set([
+  SPREADSHEET_NS,
+  'http://schemas.openxmlformats.org/package/2006/relationships',
+  'http://schemas.openxmlformats.org/package/2006/content-types'
+]);
+
+function escapeXml(value, attribute = false) {
+  const text = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return attribute ? text.replace(/"/g, '&quot;').replace(/\r/g, '&#13;').replace(/\n/g, '&#10;').replace(/\t/g, '&#9;') : text;
+}
+
+// ExcelJS matches literal tag names, although namespace prefixes in OOXML are arbitrary.
+// Parse namespaces rather than replacing strings: cell values, formulas and URLs remain data.
+function compatibleOoxmlXml(xml, entryName) {
+  const parser = new SaxesParser({ xmlns: true });
+  const output = [];
+  const stack = [];
+  let changed = false;
+  parser.on('doctype', () => { throw new Error('OOXML doctype is unsupported'); });
+  parser.on('opentag', (node) => {
+    const normalized = DEFAULT_ELEMENT_NAMESPACES.has(node.uri);
+    const name = normalized ? node.local : node.name;
+    if (name !== node.name) changed = true;
+    const attributes = new Map();
+    const parentDefault = stack.length ? stack[stack.length - 1].defaultNamespace : '';
+    let defaultNamespace = node.ns[''] || '';
+    if (normalized || !node.prefix) defaultNamespace = node.uri || '';
+    for (const attribute of Object.values(node.attributes)) {
+      if (attribute.name === 'xmlns') continue;
+      const relation = attribute.uri === DOCUMENT_REL_NS;
+      const attributeName = relation ? `r:${attribute.local}` : attribute.name;
+      let value = attribute.value;
+      if (attributeName !== attribute.name) changed = true;
+      // ExcelJS parses the standard ISO-date cell type as a number. Keep its ISO text intact.
+      if (node.uri === SPREADSHEET_NS && node.local === 'c' && attribute.name === 't' && value === 'd') {
+        value = 'str';
+        changed = true;
+      }
+      // OPC permits absolute package targets; ExcelJS's table reconciler expects relative ones.
+      if (node.uri === 'http://schemas.openxmlformats.org/package/2006/relationships'
+        && node.local === 'Relationship' && attribute.name === 'Target' && value.startsWith('/')
+        && node.attributes.TargetMode?.value !== 'External') {
+        value = path.posix.relative(path.posix.dirname(path.posix.dirname(entryName)), value.slice(1));
+        changed = true;
+      }
+      attributes.set(attributeName, value);
+      if (relation) attributes.set('xmlns:r', DOCUMENT_REL_NS);
+    }
+    if (defaultNamespace !== parentDefault) attributes.set('xmlns', defaultNamespace);
+    output.push(`<${name}${[...attributes].map(([key, value]) => ` ${key}="${escapeXml(value, true)}"`).join('')}>`);
+    stack.push({ name, defaultNamespace });
+  });
+  parser.on('closetag', () => { output.push(`</${stack.pop().name}>`); });
+  parser.on('text', (text) => { output.push(escapeXml(text)); });
+  parser.on('cdata', (text) => { output.push(escapeXml(text)); });
+  parser.on('comment', (text) => { output.push(`<!--${text}-->`); });
+  parser.on('processinginstruction', ({ target, body }) => { output.push(`<?${target}${body ? ` ${body}` : ''}?>`); });
+  parser.write(xml).close();
+  return changed ? output.join('') : xml;
+}
+
+async function compatibleWorkbookBytes(buffer) {
+  const archive = await JSZip.loadAsync(buffer);
+  let changed = false;
+  for (const entry of Object.values(archive.files)) {
+    if (entry.dir || !/\.xml$|\.rels$/i.test(entry.name) || /^xl\/(?:media|theme)\//.test(entry.name)) continue;
+    const original = await entry.async('string');
+    const compatible = compatibleOoxmlXml(original, entry.name);
+    if (compatible !== original) {
+      archive.file(entry.name, compatible);
+      changed = true;
+    }
+  }
+  if (!changed) return buffer;
+  const compatible = await archive.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  // The normalized copy must satisfy the same ZIP and worksheet bounds as the original.
+  validateArchive(compatible);
+  return compatible;
+}
+
 function cellText(cell) {
   const value = cell.value;
   if (value === null || value === undefined) return '';
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString();
   if (typeof value === 'object') {
     if (value.richText) return value.richText.map((part) => part.text || '').join('').trim();
     if (value.text !== undefined) return String(value.text).trim();
@@ -201,6 +291,12 @@ function accountInput(row) {
     email: row.email,
     phone: row.phone,
     contact_person: row.contact_person,
+    record_type: row.record_type,
+    website: row.website,
+    notes: row.notes,
+    comment: Object.entries(row.source_data || {}).map(([key, value]) => `${key}: ${value}`).join('\n'),
+    raw_mail: row.raw_mail ?? row.email,
+    raw_contact: [row.contact_person, row.phone].filter(Boolean).join('\n'),
     location: [row.address, row.city].filter(Boolean).join(', '),
     source_row_number: row.row_number,
     ownership_type: 'PUBLIC',
@@ -211,10 +307,13 @@ function accountInput(row) {
 
 function rowError(row) {
   if (!row.name) return 'Naziv ustanove je obavezan.';
-  const limits = { name: 300, email: 254, phone: 100, city: 250, address: 500, contact_person: 250 };
+  const limits = { name: 300, email: 254, phone: 100, city: 250, address: 500, contact_person: 250,
+    record_type: 120, website: 500, notes: 20000, raw_mail: 20000 };
   for (const [key, maximum] of Object.entries(limits)) {
-    if (row[key].length > maximum) return `Polje ${key} ima više od ${maximum} znakova.`;
+    if (String(row[key] || '').length > maximum) return `Polje ${key} ima više od ${maximum} znakova.`;
   }
+  if (accountInput(row).comment.length > 20000) return 'Izvorni sadržaj reda ima više od 20000 znakova.';
+  if (row.email_error) return row.email_error;
   if (row.email && !strictEmailAddress(row.email)) return 'E-mail adresa nije ispravna.';
   try {
     normalizeAccountInput(accountInput(row));
@@ -228,7 +327,7 @@ async function readWorkbook(buffer) {
   validateArchive(buffer);
   const workbook = new ExcelJS.Workbook();
   try {
-    await workbook.xlsx.load(buffer);
+    await workbook.xlsx.load(await compatibleWorkbookBytes(buffer));
   } catch (error) {
     throw httpError(400, 'XLSX datoteka se ne može pročitati.', 'IMPORT_FILE_INVALID');
   }
@@ -243,14 +342,20 @@ async function readWorkbook(buffer) {
     if (sourceRow.number <= header.number) return;
     const row = { row_number: sourceRow.number };
     for (const field of Object.keys(HEADER_ALIASES)) {
-      row[field] = columns[field] ? cellText(sourceRow.getCell(columns[field])) : '';
+      const cell = columns[field] ? sourceRow.getCell(columns[field]) : null;
+      row[field] = cell ? (field === 'website' && cell.hyperlink ? String(cell.hyperlink) : cellText(cell)) : '';
     }
     if (!Object.keys(HEADER_ALIASES).some((field) => row[field])) return;
-    row.email = row.email.toLowerCase();
+    row.raw_mail = row.email;
+    const emails = row.email.split(/[;,\r\n]+/).map((value) => value.trim()).filter(Boolean);
+    if (emails.some((value) => !strictEmailAddress(value))) row.email_error = 'Jedna od e-mail adresa nije ispravna.';
+    row.email = emails.length ? (strictEmailAddress(emails[0]) || emails[0].toLowerCase()) : '';
     row.source_data = {};
     sourceRow.eachCell((cell, index) => {
       const text = cellText(cell);
-      if (text) row.source_data[`${index}: ${headers[index - 1] || 'Kolona'}`] = text;
+      const key = `${index}: ${headers[index - 1] || 'Kolona'}`;
+      if (text) row.source_data[key] = text;
+      if (cell.hyperlink) row.source_data[`${key} (URL)`] = String(cell.hyperlink);
     });
     rows.push(row);
   });
@@ -261,10 +366,9 @@ async function readWorkbook(buffer) {
 
 async function duplicateIndex(db, brandId) {
   // Include archived accounts to avoid silently restoring an archived contact by import.
-  const accounts = await db('crm_accounts').where({ brand_id: brandId }).select('company_name', 'email');
+  const accounts = await db('crm_accounts').where({ brand_id: brandId }).select('company_name', 'location');
   return {
-    names: new Set(accounts.map((row) => canonical(row.company_name)).filter(Boolean)),
-    emails: new Set(accounts.map((row) => canonical(row.email)).filter(Boolean))
+    identities: new Set(accounts.map((row) => JSON.stringify([canonical(row.company_name), canonical(row.location)])))
   };
 }
 
@@ -272,11 +376,10 @@ function classifyRows(rows, index) {
   return rows.map((row) => {
     const error = rowError(row);
     if (error) return { ...row, error };
-    const name = canonical(row.name);
-    const email = canonical(row.email);
-    if (index.names.has(name) || (email && index.emails.has(email))) return { ...row, duplicate: true };
-    index.names.add(name);
-    if (email) index.emails.add(email);
+    const normalized = normalizeAccountInput(accountInput(row));
+    const identity = JSON.stringify([canonical(normalized.company_name), canonical(normalized.location)]);
+    if (index.identities.has(identity)) return { ...row, duplicate: true };
+    index.identities.add(identity);
     return row;
   });
 }

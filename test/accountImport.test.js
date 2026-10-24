@@ -62,7 +62,7 @@ test('preview recognizes Bosnian headers, skips auxiliary sheets, classifies row
   await createAccount(db, other, director, { company_name: 'Druga baza', email: 'druga@ustanova.ba' });
   const file = await xlsx([
     ['Škola A', 'SKOLA@ustanova.ba', '+387 33 123 456', 'Sarajevo', 'Ulica 1', 'Ana'],
-    [' skola a ', 'drugi@ustanova.ba'],
+    [' skola a ', 'drugi@ustanova.ba', '', 'Sarajevo', 'Ulica 1'],
     ['Nova', 'postojeca@ustanova.ba'],
     ['Druga baza', 'druga@ustanova.ba'],
     ['Bez e-maila', '', '033 123 456'],
@@ -72,8 +72,8 @@ test('preview recognizes Bosnian headers, skips auxiliary sheets, classifies row
   const response = await previewAccountImport(db, brand, director, file);
   assert.equal(response.preview.worksheet_name, 'Ustanove');
   assert.equal(response.preview.total_rows, 7);
-  assert.equal(response.preview.valid_rows, 3);
-  assert.equal(response.preview.duplicate_rows, 2);
+  assert.equal(response.preview.valid_rows, 4);
+  assert.equal(response.preview.duplicate_rows, 1);
   assert.equal(response.preview.invalid_rows, 2);
   assert.equal(response.preview.rows[0].email, 'skola@ustanova.ba');
   assert.equal(response.preview.rows[0].row_number, 2);
@@ -106,7 +106,7 @@ test('commit preserves CRM schema, source location and audit activity without ap
   });
   const result = await commitResponse.json();
   assert.equal(commitResponse.status, 200, JSON.stringify(result));
-  assert.deepEqual({ imported: result.imported, skipped: result.skipped, errors: result.errors.length }, { imported: 2, skipped: 2, errors: 1 });
+  assert.deepEqual({ imported: result.imported, skipped: result.skipped, errors: result.errors.length }, { imported: 3, skipped: 1, errors: 1 });
   const account = await db('crm_accounts').where({ brand_id: brand.id, company_name: 'JU Škola' }).first();
   assert.equal(account.status, 'NEW');
   assert.equal(account.ownership_type, 'PUBLIC');
@@ -115,7 +115,7 @@ test('commit preserves CRM schema, source location and audit activity without ap
   assert.equal(account.created_by, director.id);
   assert.equal(JSON.parse(account.source_data_json).address, 'Ulica 1');
   assert.equal(JSON.parse(account.source_data_json).city, 'Sarajevo');
-  assert.equal((await db('crm_activities').where({ brand_id: brand.id })).length, 2);
+  assert.equal((await db('crm_activities').where({ brand_id: brand.id })).length, 3);
   assert.equal((await db('crm_daily_assignments').where({ brand_id: brand.id })).length, 0);
   assert.equal((await db('crm_mail_queue').where({ brand_id: brand.id })).length, 0);
   assert.equal(sends, 0);
@@ -277,4 +277,113 @@ test('multipart upload rejects files larger than 5MB without creating an import 
   assert.equal(response.status, 413);
   assert.equal((await response.json()).code, 'IMPORT_FILE_TOO_LARGE');
   assert.equal((await db('crm_account_imports')).length, 0);
+});
+
+test('shared institutional inboxes remain separate contacts and only the first listed email becomes To', async (t) => {
+  const { db, brand } = await fixture(t);
+  const raw = 'Zajednicki@ustanova.ba; druga@ustanova.ba';
+  const file = await xlsx([
+    ['Ustanova A', raw, '033 123', 'Sarajevo'],
+    ['Ustanova B', 'zajednicki@ustanova.ba', '033 456', 'Sarajevo'],
+    ['Ustanova A', 'zajednicki@ustanova.ba', '036 123', 'Mostar'],
+    ['Ustanova A', 'nova@ustanova.ba', '033 123', 'Sarajevo']
+  ]);
+  const preview = await previewAccountImport(db, brand, director, file);
+  assert.equal(preview.preview.valid_rows, 3);
+  assert.equal(preview.preview.duplicate_rows, 1);
+  const result = await commitAccountImport(db, brand, director, preview.import_token);
+  assert.equal(result.imported, 3);
+  const first = await db('crm_accounts').where({ brand_id: brand.id, company_name: 'Ustanova A', location: 'Sarajevo' }).first();
+  assert.equal(first.email, 'zajednicki@ustanova.ba');
+  assert.equal(first.raw_mail, raw);
+  assert.equal(first.raw_contact, '033 123');
+  assert.equal(first.cc_emails_json, undefined);
+  assert.equal((await previewAccountImport(db, brand, director, file)).preview.valid_rows, 0);
+});
+
+test('prefixed OOXML, ISO date cells and absolute table targets preserve registry fields and hyperlinks', async (t) => {
+  const { db, brand } = await fixture(t);
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet('Registar');
+  const registryHeaders = [
+    'Institucija / organizaciona jedinica', 'E-mail ustanove', 'Telefon / telefoni', 'Grad / općina',
+    'Kontakt / služba iz javnog izvora', 'Vrsta institucije', 'Web-stranica',
+    'Obrazloženje / napomena za kontakt', 'Datum provjere', 'Javni izvor', 'Excel datum'
+  ];
+  const url = 'https://ustanova.example.org/dokaz?a=1&b=2';
+  const literal = 'Tekst <x:workbook> & ns0:Relationship ostaje podatak.';
+  sheet.addTable({ name: 'RegistarTest', ref: 'A1', headerRow: true,
+    columns: registryHeaders.map((name) => ({ name })), rows: [[
+      'JU Škola A', 'Prva@skola.ba; druga@skola.ba', '+387 33 123 456', 'Sarajevo', 'Uprava', 'Škola',
+      { text: 'Web ustanove', hyperlink: 'https://skola.example.org/' }, literal,
+      new Date('2026-10-24T00:00:00.000Z'), { text: 'Javni dokaz', hyperlink: url }, new Date('2026-10-23T00:00:00.000Z')
+    ]] });
+  const archive = await JSZip.loadAsync(await book.xlsx.writeBuffer());
+  for (const entry of Object.values(archive.files)) {
+    if (entry.dir || !/\.xml$|\.rels$/.test(entry.name) || /\/theme\//.test(entry.name)) continue;
+    let xml = await entry.async('string');
+    if (xml.includes('xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"')) {
+      xml = xml.replace('xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', 'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"')
+        .replace(/<(\/?)([A-Za-z][\w.-]*)(?=[\s/>])/g, '<$1x:$2');
+    }
+    if (entry.name === 'xl/workbook.xml') xml = xml.replace(/xmlns:r=/g, 'xmlns:relation=').replace(/r:id=/g, 'relation:id=');
+    if (entry.name === 'xl/worksheets/sheet1.xml') {
+      xml = xml.replace(/(<x:c\b[^>]*\br="I2"[^>]*>)([\s\S]*?)(<\/x:c>)/, (_, open, inside, close) => {
+        const dateOpen = /\bt="/.test(open) ? open.replace(/\bt="[^"]*"/, 't="d"') : open.replace('>', ' t="d">');
+        return dateOpen + inside.replace(/<x:v>[^<]*<\/x:v>/, '<x:v>2026-10-24T00:00:00Z</x:v>') + close;
+      });
+    }
+    if (entry.name.endsWith('.rels')) {
+      xml = xml.replace('xmlns="http://schemas.openxmlformats.org/package/2006/relationships"', 'xmlns:ns0="http://schemas.openxmlformats.org/package/2006/relationships"')
+        .replace(/<(\/?)(Relationships?)(?=[\s/>])/g, '<$1ns0:$2')
+        .replace('Target="../tables/table1.xml"', 'Target="/xl/tables/table1.xml"');
+    }
+    archive.file(entry.name, xml);
+  }
+  const buffer = await archive.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const before = crypto.createHash('sha256').update(buffer).digest('hex');
+  const preview = await previewAccountImport(db, brand, director, { originalname: 'registar.xlsx', buffer });
+  assert.equal(crypto.createHash('sha256').update(buffer).digest('hex'), before);
+  assert.equal(preview.preview.worksheet_name, 'Registar');
+  assert.equal(preview.preview.valid_rows, 1);
+  assert.equal((await commitAccountImport(db, brand, director, preview.import_token)).imported, 1);
+  const account = await db('crm_accounts').where({ brand_id: brand.id }).first();
+  const source = JSON.parse(account.source_data_json);
+  assert.equal(account.email, 'prva@skola.ba');
+  assert.equal(account.raw_mail, 'Prva@skola.ba; druga@skola.ba');
+  assert.equal(account.raw_contact, 'Uprava\n+387 33 123 456');
+  assert.equal(account.record_type, 'Škola');
+  assert.equal(account.website, 'https://skola.example.org/');
+  assert.equal(account.notes, literal);
+  assert.equal(source['9: Datum provjere'], '2026-10-24T00:00:00Z');
+  assert.equal(source['11: Excel datum'], '2026-10-23T00:00:00.000Z');
+  assert.equal(source['10: Javni izvor (URL)'], url);
+  assert.equal(source['7: Web-stranica'], 'Web ustanove');
+  assert.equal(source['8: Obrazloženje / napomena za kontakt'], literal);
+  assert.ok(account.comment.includes(url));
+  assert.ok(account.comment.includes('9: Datum provjere: 2026-10-24T00:00:00Z'));
+  assert.ok(account.comment.includes(literal));
+});
+
+test('source comments over 20000 characters are rejected instead of truncated', async (t) => {
+  const { db, brand } = await fixture(t);
+  const file = await xlsx([['Ustanova', 'x'.repeat(20000)]], ['Naziv', 'Izvorna napomena']);
+  const preview = await previewAccountImport(db, brand, director, file);
+  assert.equal(preview.preview.valid_rows, 0);
+  assert.equal(preview.preview.invalid_rows, 1);
+  assert.match(preview.preview.rows[0].error, /20000/);
+});
+
+test('reimport identity uses the normalized stored location for long source addresses', async (t) => {
+  const { db, brand } = await fixture(t);
+  const address = 'a'.repeat(300);
+  const file = await xlsx([['Ustanova', '', '', 'Sarajevo', address]]);
+  const preview = await previewAccountImport(db, brand, director, file);
+  assert.equal((await commitAccountImport(db, brand, director, preview.import_token)).imported, 1);
+  const again = await previewAccountImport(db, brand, director, file);
+  assert.equal(again.preview.duplicate_rows, 1);
+  const account = await db('crm_accounts').where({ brand_id: brand.id }).first();
+  assert.equal(account.location.length, 250);
+  assert.equal(JSON.parse(account.source_data_json).address, address);
+  assert.ok(account.comment.includes(address));
 });
