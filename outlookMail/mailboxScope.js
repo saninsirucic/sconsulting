@@ -1,3 +1,5 @@
+const { DEFAULT_SIGNATURE } = require('./signature');
+
 const DEFAULT_MAILBOX = 'sales@s-consulting.ba';
 const PUBLIC_INSTITUTIONS_MAILBOX = 'prodaja@s-consulting.ba';
 const SUPPORTED_MAILBOXES = Object.freeze([DEFAULT_MAILBOX, PUBLIC_INSTITUTIONS_MAILBOX]);
@@ -25,6 +27,7 @@ function assertBrandMailboxAccess(brand, user) {
 
 function defaultSignatureForMailbox(mailbox) {
   return mailbox === PUBLIC_INSTITUTIONS_MAILBOX ? {
+    ...DEFAULT_SIGNATURE,
     name: 'S-Consulting',
     title: 'Javne ustanove',
     mobile: '',
