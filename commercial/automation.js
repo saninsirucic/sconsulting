@@ -7,7 +7,7 @@ const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
 const { usaCampaignBody, BANNER_NAME } = require('./usaMail');
-const { brandMailbox, assertBrandMailboxAccess, defaultSignatureForMailbox } = require('../outlookMail/mailboxScope');
+const { brandMailbox, assertCampaignMailboxAccess, defaultSignatureForMailbox } = require('../outlookMail/mailboxScope');
 
 const QUEUE_STATUSES = new Set([
   'PENDING', 'APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'
@@ -120,6 +120,7 @@ const bannerAttachmentCache = new Map();
 
 function campaignSignatureForBrand(brand) {
   const code = String(brand?.code || '').toUpperCase();
+  if (code === 'HACCP_CLASSIC') return { greeting: 'S poštovanjem,', name: 'Tim S-Consultinga', title: 'Agencija za sanitarno-higijensko savjetovanje', mobile: '', email: 'prodaja@s-consulting.ba' };
   return defaultSignatureForMailbox(brandMailbox(brand))
     || SANPEST_CAMPAIGN_SIGNATURES[code === 'SAN_PEST_AUSTRIA' ? 'SAN_PEST_GERMANY' : code];
 }
@@ -506,7 +507,7 @@ async function automationSettingRow(db, brandId) {
 }
 
 async function updateAutomationSettings(db, brand, actor, input = {}) {
-  assertBrandMailboxAccess(brand, actor);
+  await assertCampaignMailboxAccess(db, brand, actor);
   await ensureAutomationSetting(db, brand);
   let attachment = null;
   if (hasOwn(input, 'attachment') && input.attachment) {
@@ -1376,7 +1377,7 @@ function dailyReportMessage(brand, report) {
 }
 
 async function sendDailyReport(db, brand, settings, options = {}) {
-  if (options.actor) assertBrandMailboxAccess(brand, options.actor);
+  if (options.actor) await assertCampaignMailboxAccess(db, brand, options.actor);
   const now = options.now || new Date();
   const date = options.date || businessDate('Europe/Sarajevo', now);
   const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
@@ -1675,7 +1676,7 @@ async function claimImmediateAccountMail(db, brand, accountId, actor, now) {
 }
 
 async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
-  assertBrandMailboxAccess(brand, options.actor);
+  await assertCampaignMailboxAccess(db, brand, options.actor);
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
   }
@@ -1728,7 +1729,7 @@ async function sendImmediateAccountMail(db, brand, accountId, options = {}) {
 }
 
 async function scheduleSelectedMails(db, brand, accountIds, options = {}) {
-  assertBrandMailboxAccess(brand, options.actor);
+  await assertCampaignMailboxAccess(db, brand, options.actor);
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite zakazivanje sa confirm: true.', 'SCHEDULE_CONFIRMATION_REQUIRED');
   }
@@ -1924,7 +1925,7 @@ async function claimSelectedQueueItem(db, brand, identifier, now) {
 }
 
 async function sendSelectedMails(db, brand, accountIds, options = {}) {
-  assertBrandMailboxAccess(brand, options.actor);
+  await assertCampaignMailboxAccess(db, brand, options.actor);
   if (options.confirmed !== true) {
     throw httpError(400, 'Potvrdite stvarno slanje sa confirm: true.', 'SEND_CONFIRMATION_REQUIRED');
   }
@@ -1990,7 +1991,7 @@ async function sendSelectedMails(db, brand, accountIds, options = {}) {
 }
 
 async function sendNextScheduledMail(db, brand, options = {}) {
-  if (options.actor) assertBrandMailboxAccess(brand, options.actor);
+  if (options.actor) await assertCampaignMailboxAccess(db, brand, options.actor);
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-scheduler', username: 'Zakazano slanje' };
   const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });
@@ -2029,7 +2030,7 @@ async function sendNextScheduledMail(db, brand, options = {}) {
 }
 
 async function sendNextAutomatedMail(db, brand, options = {}) {
-  if (options.actor) assertBrandMailboxAccess(brand, options.actor);
+  if (options.actor) await assertCampaignMailboxAccess(db, brand, options.actor);
   const now = options.now || new Date();
   const actor = options.actor || { id: 'commercial-mail-bot', username: 'Automatska komercijala' };
   const outlook = options.outlookService || createOutlookService({ db, mailbox: brandMailbox(brand) });

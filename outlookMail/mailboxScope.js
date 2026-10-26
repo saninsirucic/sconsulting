@@ -35,7 +35,21 @@ function defaultSignatureForMailbox(mailbox) {
   } : undefined;
 }
 
+async function assertCampaignMailboxAccess(db, brand, user) {
+  // A grant to this register authorizes its campaign sender only. It never
+  // changes the user's Outlook mailbox or grants access to other registers.
+  if (brand?.code === 'HACCP_CLASSIC' && brandMailbox(brand) === PUBLIC_INSTITUTIONS_MAILBOX) {
+    if (user?.role === 'direktor') return;
+    if (user?.role === 'komercijala' && user.id && db) {
+      const access = await db('app_user_brand_access').where({ user_id: user.id, brand_id: brand.id, can_read: true, can_write: true }).first('id');
+      if (access) return;
+    }
+    throw Object.assign(new Error('Nemate dozvolu za slanje iz HACCP registra.'), { status: 403, code: 'BRAND_MAILBOX_ACCESS_DENIED' });
+  }
+  assertBrandMailboxAccess(brand, user);
+}
+
 module.exports = {
   DEFAULT_MAILBOX, PUBLIC_INSTITUTIONS_MAILBOX, SUPPORTED_MAILBOXES,
-  normalizeMailbox, userMailbox, brandMailbox, assertBrandMailboxAccess, defaultSignatureForMailbox
+  normalizeMailbox, userMailbox, brandMailbox, assertBrandMailboxAccess, assertCampaignMailboxAccess, defaultSignatureForMailbox
 };
