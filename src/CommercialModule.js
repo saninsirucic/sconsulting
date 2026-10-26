@@ -1249,7 +1249,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     const normalizedBrandCode = normalizeBrandCode(brandCode);
     if (['VISIOCAST', 'SAN_PEST_USA', 'SAN_PEST_GERMANY', 'SAN_PEST_POLAND', 'SAN_PEST_CZECH', 'SAN_PEST_SAUDI', 'SAN_PEST_UAE', 'SAN_PEST_BAHRAIN', 'SAN_PEST_SINGAPORE_MALAYSIA'].includes(normalizedBrandCode) && dimensionFilters.length) params.locations = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'SAN_PEST' && dimensionFilters.length) params.countries = JSON.stringify(dimensionFilters);
-    if (['FS_APP', 'HACCP_PUBLIC'].includes(normalizedBrandCode) && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
+    if (['FS_APP', 'HACCP_PUBLIC', 'HACCP_CLASSIC'].includes(normalizedBrandCode) && dimensionFilters.length) params.recordTypes = JSON.stringify(dimensionFilters);
     if (normalizedBrandCode === 'FS_APP' && ownershipType) params.ownershipType = ownershipType;
     if (normalizedBrandCode === 'HACCP_PUBLIC') params.ownershipType = 'PUBLIC';
     return params;
@@ -1508,6 +1508,14 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
 
   return (
     <VStack align="stretch" spacing={5}>
+      {normalizedBrandCode === 'HACCP_CLASSIC' && <Box borderRadius="xl" bg="orange.50" p={4}>
+        <Heading size="md">Registar klasičnog HACCP-a</Heading>
+        <Text mt={2}>Implementacija, održavanje, monitoring i revidiranje HACCP sistema.</Text>
+        <Button mt={3} size="sm" colorScheme="orange" variant="outline" onClick={() => {
+          setSearch('HACCP ZA SLANJE'); setStatus('NEW'); setPriority(''); setDimensionFilters([]);
+          setLettersOnly(false); setAdminCallOnly(false); setPage(1);
+        }}>Pripremljeni kontakti</Button>
+      </Box>}
       <DashboardCards dashboard={dashboard} />
 
       {normalizedBrandCode === 'JAVNE_USTANOVE' && <AccountImport brandCode={brandCode} onImported={changed} />}
@@ -2216,7 +2224,7 @@ function mergeBrands(remoteItems) {
   return definitions.map((definition) => {
     const remote = remoteItems.find((item) => normalizeBrandCode(item.code || item.slug) === definition.code);
     const remoteCount = Number(remote?.record_count ?? remote?.count ?? remote?.total ?? 0);
-    return { ...definition, ...(remote || {}), code: definition.code, ready: ['VISIOCAST', 'JAVNE_USTANOVE'].includes(definition.code) || remoteCount > 0 };
+    return { ...definition, ...(remote || {}), code: definition.code, ready: ['VISIOCAST', 'JAVNE_USTANOVE', 'HACCP_CLASSIC'].includes(definition.code) || remoteCount > 0 };
   });
 }
 

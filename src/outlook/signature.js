@@ -30,6 +30,7 @@ const SANIN_ENGLISH_EMAIL_SIGNATURE = Object.freeze({
 
 export function emailSignatureForBrand(brandCode) {
   const code = String(brandCode || '').trim().toUpperCase();
+  if (code === 'HACCP_CLASSIC') return { ...DEFAULT_EMAIL_SIGNATURE, greeting: 'S poštovanjem,', name: 'Tim S-Consultinga', title: 'Agencija za sanitarno-higijensko savjetovanje', mobile: '', email: 'prodaja@s-consulting.ba' };
   if (code === 'JAVNE_USTANOVE') return PUBLIC_INSTITUTIONS_EMAIL_SIGNATURE;
   if (code === 'SAN_PEST_USA') return { ...SANIN_ENGLISH_EMAIL_SIGNATURE, email: 'sales@s-consulting.ba' };
   if (code === 'SAN_PEST_SINGAPORE_MALAYSIA') return SANIN_ENGLISH_EMAIL_SIGNATURE;

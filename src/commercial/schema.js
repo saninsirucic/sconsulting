@@ -1,5 +1,15 @@
 export const BRAND_DEFINITIONS = [
   {
+    code: 'HACCP_CLASSIC',
+    slug: 'haccp',
+    name: 'HACCP',
+    subtitle: 'Klasični HACCP — implementacija, održavanje, monitoring i revidiranje',
+    mailDescription: 'HACCP dopisi sa adrese prodaja@s-consulting.ba, uz potpis Tim S-Consultinga.',
+    mailFormTitle: 'Forma HACCP dopisa',
+    mailSubjectPlaceholder: 'Naslov HACCP dopisa',
+    ready: true,
+  },
+  {
     code: 'JAVNE_USTANOVE',
     slug: 'javne-ustanove',
     name: 'Javne ustanove',

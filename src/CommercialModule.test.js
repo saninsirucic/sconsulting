@@ -46,6 +46,19 @@ function renderModule() {
   return render(<ChakraProvider><CommercialModule user={{ username: 'prodaja', role: 'komercijala' }} /></ChakraProvider>);
 }
 
+test('classic HACCP is a separate visible register with its own prepared-contact filter', async () => {
+  commercialApi.getBrands.mockResolvedValue({ items: [
+    { code: 'HACCP_CLASSIC', name: 'HACCP', record_count: 223 },
+    { code: 'FS_APP', name: 'FS App', record_count: 400 },
+  ] });
+  renderModule();
+  expect(await screen.findByRole('tab', { name: 'HACCP', exact: true })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: /FS App/ })).toBeInTheDocument();
+  expect(await screen.findByText('Registar klasičnog HACCP-a')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Pripremljeni kontakti' }));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('HACCP_CLASSIC', expect.objectContaining({ search: 'HACCP ZA SLANJE', status: 'NEW' })));
+});
+
 const record = {
   id: 'record-1',
   source_row_number: 7,
