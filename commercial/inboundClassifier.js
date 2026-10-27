@@ -42,14 +42,16 @@ function classify(message) {
   const lines = text.split(/\n/).filter(line => !/^(?:if you|to unsubscribe|unsubscribe: to|ako (?:zelite|ne zelite)|za odjavu|odjava:|this (?:message|email)|ova poruka|confidential)/.test(line.trim())).join('\n');
   const requestStart = lines.replace(/^(?:(?:hi|hello|dear (?:team|sir|madam)|postovani|pozdrav)[,!]?\s*\n\s*)/i, '').trim();
   const explicit = /^(?:unsubscribe|odjava|odjavi(?:te)?(?: me| nas)?|remove me|remove us)[.!\s]*$/.test(title)
-    || /^(?:please )?unsubscribe[.!]?(?:\s*$|\s*\n)/.test(requestStart)
+    || /^(?:please )?(?:unsubscribe|odjava)[.!]?(?:\s*$|\s*\n)/.test(requestStart)
     || /(?:^|[\n.!?]\s*|\bplease\s+|\bmolim(?:o)?\s+(?:vas\s+)?)(?:unsubscribe(?: me| us)|odjavi(?:te)?(?: me| nas)?)(?:\b|$)/.test(lines)
     || /\b(?:zelim|zelimo) (?:se )?odjaviti\b/.test(lines)
+    || /\bmolim(?:o)?\s+(?:vas\s+)?(?:da\s+)?(?:(?:me|nas)\s+)?(?:odjavite|odjaviti|odjavu)\b/.test(lines)
+    || /\b(?:i|we) (?:would like|want) to unsubscribe\b/.test(lines)
     || /\b(?:remove|delete) (?:me|us|my (?:email|address)|our (?:company|email|address)) from (?:your |the |all )?(?:mailing |email |marketing |contact )?lists?\b/.test(lines)
     || /\b(?:uklonite|ukloniti|izbrisite|izbrisete|izbrisati|obrisite|obrisete|obrisati|skinite|skinete)\b.{0,90}\b(?:liste|spiska|baze|adresara)\b/.test(lines)
     || /\b(?:odjavite|odjaviti)\b.{0,50}\b(?:firmu|kompaniju|ustanovu|nas|me)\b/.test(lines)
     || /\b(?:do not|don.t|stop) (?:contact(?:ing)?|email(?:ing)?|send(?:ing)? (?:me |us )?(?:any |more )?(?:emails?|messages?))\b/.test(lines)
-    || /\b(?:ne saljite|nemojte (?:nam |mi )?slati|prestanite (?:nam |mi )?slati|ne zelim(?:o)? (?:vise )?(?:primati|dobijati))\b/.test(lines)
+    || /\b(?:ne saljite|ne saljete|nemojte (?:nam |mi )?(?:vise )?slati|prestanite (?:nam |mi )?(?:vise )?slati|ne zelim(?:o)? (?:vise )?(?:primati|dobijati))\b/.test(lines)
     || /\b(?:bitte (?:abmelden|loschen)|keine weiteren (?:emails|e-mails)|bitte keine (?:werbung|emails|e-mails)|prosz[eę] (?:mnie |nas )?usun[aą][cć]|wypisz(?:cie)? mnie)\b/.test(lines);
   if (!negative && explicit) return { kind: 'UNSUBSCRIBE', sender, text: body };
   const needsReview = /\b(?:unsubscribe|odjav|abmelden|remove me|ne kontakt)/.test(text) || negative;

@@ -8,6 +8,7 @@ const ACTOR = 'mail-reply-worker';
 const OWN = new Set(['sales@s-consulting.ba', 'prodaja@s-consulting.ba', 'info@s-consulting.ba']);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const parse = (value, fallback = {}) => { try { return JSON.parse(value || 'null') || fallback; } catch { return fallback; } };
+const subjectKey = value => String(value || '').replace(/^(?:(?:re|fw|fwd|odg|aw):\s*)+/i, '').trim().toLowerCase();
 function identity(message, mailbox) {
   const from = strictEmailAddress(message.from?.emailAddress?.address) || '';
   return hash(message.internetMessageId ? from + '\n' + message.internetMessageId.trim() : mailbox + '\n' + message.id);
@@ -29,7 +30,7 @@ async function loadContext(db) {
     add(byConversation, m.providerConversationId || m.conversationId, a.account_id);
     for (const e of emails(m.recipient || m.to || '')) add(byEmail, e, a.account_id);
   }
-  return { accounts, byEmail, byConversation, byMessage };
+  return { accounts, byEmail, byConversation, byMessage, subjects: new Set(sent.map(q => subjectKey(q.subject)).filter(Boolean)) };
 }
 function matchMessage(message, context) {
   const sender = strictEmailAddress(message.from?.emailAddress?.address), senderIds = [...(context.byEmail.get(sender) || [])];
@@ -47,12 +48,19 @@ async function recordMessage(db, message, mailbox, context, { dryRun = false } =
   if (await db('crm_inbound_messages').where({ id }).first('id')) return { duplicate: true };
   let decision = classify(message), match = matchMessage(message, context);
   if (message.isDraft || OWN.has(decision.sender) || /@s-consulting\.ba$/i.test(decision.sender || '')) decision = { ...decision, kind: 'OWN_MESSAGE' };
-  const automated = ['DELIVERY_NOTICE', 'AUTOMATIC_REPLY', 'OWN_MESSAGE'].includes(decision.kind);
+  if (!decision.sender) decision = { ...decision, kind: 'MISSING_SENDER' };
+  const automated = ['DELIVERY_NOTICE', 'AUTOMATIC_REPLY', 'OWN_MESSAGE', 'MISSING_SENDER'].includes(decision.kind);
   const authentication = (message.internetMessageHeaders || []).filter(h => /^authentication-results$/i.test(h.name)).map(h => h.value).join('\n');
   const authenticationFailed = /dmarc=fail/i.test(authentication) && /(?:spf|dkim)=fail/i.test(authentication);
   if (!automated && authenticationFailed) decision.kind = 'REPLY_REVIEW';
   if (!automated && match.method === 'THREAD_DIFFERENT_SENDER' && decision.kind !== 'UNSUBSCRIBE') decision.kind = 'REPLY_REVIEW';
-  if (!automated && !match.accountIds.length && decision.kind !== 'UNSUBSCRIBE') decision.kind = 'UNRELATED';
+  if (!automated && !match.accountIds.length && decision.kind !== 'UNSUBSCRIBE') {
+    const replyToKnownSubject = context.subjects?.has(subjectKey(message.subject))
+      && (/^(?:re|odg|aw):/i.test(message.subject || '') || (message.internetMessageHeaders || []).some(h => /^in-reply-to$/i.test(h.name)));
+    // Keep actual campaign replies from an unfamiliar address for review without
+    // guessing which customer owns the address or silently discarding the reply.
+    decision.kind = replyToKnownSubject ? 'REPLY_REVIEW' : 'UNRELATED';
+  }
   const relevant = ['UNSUBSCRIBE', 'HUMAN_REPLY', 'REPLY_REVIEW'].includes(decision.kind);
   if (dryRun) return { id, classification: decision.kind, matched: match.accountIds.length, method: match.method,
     ...(relevant ? { sender: decision.sender, subject: message.subject, excerpt: decision.text.slice(0, 600) } : {}) };
@@ -146,7 +154,7 @@ async function runInboundTick(db, options = {}) {
           const stateId = hash(mailbox + '\n' + folder.id);
           await db('crm_mail_sync_state').insert({ id: stateId, mailbox, folder_id: folder.id, updated_at: new Date() }).onConflict('id').ignore();
           let state = await db('crm_mail_sync_state').where({ id: stateId }).first();
-          const params = new URLSearchParams({ '$top': '50', '$select': 'id,from,subject,receivedDateTime,internetMessageId,conversationId,isDraft,bodyPreview', '$filter': 'receivedDateTime ge ' + since });
+          const params = new URLSearchParams({ '$top': '50', '$orderby': 'receivedDateTime desc', '$select': 'id,from,subject,receivedDateTime,internetMessageId,conversationId,isDraft,bodyPreview', '$filter': 'receivedDateTime ge ' + since });
           let url = state.cursor_url || graph.mailboxPath('/mailFolders/' + encodeURIComponent(folder.id) + '/messages/delta?' + params);
           await db('crm_mail_sync_state').where({ id: stateId }).update({ last_attempt_at: new Date() });
           for (let page = 0; page < (options.pagesPerFolder || 2); page++) {
@@ -165,7 +173,9 @@ async function runInboundTick(db, options = {}) {
               if (await db('crm_inbound_messages').where({ id: identity(summary, mailbox) }).first('id')) { report.duplicates++; continue; }
               const sender = strictEmailAddress(summary.from?.emailAddress?.address);
               let message = summary;
-              if (!summary.isDraft && sender && !/@s-consulting\.ba$/i.test(sender)) {
+              // Delta updates can omit from/other unchanged properties. Resolve
+              // the full message before deciding that it is an incoming reply.
+              if (!summary.isDraft && (!sender || !/@s-consulting\.ba$/i.test(sender))) {
                 const select = 'id,from,subject,receivedDateTime,body,uniqueBody,internetMessageId,internetMessageHeaders,conversationId,isDraft,hasAttachments';
                 try { ({ data: message } = await graph.request(graph.mailboxPath('/messages/' + encodeURIComponent(summary.id) + '?$select=' + select))); }
                 catch (e) { if (e.status === 404) continue; throw e; }

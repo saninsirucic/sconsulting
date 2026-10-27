@@ -20,6 +20,7 @@ async function account(db, id = 'account', extra = {}) {
   await db('crm_accounts').insert({ id, brand_id: 'brand-fs-app', source_key: id, company_name: 'Example', email: 'person@example.com', status: 'EMAIL_SENT', source_data_json: '{}', ...extra });
 }
 test('clear Bosnian/English opt-out replies are detected; ordinary answers stay human', () => {
+  for (const text of ['Odjava', 'Molim vas da nas odjavite.', 'Molimo odjavu.', 'Molim da nam više ne šaljete mailove.', 'Nemojte nam više slati poruke.', 'We would like to unsubscribe.']) assert.equal(classify(mail(text)).kind, 'UNSUBSCRIBE', text);
   for (const text of ['Odjavite nas sa liste.', 'Poštovani,\nMolimo vas uklonite našu firmu sa spiska.', 'Ne šaljite nam više mailove.', 'Želim se odjaviti.', 'Please unsubscribe me.', 'Please remove us from your mailing list.', 'Stop emailing us.', 'Hi,\nUnsubscribe\nThanks']) assert.equal(classify(mail(text)).kind, 'UNSUBSCRIBE', text);
   for (const text of ['Poštovani, molim ponudu za održavanje.', 'Hvala, već imamo HACCP.', 'Nismo zainteresovani.', 'Please send the prices.']) assert.equal(classify(mail(text)).kind, 'HUMAN_REPLY', text);
 });
@@ -78,6 +79,18 @@ test('failed sender authentication requires review and cannot create suppression
   await recordMessage(db, m, 'info@s-consulting.ba', await loadContext(db));
   assert.equal((await db('email_suppression_list')).length, 0);
   assert.equal((await db('crm_inbound_messages').first()).classification, 'REPLY_REVIEW');
+});
+
+test('unknown campaign reply is retained for review; missing sender cannot create a false CRM reply', async t => {
+  const db = await database(t); await account(db);
+  await db('crm_mail_queue').insert({ id:'q', brand_id:'brand-fs-app', account_id:'account', queue_date:'2026-10-26', sequence_number:1, recipient_email:'person@example.com', subject:'HACCP ponuda', body_text:'Offer', status:'SENT', provider_conversation_id:'thread' });
+  const context = await loadContext(db);
+  await recordMessage(db, mail('Interested, please send details.', { from:{emailAddress:{address:'new@example.org'}} }), 'info@s-consulting.ba', context);
+  assert.equal((await db('crm_inbound_messages').first()).classification, 'REPLY_REVIEW');
+  assert.equal((await db('crm_activities')).length,0);
+  await recordMessage(db, mail('Our outgoing offer', { id:'delta-update', internetMessageId:null, from:undefined, conversationId:'thread' }), 'sales@s-consulting.ba', context);
+  assert.equal((await db('crm_activities')).length,0);
+  assert.equal((await db('crm_inbound_messages').where({classification:'MISSING_SENDER'})).length,1);
 });
 test('public form marks CRM opt-out, blocks changed email, and remains idempotent', async t => {
   const db = await database(t); await account(db);
