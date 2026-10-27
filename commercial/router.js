@@ -49,6 +49,18 @@ function createCommercialRouter({ db, outlookService }) {
   const router = express.Router();
   router.use(allowRoles('direktor', 'komercijala'));
 
+  router.get('/mail-replies/status', allowRoles('direktor'), asyncRoute(async (req, res) => {
+    const sync = await db('crm_mail_sync_state').where({ id: 'inbound-worker' })
+      .first('last_success_at', 'last_attempt_at', 'last_error', 'stats_json');
+    const counts = await db('crm_inbound_messages').whereIn('classification', ['UNSUBSCRIBE', 'HUMAN_REPLY', 'REPLY_REVIEW'])
+      .select('classification').count({ count: 'id' }).groupBy('classification');
+    const review = await db('crm_inbound_messages').where(q => q.where({ classification: 'REPLY_REVIEW' })
+      .orWhere({ classification: 'UNSUBSCRIBE', match_method: 'UNMATCHED' }))
+      .select('id', 'sender_email', 'subject', 'received_at', 'classification', 'match_method', 'account_ids_json')
+      .orderBy('received_at', 'desc').limit(50);
+    res.json({ sync, counts, review });
+  }));
+
   const getBrand = (req, write = false) => resolveBrand(
     db,
     req.user,

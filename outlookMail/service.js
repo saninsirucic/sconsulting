@@ -3,6 +3,7 @@ const sanitizeHtml = require('sanitize-html');
 const { OutlookError, createGraphClient, createOutlookConfig } = require('./graphClient');
 const { appendAutomaticSignature, escapePlainText } = require('./signature');
 const { assertRecipientsNotSuppressed } = require('../commercial/unsubscribe');
+const { withHaccpUnsubscribe } = require('../commercial/haccpMail');
 const { renderUsaEmail, BANNER_NAME } = require('../commercial/usaMail');
 const { defaultSignatureForMailbox } = require('./mailboxScope');
 
@@ -533,6 +534,9 @@ function createOutlookService(options = {}) {
       ccRecipients: normalizeRecipients(payload.cc),
       bccRecipients: normalizeRecipients(payload.bcc)
     };
+    if (/\bHACCP\b/i.test(subject)) {
+      message.body.content = withHaccpUnsubscribe(message.body.content, message.body.contentType);
+    }
     const recipients = [...message.toRecipients, ...message.ccRecipients, ...message.bccRecipients];
     await checkSuppression(recipients);
     const { data: draft } = await graph.request(graph.mailboxPath('/messages'), { method: 'POST', body: message, idempotent: false });

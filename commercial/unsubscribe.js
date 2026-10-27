@@ -5,7 +5,7 @@ const { strictEmailAddress } = require('./email');
 const UNSUBSCRIBE_URL = 'https://radiant-beach-27998-21e0f72a6a44.herokuapp.com/unsubscribe';
 const COOKIE = 'sconsult_unsubscribe';
 const FORM_TTL = 48 * 60 * 60 * 1000;
-const WAITING = ['PENDING', 'APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'FAILED'];
+const WAITING = ['PENDING', 'APPROVED', 'HACCP_APPROVED', 'SCHEDULED', 'NOT_APPROVED', 'FAILED'];
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (char) => ({
@@ -13,7 +13,7 @@ function escapeHtml(value) {
   }[char]));
 }
 
-function page({ token = '', email = '', error = '', success = false } = {}) {
+function page({ token = '', email = '', error = '', success = false, lang = 'en' } = {}) {
   const content = success
     ? `<div class="check" aria-hidden="true">&#10003;</div>
        <h1>Thank you. You're unsubscribed.</h1>
@@ -31,7 +31,7 @@ function page({ token = '', email = '', error = '', success = false } = {}) {
          <button type="submit">Unsubscribe from all marketing emails</button>
        </form>
        <p class="muted">Your request takes effect immediately. No account, fee or explanation is required.</p>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
     <title>${success ? "You're unsubscribed" : 'Unsubscribe'} | S-Consulting Group</title>
@@ -52,20 +52,39 @@ function page({ token = '', email = '', error = '', success = false } = {}) {
     <footer>Need help? You can also request an unsubscribe by emailing
       <a href="mailto:sales@s-consulting.ba?subject=Unsubscribe">sales@s-consulting.ba</a>.</footer>
     </main></body></html>`;
+  if (lang !== 'bs') return html;
+  const translations = [
+    ['lang="en"', 'lang="bs"'], ['action="/unsubscribe"', 'action="/unsubscribe?lang=bs"'],
+    ["Thank you. You're unsubscribed.", 'Vaša odjava je evidentirana.'],
+    ["You're unsubscribed", 'Odjava potvrđena'],
+    ['Your request has been saved. We have stopped marketing emails from S-Consulting Group to this email address.', 'Zahtjev je upisan u bazu. Na ovu adresu više nećemo slati marketinške poruke S-Consultinga.'],
+    ['No further action is needed. Thank you for letting us know your preference.', 'Nije potrebna dodatna radnja. Hvala što ste nam javili.'],
+    ['EMAIL PREFERENCES', 'POSTAVKE E-MAIL PORUKA'],
+    ['Unsubscribe from marketing emails', 'Odjava iz marketinških poruka'],
+    ['Enter the email address that received our message. We will stop all marketing emails from S-Consulting Group to this address.', 'Upišite adresu na koju ste primili našu poruku. Odjava se primjenjuje na sve naredne marketinške kampanje S-Consultinga.'],
+    ['Unsubscribe from all marketing emails', 'Odjavi me iz svih marketinških poruka'],
+    ['Email address', 'E-mail adresa'], ['you@company.com', 'vas@firma.ba'],
+    ['Your request takes effect immediately. No account, fee or explanation is required.', 'Odjava vrijedi odmah. Nisu potrebni korisnički račun, naknada niti obrazloženje.'],
+    ['Need help? You can also request an unsubscribe by emailing', 'Odjavu možete zatražiti i odgovorom na naš mail ili porukom na'],
+    ['sales@s-consulting.ba', 'prodaja@s-consulting.ba'],
+    ['Please enter a valid email address.', 'Unesite ispravnu e-mail adresu.'],
+    ['Please submit this refreshed form to save your request.', 'Ponovo pošaljite ovaj osvježeni obrazac za potvrdu odjave.'],
+    ['We could not save your request. Please try again or email', 'Zahtjev nije upisan. Pokušajte ponovo ili pišite na']
+  ];
+  return translations.reduce((value, [from, to]) => value.split(from).join(to), html);
 }
 
 // This record is global: imports, new campaigns, primary recipients and CC checks
 // all consult the same suppression list. Repeated requests preserve the first record.
-async function unsubscribeAddress(db, value) {
+async function suppressAddressInTransaction(trx, value, options = {}) {
   const email = strictEmailAddress(value);
   if (!email) throw Object.assign(new Error('Please enter a valid email address.'), { status: 400 });
   const now = new Date();
-  await db.transaction(async (trx) => {
     await trx('email_suppression_list').insert({
       id: crypto.randomUUID(), email, email_normalized: email,
-      reason: 'UNSUBSCRIBED', source: 'PUBLIC_UNSUBSCRIBE_FORM',
-      notes: 'Recipient requested an opt-out from all S-Consulting Group marketing emails.',
-      created_by: 'public-unsubscribe', created_at: now
+      reason: 'UNSUBSCRIBED', source: options.source || 'PUBLIC_UNSUBSCRIBE_FORM',
+      notes: options.notes || 'Recipient requested an opt-out from all S-Consulting Group marketing emails.',
+      created_by: options.actor || 'public-unsubscribe', created_at: now
     }).onConflict('email_normalized').ignore();
 
     const contacts = await trx('email_contacts').whereRaw('LOWER(TRIM(email_normalized)) = ?', [email]).select('id');
@@ -93,8 +112,28 @@ async function unsubscribeAddress(db, value) {
         status: 'SKIPPED', last_error: 'UNSUBSCRIBED: recipient requested no marketing emails.', updated_at: now
       });
     }
-  });
+    if (await trx.schema.hasColumn('crm_accounts', 'marketing_opt_out_at')) {
+      const accounts = await trx('crm_accounts').whereRaw('LOWER(TRIM(email)) = ?', [email])
+        .select('id', 'brand_id', 'status', 'comment', 'marketing_opt_out_at');
+      for (const account of accounts.filter(a => !a.marketing_opt_out_at)) {
+        const note = 'ODJAVA — zabrana daljnjih marketinških poruka: ' + email + '.';
+        await trx('crm_accounts').where({ id: account.id }).update({ marketing_opt_out_at: now,
+          marketing_opt_out_reason: options.source || 'PUBLIC_UNSUBSCRIBE_FORM', status: 'REJECTED',
+          comment: [account.comment, note].filter(Boolean).join('\n'), updated_at: now });
+        if (options.recordActivity !== false) await trx('crm_activities').insert({
+          id: crypto.randomUUID(), account_id: account.id, brand_id: account.brand_id,
+          user_id: options.actor || 'public-unsubscribe', activity_type: 'EMAIL_UNSUBSCRIBED',
+          from_status: account.status, to_status: 'REJECTED', notes: note,
+          metadata_json: JSON.stringify({ source: options.source || 'PUBLIC_UNSUBSCRIBE_FORM', email }),
+          occurred_at: now, created_at: now
+        });
+      }
+    }
   return email;
+}
+
+async function unsubscribeAddress(db, value, options = {}) {
+  return db.transaction(trx => suppressAddressInTransaction(trx, value, options));
 }
 
 async function assertRecipientsNotSuppressed(db, recipients) {
@@ -103,6 +142,13 @@ async function assertRecipientsNotSuppressed(db, recipients) {
   const suppressed = await db('email_suppression_list').whereIn('email_normalized', emails).first('id');
   if (suppressed) {
     throw Object.assign(new Error('Jedna od adresa primalaca je na listi zabrane slanja.'), {
+      status: 409, code: 'RECIPIENT_SUPPRESSED'
+    });
+  }
+  if (await db.schema.hasColumn('crm_accounts', 'marketing_opt_out_at')) {
+    const optedOut = await db('crm_accounts').whereNotNull('marketing_opt_out_at')
+      .whereIn(db.raw('LOWER(TRIM(email))'), emails).first('id');
+    if (optedOut) throw Object.assign(new Error('Komitent je odjavljen iz marketinške komunikacije.'), {
       status: 409, code: 'RECIPIENT_SUPPRESSED'
     });
   }
@@ -132,7 +178,7 @@ function createUnsubscribeRouter({ db, env = process.env, now = Date.now } = {})
       httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'strict',
       path: '/unsubscribe', maxAge: FORM_TTL
     });
-    return res.status(status).type('html').send(page({ token: `${value}.${sign(value)}`, error, email }));
+    return res.status(status).type('html').send(page({ token: `${value}.${sign(value)}`, error, email, lang: req.query.lang === 'bs' ? 'bs' : 'en' }));
   }
   function validToken(req) {
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
@@ -165,7 +211,7 @@ function createUnsubscribeRouter({ db, env = process.env, now = Date.now } = {})
     if (!strictEmailAddress(email)) return form(req, res, 400, 'Please enter a valid email address.', email);
     try {
       await unsubscribeAddress(db, email);
-      return res.type('html').send(page({ success: true }));
+      return res.type('html').send(page({ success: true, lang: req.query.lang === 'bs' ? 'bs' : 'en' }));
     } catch (_) {
       // Never show a success page until the entire suppression transaction commits.
       return form(req, res, 503, 'We could not save your request. Please try again or email sales@s-consulting.ba.', email);
@@ -178,4 +224,4 @@ function createUnsubscribeRouter({ db, env = process.env, now = Date.now } = {})
   return router;
 }
 
-module.exports = { UNSUBSCRIBE_URL, createUnsubscribeRouter, unsubscribeAddress, assertRecipientsNotSuppressed };
+module.exports = { UNSUBSCRIBE_URL, createUnsubscribeRouter, unsubscribeAddress, suppressAddressInTransaction, assertRecipientsNotSuppressed };

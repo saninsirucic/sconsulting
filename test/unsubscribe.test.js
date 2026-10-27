@@ -44,6 +44,17 @@ function submit(url, session, email, overrides = {}) {
   });
 }
 
+test('Bosnian HACCP form preserves language through validation and successful opt-out', async t => {
+  const db = await database(t), url = (await server(t, db)) + '?lang=bs', session = await form(url);
+  assert.match(session.html, /lang="bs"/); assert.match(session.html, /action="\/unsubscribe\?lang=bs"/);
+  assert.match(session.html, /Odjavi me iz svih marketinških poruka/);
+  const invalid = await submit(url, session, 'invalid'); assert.equal(invalid.status, 400);
+  assert.match(await invalid.text(), /Unesite ispravnu e-mail adresu/);
+  const result = await submit(url, session, 'person@example.com'); assert.equal(result.status, 200);
+  assert.match(await result.text(), /Vaša odjava je evidentirana/);
+  assert.equal((await db('email_suppression_list')).length, 1);
+});
+
 async function queue(db, id, brand, email, cc = [], status = 'SCHEDULED') {
   await db('crm_accounts').insert({
     id: `a-${id}`, brand_id: brand, source_key: id, company_name: id, email,

@@ -7,6 +7,7 @@ const { escapePlainText } = require('../outlookMail/signature');
 const { strictEmailAddress } = require('./email');
 const { businessDate, httpError } = require('./service');
 const { usaCampaignBody, BANNER_NAME } = require('./usaMail');
+const { withHaccpUnsubscribe } = require('./haccpMail');
 const { brandMailbox, assertCampaignMailboxAccess, defaultSignatureForMailbox } = require('../outlookMail/mailboxScope');
 
 const QUEUE_STATUSES = new Set([
@@ -128,6 +129,11 @@ function campaignSignatureForBrand(brand) {
 function campaignBodyForBrand(brand, bodyText) {
   const code = String(brand?.code || '').toUpperCase();
   if (code === 'SAN_PEST_USA') return usaCampaignBody(bodyText);
+  if (['HACCP_CLASSIC', 'HACCP_PUBLIC'].includes(code)) {
+    const body = withHaccpUnsubscribe(bodyText);
+    return { body: escapePlainText(body).replace(/https:\/\/radiant-beach-27998-21e0f72a6a44\.herokuapp\.com\/unsubscribe\?lang=bs/g,
+      '<a href="https://radiant-beach-27998-21e0f72a6a44.herokuapp.com/unsubscribe?lang=bs">Odjava iz marketinških poruka</a>'), bodyType: 'html' };
+  }
   if (code === 'SAN_PEST_GERMANY' || code === 'SAN_PEST_AUSTRIA') {
     const source = String(bodyText || '').trim();
     let html = escapePlainText(source);
@@ -655,6 +661,9 @@ async function updateAutomationSettings(db, brand, actor, input = {}) {
 async function suppressionSet(db) {
   if (!(await db.schema.hasTable('email_suppression_list'))) return new Set();
   const rows = await db('email_suppression_list').select('email_normalized', 'email');
+  if (await db.schema.hasColumn('crm_accounts', 'marketing_opt_out_at')) {
+    rows.push(...await db('crm_accounts').whereNotNull('marketing_opt_out_at').select('email'));
+  }
   return new Set(rows.map((row) => validEmail(row.email_normalized || row.email)).filter(Boolean));
 }
 

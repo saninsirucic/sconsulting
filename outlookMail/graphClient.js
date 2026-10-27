@@ -5,6 +5,7 @@ const GRAPH_ORIGIN = 'https://graph.microsoft.com';
 const GRAPH_VERSION_PATH = '/v1.0';
 const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 const FIXED_MAILBOX = DEFAULT_MAILBOX;
+const INBOUND_MAILBOXES = Object.freeze([...SUPPORTED_MAILBOXES, 'info@s-consulting.ba']);
 
 class OutlookError extends Error {
   constructor(message, options = {}) {
@@ -14,6 +15,7 @@ class OutlookError extends Error {
     this.code = options.code || 'OUTLOOK_ERROR';
     this.retryAfter = options.retryAfter;
     this.details = options.details;
+    this.upstreamStatus = options.upstreamStatus;
   }
 }
 
@@ -41,12 +43,14 @@ function createOutlookConfig(env = process.env, options = {}) {
   const configuredSender = String(env.MAIL_SENDER_ADDRESS || FIXED_MAILBOX).trim().toLowerCase();
   const cursorSecret = String(env.OUTLOOK_CURSOR_SECRET || env.JWT_SECRET || '').trim()
     || (env.NODE_ENV === 'production' ? '' : 'sconsulting-outlook-development-only-secret');
-  const mailboxAllowed = SUPPORTED_MAILBOXES.includes(mailbox)
+  const readOnly = options.readOnly === true;
+  const inboundAllowed = String(env.INBOUND_MAILBOXES || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  const mailboxAllowed = (readOnly ? INBOUND_MAILBOXES.includes(mailbox) && inboundAllowed.includes(mailbox) : SUPPORTED_MAILBOXES.includes(mailbox))
     && requestedMailbox === FIXED_MAILBOX
     && configuredSender === FIXED_MAILBOX
     && allowedMailboxes.length > 0
     && allowedMailboxes.every((address) => SUPPORTED_MAILBOXES.includes(address))
-    && allowedMailboxes.includes(mailbox);
+    && (readOnly || allowedMailboxes.includes(mailbox));
   const credentialsPresent = Boolean(tenantId && clientId && clientSecret);
   let configurationMessage = null;
   if (!mailboxAllowed) configurationMessage = 'Outlook mailbox konfiguracija nije dozvoljena.';
@@ -60,7 +64,8 @@ function createOutlookConfig(env = process.env, options = {}) {
     clientSecret,
     configured: credentialsPresent && mailboxAllowed && Boolean(cursorSecret),
     configurationMessage,
-    writeEnabled: exactBoolean(env.OUTLOOK_MAIL_WRITES_ENABLED),
+    readOnly,
+    writeEnabled: !readOnly && exactBoolean(env.OUTLOOK_MAIL_WRITES_ENABLED),
     maxAttachments: parseInteger(env.OUTLOOK_MAX_ATTACHMENTS, 5, 1, 10),
     maxAttachmentBytes: parseInteger(env.OUTLOOK_MAX_ATTACHMENT_BYTES, 2500000, 1, 2999999),
     maxTotalAttachmentBytes: parseInteger(env.OUTLOOK_MAX_TOTAL_ATTACHMENT_BYTES, 5000000, 1, 10000000),
@@ -188,6 +193,9 @@ function createGraphClient(options = {}) {
   async function request(pathOrUrl, requestOptions = {}) {
     ensureConfigured();
     const method = String(requestOptions.method || 'GET').toUpperCase();
+    if (config.readOnly && !['GET', 'HEAD'].includes(method)) {
+      throw new OutlookError('Servis za odgovore ima samo pristup čitanju.', { status: 403, code: 'OUTLOOK_READ_ONLY' });
+    }
     const url = validateGraphUrl(pathOrUrl, config.mailbox);
     const mayRetry = requestOptions.idempotent ?? method === 'GET';
     const maximumAttempts = 1 + (mayRetry ? config.maxReadRetries : 0);
@@ -259,6 +267,7 @@ function createGraphClient(options = {}) {
           {
             status: response.status === 404 ? 404 : (response.status === 429 ? 429 : 502),
             code: response.status === 404 ? 'OUTLOOK_ITEM_NOT_FOUND' : 'OUTLOOK_GRAPH_ERROR',
+            upstreamStatus: response.status,
             retryAfter
           }
         );

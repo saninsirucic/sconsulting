@@ -44,7 +44,8 @@ test('classic HACCP manual sending uses the saved letter and team signature, and
   await updateAutomationSettings(db,brand,actor,{subject:'HACCP dopis',body:'Implementacija i održavanje HACCP sistema.'});
   const sent=[];const outlook={config:{mailbox:'prodaja@s-consulting.ba',writeEnabled:true},async send(payload){sent.push(payload);return {id:'sent-id',accepted:true};}};
   await sendImmediateAccountMail(db,brand,'classic-contact',{confirmed:true,actor,outlookService:outlook});
-  assert.equal(sent.length,1);assert.equal(sent[0].body,'Implementacija i održavanje HACCP sistema.');
+  assert.equal(sent.length,1);assert.match(sent[0].body,/Implementacija i održavanje HACCP sistema\./);
+  assert.equal(sent[0].bodyType,'html');assert.ok(sent[0].body.includes('href="'+require('../commercial/haccpMail').HACCP_UNSUBSCRIBE_URL+'"'));
   assert.equal(sent[0].signature.name,'Tim S-Consultinga');assert.equal(sent[0].signature.mobile,'');assert.equal(sent[0].signature.email,'prodaja@s-consulting.ba');
   await assert.rejects(sendImmediateAccountMail(db,brand,'classic-contact',{confirmed:true,actor,outlookService:outlook}));
   assert.equal(sent.length,1);
