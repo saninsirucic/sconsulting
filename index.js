@@ -70,6 +70,7 @@ const corsOptions = {
 
 // Public opt-out page must work without a CRM login, including same-origin form POST.
 app.use('/unsubscribe', createUnsubscribeRouter({ db }));
+app.use('/sanpest-sastanak', require('./commercial/sanpestMeeting').createSanpestMeetingRouter({ db }));
 
 // PRVO postavi cors middleware
 app.use(cors(corsOptions));
