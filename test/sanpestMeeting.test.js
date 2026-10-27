@@ -12,7 +12,7 @@ async function setup(t, notify = async () => {}) {
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   t.after(async () => { await new Promise(r => server.close(r)); await db.destroy(); });
   const url = `http://127.0.0.1:${server.address().port}/sanpest-sastanak`;
-  const form = async () => { const r = await fetch(url); return (await r.text()).match(/name="token" value="([^"]+)"/)[1]; };
+  const form = async () => { const r = await fetch(url); assert.equal(r.headers.get('referrer-policy'), 'same-origin'); return (await r.text()).match(/name="token" value="([^"]+)"/)[1]; };
   const post = (token, changes = {}, headers = {}) => fetch(url, { method: 'POST', headers, body: new URLSearchParams({ token, name: 'Test osoba', phone: '+387 33 123 456', company: 'Test & firma', comment: 'Online prikaz', interested: 'yes', ...changes }) });
   return { db, url, form, post };
 }

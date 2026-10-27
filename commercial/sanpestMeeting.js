@@ -44,7 +44,7 @@ function createSanpestMeetingRouter({ db, env = process.env, notify }) {
     return res.status(status).type('html').send(html);
   }
   router.use((req, res, next) => {
-    res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" }); next();
+    res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" }); next();
   });
   router.get('/app.jpg', (req, res) => res.sendFile(path.join(__dirname, 'assets/sanpest-newsletter-app.jpg')));
   router.get('/logo.png', (req, res) => res.sendFile(path.join(__dirname, 'assets/sanpest-newsletter-logo.png')));
