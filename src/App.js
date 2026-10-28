@@ -599,13 +599,13 @@ function App() {
 
       {/* SADRŽAJ */}
       <Box
-        maxW={["ai-mailovi", "commercial", "outlook"].includes(page) ? "1600px" : "1100px"}
+        maxW={page === "outlook" ? "100%" : ["ai-mailovi", "commercial"].includes(page) ? "1600px" : "1100px"}
         w="full"
         mx="auto"
-        mt={{ base: 0, sm: "14px", md: "40px" }}
+        mt={page === "outlook" ? 0 : { base: 0, sm: "14px", md: "40px" }}
         bg="#fff"
-        borderRadius={{ base: 0, sm: "20px" }}
-        p={{ base: ["ai-mailovi", "commercial", "outlook"].includes(page) ? "8px" : "12px", sm: "16px", md: "40px" }}
+        borderRadius={page === "outlook" ? 0 : { base: 0, sm: "20px" }}
+        p={page === "outlook" ? 0 : { base: ["ai-mailovi", "commercial"].includes(page) ? "8px" : "12px", sm: "16px", md: "40px" }}
         boxShadow={{ base: "none", sm: "0 2px 18px 0px #f68b1f19, 0 1.5px 2px #1dba5b13" }}
         minH="400px"
       >

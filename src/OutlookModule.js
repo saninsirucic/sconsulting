@@ -8,7 +8,6 @@ import {
   Badge,
   Box,
   Button,
-  Checkbox,
   Divider,
   Flex,
   FormControl,
@@ -20,8 +19,6 @@ import {
   IconButton,
   Image,
   Input,
-  InputGroup,
-  InputLeftElement,
   Link,
   Modal,
   ModalBody,
@@ -31,7 +28,6 @@ import {
   ModalHeader,
   ModalOverlay,
   Spinner,
-  Stack,
   Text,
   Textarea,
   Tooltip,
@@ -42,25 +38,18 @@ import {
   WrapItem,
 } from '@chakra-ui/react';
 import {
-  FaArchive,
   FaArrowLeft,
   FaDownload,
   FaEnvelope,
   FaEnvelopeOpen,
-  FaExclamationTriangle,
   FaFile,
-  FaForward,
-  FaInbox,
   FaPaperclip,
   FaPaperPlane,
-  FaPen,
   FaRedo,
-  FaReply,
-  FaReplyAll,
-  FaSearch,
-  FaTrash,
 } from 'react-icons/fa';
 import { composePayload, outlookApi } from './outlook/api';
+import RichTextEditor from './outlook/RichTextEditor';
+import { FolderNavigation, MessageList, MailHeader, MailToolbar, printMessage } from './outlook/Workspace';
 import { DEFAULT_EMAIL_SIGNATURE, EMAIL_SIGNATURE_LOGO_URL, emailSignatureForMailbox } from './outlook/signature';
 import {
   addressesToText,
@@ -78,20 +67,11 @@ import {
 
 const outlookBlue = '#2563eb';
 const orange = '#f68b1f';
-const green = '#1dba5b';
 const defaultAttachmentLimit = 5;
 const defaultAttachmentBytes = 2500000;
 const defaultTotalAttachmentBytes = 5000000;
 const statusRetryDelays = process.env.NODE_ENV === 'test' ? [0, 0, 0] : [0, 1000, 3000];
 
-const folderIcons = {
-  inbox: FaInbox,
-  sentitems: FaPaperPlane,
-  drafts: FaPen,
-  archive: FaArchive,
-  junkemail: FaExclamationTriangle,
-  deleteditems: FaTrash,
-};
 
 function listFrom(payload, preferredKey) {
   if (Array.isArray(payload)) return payload;
@@ -217,102 +197,6 @@ function TemporarilyUnavailable({ message, onRetry, retrying }) {
   );
 }
 
-function FolderNavigation({ folders, activeFolder, onChange }) {
-  return (
-    <Box borderRight={{ base: 'none', xl: '1px solid' }} borderBottom={{ base: '1px solid', xl: 'none' }} borderColor="gray.200" bg="#f8fafc" p={{ base: 3, xl: 4 }}>
-      <Stack direction={{ base: 'row', xl: 'column' }} spacing={2} overflowX="auto" pb={{ base: 1, xl: 0 }} sx={{ '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none' }}>
-        {folders.map((folder) => {
-          const active = folder.key === activeFolder;
-          return (
-            <Button
-              key={folder.key}
-              aria-label={folder.label}
-              variant="ghost"
-              justifyContent="flex-start"
-              flexShrink={0}
-              leftIcon={<Icon as={folderIcons[folder.key] || FaEnvelope} />}
-              bg={active ? 'blue.50' : 'transparent'}
-              color={active ? outlookBlue : 'gray.700'}
-              borderLeft={{ base: 'none', xl: active ? `3px solid ${outlookBlue}` : '3px solid transparent' }}
-              borderBottom={{ base: active ? `3px solid ${outlookBlue}` : '3px solid transparent', xl: 'none' }}
-              borderRadius={{ base: 'lg', xl: 'md' }}
-              onClick={() => onChange(folder.key)}
-              _hover={{ bg: active ? 'blue.50' : 'gray.100' }}
-            >
-              <Flex w="full" align="center" gap={3}>
-                <Text>{folder.label}</Text>
-                <Badge ml="auto" colorScheme={folder.unreadCount ? 'blue' : 'gray'} variant={folder.unreadCount ? 'solid' : 'subtle'} borderRadius="full">
-                  {folder.unreadCount || folder.totalCount || 0}
-                </Badge>
-              </Flex>
-            </Button>
-          );
-        })}
-      </Stack>
-    </Box>
-  );
-}
-
-function MessageList({ messages, selectedId, loading, onSelect, folderLabel, nextCursor, onLoadMore }) {
-  if (loading && !messages.length) {
-    return <Flex h="360px" align="center" justify="center" gap={3} color="gray.500"><Spinner color={outlookBlue} /><Text>Učitavanje poruka...</Text></Flex>;
-  }
-  if (!messages.length) {
-    return (
-      <VStack py={16} px={5} color="gray.500" textAlign="center">
-        <Flex boxSize="54px" borderRadius="full" bg="gray.100" align="center" justify="center"><Icon as={FaEnvelopeOpen} boxSize={5} /></Flex>
-        <Text fontWeight="bold" color="gray.700">Nema poruka</Text>
-        <Text fontSize="sm">U folderu {folderLabel} nema poruka koje odgovaraju filteru.</Text>
-      </VStack>
-    );
-  }
-  return (
-    <VStack spacing={0} align="stretch" maxH={{ base: '460px', lg: '690px' }} overflowY="auto">
-      {messages.map((message) => {
-        const active = selectedId === message.id;
-        return (
-          <Box
-            as="button"
-            type="button"
-            key={message.id}
-            onClick={() => onSelect(message)}
-            textAlign="left"
-            w="full"
-            px={4}
-            py={3.5}
-            bg={active ? 'blue.50' : 'white'}
-            borderLeft={active ? `4px solid ${outlookBlue}` : '4px solid transparent'}
-            borderBottom="1px solid"
-            borderColor="gray.100"
-            _hover={{ bg: active ? 'blue.50' : 'gray.50' }}
-          >
-            <Flex gap={3} align="flex-start">
-              <Avatar size="sm" name={displayName(message.from)} bg={message.isRead ? 'gray.200' : 'blue.100'} color={message.isRead ? 'gray.600' : outlookBlue} />
-              <Box minW={0} flex="1">
-                <Flex gap={2} align="center">
-                  <Text noOfLines={1} fontSize="sm" fontWeight={message.isRead ? 'medium' : 'bold'} color="gray.800">{displayName(message.from)}</Text>
-                  <Text ml="auto" flexShrink={0} fontSize="xs" color="gray.500">{formatMailDate(message.receivedAt, true)}</Text>
-                </Flex>
-                <Flex align="center" gap={2} mt={0.5}>
-                  {!message.isRead && <Box aria-label="Nepročitano" boxSize="7px" bg={outlookBlue} borderRadius="full" flexShrink={0} />}
-                  <Text noOfLines={1} fontSize="sm" fontWeight={message.isRead ? 'normal' : 'semibold'} color="gray.700">{message.subject}</Text>
-                  {message.hasAttachments && <Icon as={FaPaperclip} color="gray.500" boxSize={3} flexShrink={0} />}
-                </Flex>
-                <Text noOfLines={2} fontSize="xs" mt={1} color="gray.500" lineHeight="1.45">{message.preview || 'Bez pregleda sadržaja.'}</Text>
-              </Box>
-            </Flex>
-          </Box>
-        );
-      })}
-      {nextCursor && (
-        <Box p={4} textAlign="center">
-          <Button size="sm" variant="outline" colorScheme="blue" isLoading={loading} onClick={onLoadMore}>Učitaj još</Button>
-        </Box>
-      )}
-    </VStack>
-  );
-}
-
 function AttachmentCard({ attachment, onDownload, loading }) {
   return (
     <Flex border="1px solid" borderColor="gray.200" borderRadius="xl" px={3} py={2.5} gap={3} align="center" minW={{ base: 'full', sm: '245px' }} bg="white">
@@ -326,7 +210,7 @@ function AttachmentCard({ attachment, onDownload, loading }) {
   );
 }
 
-function ReadingPane({ message, loading, writeEnabled, actionLoading, attachmentLoadingId, onComposeAction, onToggleRead, onArchive, onDelete, onDownload }) {
+function ReadingPane({ message, loading, attachmentLoadingId, onDownload }) {
   const renderedHtml = useMemo(() => sanitizeMailHtml(message?.bodyHtml), [message?.bodyHtml]);
   if (loading) return <Flex minH="420px" align="center" justify="center" gap={3}><Spinner color={outlookBlue} /><Text color="gray.500">Otvaranje poruke...</Text></Flex>;
   if (!message) {
@@ -341,20 +225,7 @@ function ReadingPane({ message, loading, writeEnabled, actionLoading, attachment
   const toText = addressesToText(message.to);
   const ccText = addressesToText(message.cc);
   return (
-    <Box p={{ base: 4, md: 6 }} maxH={{ base: 'none', lg: '750px' }} overflowY="auto">
-      <Flex gap={3} direction={{ base: 'column', md: 'row' }} align={{ base: 'stretch', md: 'center' }} mb={5}>
-        <HStack spacing={2} flexWrap="wrap">
-          <Button minH="44px" leftIcon={<FaReply />} onClick={() => onComposeAction('reply')} isDisabled={!writeEnabled}>Odgovori</Button>
-          <Button minH="44px" leftIcon={<FaReplyAll />} onClick={() => onComposeAction('reply-all')} isDisabled={!writeEnabled}>Odgovori svima</Button>
-          <Button minH="44px" leftIcon={<FaForward />} onClick={() => onComposeAction('forward')} isDisabled={!writeEnabled}>Proslijedi</Button>
-        </HStack>
-        <HStack ml={{ md: 'auto' }} spacing={1}>
-          <Tooltip label={message.isRead ? 'Označi kao nepročitano' : 'Označi kao pročitano'}><IconButton aria-label={message.isRead ? 'Označi kao nepročitano' : 'Označi kao pročitano'} minW="44px" minH="44px" variant="ghost" icon={message.isRead ? <FaEnvelope /> : <FaEnvelopeOpen />} onClick={onToggleRead} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
-          <Tooltip label="Arhiviraj"><IconButton aria-label="Arhiviraj poruku" minW="44px" minH="44px" variant="ghost" icon={<FaArchive />} onClick={onArchive} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
-          <Tooltip label="Premjesti u Obrisano"><IconButton aria-label="Obriši poruku" minW="44px" minH="44px" colorScheme="red" variant="ghost" icon={<FaTrash />} onClick={onDelete} isDisabled={!writeEnabled || actionLoading} /></Tooltip>
-        </HStack>
-      </Flex>
-
+    <Box className="mail-reading-content" p={{ base: 4, md: 6 }} maxH={{ base: 'none', lg: '750px' }} overflowY="auto">
       <Heading size="md" lineHeight="1.35" mb={5} overflowWrap="anywhere">{message.subject}</Heading>
       <Flex gap={3} align="flex-start">
         <Avatar name={displayName(message.from)} bg="blue.100" color={outlookBlue} />
@@ -412,6 +283,7 @@ const createEmptyCompose = () => ({
   bcc: '',
   subject: '',
   body: '',
+  bodyType: 'text',
   signature: { ...DEFAULT_EMAIL_SIGNATURE },
 });
 
@@ -476,21 +348,27 @@ export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, i
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const fileRef = useRef(null);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [bodyDirty, setBodyDirty] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     const replyAll = mode === 'reply-all';
     const forward = mode === 'forward';
     const compose = mode === 'compose';
+    const draft = mode === 'draft';
     setForm({
-      to: compose ? initialDraft?.to || '' : forward ? '' : message?.from?.address || '',
-      cc: compose ? initialDraft?.cc || '' : replyAll ? addressesToText(message?.cc) : '',
-      bcc: '',
-      subject: compose ? initialDraft?.subject || '' : message ? replySubject(message.subject, forward) : '',
-      body: compose ? initialDraft?.body || '' : '',
-      signature: { ...emailSignatureForMailbox(status.mailbox) },
+      to: draft ? addressesToText(message?.to) : compose ? initialDraft?.to || '' : forward ? '' : message?.from?.address || '',
+      cc: draft ? addressesToText(message?.cc) : compose ? initialDraft?.cc || '' : replyAll ? addressesToText(message?.cc) : '',
+      bcc: draft ? addressesToText(message?.bcc) : '',
+      subject: draft ? message?.subject || '' : compose ? initialDraft?.subject || '' : message ? replySubject(message.subject, forward) : '',
+      body: draft ? message?.bodyHtml || message?.bodyText || '' : compose ? initialDraft?.body || '' : '',
+      bodyType: draft && message?.bodyHtml ? 'html' : 'text',
+      signature: draft ? undefined : { ...emailSignatureForMailbox(status.mailbox) },
     });
-    setShowCopies(replyAll || Boolean(compose && initialDraft?.cc));
+    setShowCopies(replyAll || draft || Boolean(compose && initialDraft?.cc));
+    setDirty(false); setBodyDirty(false); setDiscardPrompt(false);
     setFiles([]);
     setError('');
   }, [isOpen, message, mode, status.mailbox, initialDraft]);
@@ -517,20 +395,26 @@ export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, i
       setError(`Ukupna veličina priloga ne smije preći ${formatBytes(status.maxTotalAttachmentBytes)}.`);
       return;
     }
-    setFiles(next);
+    setFiles(next); setDirty(true);
     event.target.value = '';
   };
 
   const submit = async (event) => {
     event.preventDefault();
+    if (sending) return;
     setError('');
-    if ((mode === 'compose' || mode === 'forward') && !form.to.trim()) return setError('Unesite najmanje jednog primaoca.');
-    if (!form.body.trim()) return setError('Unesite tekst poruke.');
+    if ((mode === 'compose' || mode === 'draft' || mode === 'forward') && !form.to.trim()) return setError('Unesite najmanje jednog primaoca.');
+    if (!form.body.trim() || (form.bodyType === 'html' && !new DOMParser().parseFromString(form.body, 'text/html').body.textContent.trim())) return setError('Unesite tekst poruke.');
     setSending(true);
     try {
       const payload = await composePayload(form, files);
-      if (mode === 'reply') await outlookApi.reply(message.id, { body: payload.body, bodyType: payload.bodyType, signature: payload.signature, attachments: payload.attachments });
-      else if (mode === 'reply-all') await outlookApi.replyAll(message.id, { body: payload.body, bodyType: payload.bodyType, signature: payload.signature, attachments: payload.attachments });
+      if (mode === 'draft') {
+        if (!bodyDirty) { delete payload.body; delete payload.bodyType; }
+        await outlookApi.saveDraft(payload, message.id);
+        await outlookApi.sendDraft(message.id);
+      }
+      else if (mode === 'reply') await outlookApi.reply(message.id, { body: payload.body, bodyType: payload.bodyType, signature: payload.signature, attachments: payload.attachments, cc: payload.cc, bcc: payload.bcc });
+      else if (mode === 'reply-all') await outlookApi.replyAll(message.id, { body: payload.body, bodyType: payload.bodyType, signature: payload.signature, attachments: payload.attachments, bcc: payload.bcc });
       else if (mode === 'forward') await outlookApi.forward(message.id, {
         to: payload.to,
         cc: payload.cc,
@@ -541,7 +425,7 @@ export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, i
         attachments: payload.attachments,
       });
       else await outlookApi.send(payload);
-      onSent(mode === 'compose' ? 'Poruka je poslana.' : mode === 'forward' ? 'Poruka je proslijeđena.' : 'Odgovor je poslan.');
+      onSent(mode === 'compose' || mode === 'draft' ? 'Poruka je poslana.' : mode === 'forward' ? 'Poruka je proslijeđena.' : 'Odgovor je poslan.');
       onClose();
     } catch (requestError) {
       setError(requestError.message || 'Slanje poruke nije uspjelo.');
@@ -550,15 +434,28 @@ export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, i
     }
   };
 
-  const title = mode === 'reply' ? 'Odgovor' : mode === 'reply-all' ? 'Odgovor svima' : mode === 'forward' ? 'Proslijedi poruku' : 'Nova poruka';
+  const save = async () => {
+    if (sending) return;
+    setSending(true); setError('');
+    try {
+      const payload = await composePayload(form, files);
+      if (mode === 'draft' && !bodyDirty) { delete payload.body; delete payload.bodyType; }
+      await outlookApi.saveDraft(payload, mode === 'draft' ? message.id : undefined);
+      onSent('Nacrt je sačuvan u Outlooku.'); onClose();
+    } catch (requestError) { setError(requestError.message || 'Nacrt nije sačuvan.'); }
+    finally { setSending(false); }
+  };
+  const requestClose = () => { if (dirty) setDiscardPrompt(true); else onClose(); };
+
+  const title = mode === 'draft' ? 'Uredi nacrt' : mode === 'reply' ? 'Odgovor' : mode === 'reply-all' ? 'Odgovor svima' : mode === 'forward' ? 'Proslijedi poruku' : 'Nova poruka';
   const updateSignature = (field, value) => setForm((current) => ({
     ...current,
     signature: { ...current.signature, [field]: value },
   }));
   return (
-    <Modal isOpen={isOpen} onClose={sending ? undefined : onClose} size="6xl" scrollBehavior="inside">
+    <Modal isOpen={isOpen} onClose={sending ? undefined : requestClose} size="6xl" scrollBehavior="inside">
       <ModalOverlay />
-      <ModalContent as="form" onSubmit={submit} borderRadius={{ base: 0, md: '2xl' }} overflow="hidden" my={{ base: 0, md: 6 }} mx={{ base: 0, md: 4 }} w={{ base: '100vw', md: 'calc(100vw - 64px)' }} maxW={{ base: '100vw', md: '1100px' }} minH={{ base: '100dvh', md: 'auto' }} maxH={{ base: '100dvh', md: 'calc(100vh - 3rem)' }}>
+      <ModalContent as="form" onChange={() => setDirty(true)} onInput={() => setDirty(true)} onSubmit={submit} borderRadius={{ base: 0, md: '2xl' }} overflow="hidden" my={{ base: 0, md: 6 }} mx={{ base: 0, md: 4 }} w={{ base: '100vw', md: 'calc(100vw - 64px)' }} maxW={{ base: '100vw', md: '1100px' }} minH={{ base: '100dvh', md: 'auto' }} maxH={{ base: '100dvh', md: 'calc(100vh - 3rem)' }}>
         <ModalHeader bg="#f8fafc" borderBottom="1px solid" borderColor="gray.200">
           <Flex align="center" gap={3}><Flex boxSize="38px" bg="blue.50" color={outlookBlue} align="center" justify="center" borderRadius="lg"><FaEnvelope /></Flex><Box><Text>{title}</Text><Text fontSize="xs" fontWeight="normal" color="gray.500">Šalje se sa {status.mailbox}</Text></Box></Flex>
         </ModalHeader>
@@ -566,7 +463,7 @@ export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, i
         <ModalBody py={{ base: 4, md: 5 }} px={{ base: 3, sm: 6 }}>
           <VStack spacing={4} align="stretch">
             {contextLabel && <Box bg="blue.50" borderRadius="lg" px={3} py={2}><Text fontWeight="semibold" overflowWrap="anywhere">{contextLabel}</Text>{!initialDraft?.to && <Text fontSize="sm" color="gray.600">Komitent nema upisanu e-mail adresu. Unesite primaoca za ovu poruku.</Text>}</Box>}
-            <FormControl isRequired={mode === 'compose' || mode === 'forward'}>
+            <FormControl isRequired={mode === 'compose' || mode === 'draft' || mode === 'forward'}>
               <Flex align="center"><FormLabel mb={1}>Za</FormLabel><Button ml="auto" minH="44px" size="sm" variant="ghost" color={outlookBlue} onClick={() => setShowCopies((value) => !value)}>Cc / Bcc</Button></Flex>
               <Input aria-label="Primaoci" placeholder="ime@firma.ba; druga@firma.ba" value={form.to} onChange={(event) => setForm((current) => ({ ...current, to: event.target.value }))} isReadOnly={mode === 'reply' || mode === 'reply-all'} />
             </FormControl>
@@ -576,31 +473,37 @@ export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, i
                 <FormControl><FormLabel>Bcc</FormLabel><Input aria-label="Bcc" value={form.bcc} onChange={(event) => setForm((current) => ({ ...current, bcc: event.target.value }))} /></FormControl>
               </Grid>
             )}
-            <FormControl><FormLabel>Naslov</FormLabel><Input aria-label="Naslov" value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} isReadOnly={mode !== 'compose'} /></FormControl>
+            <FormControl><FormLabel>Naslov</FormLabel><Input aria-label="Naslov" value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} isReadOnly={mode !== 'compose' && mode !== 'draft'} /></FormControl>
             <FormControl isRequired>
-              <FormLabel>Poruka</FormLabel>
+              <Flex align="center" justify="space-between"><FormLabel>Poruka</FormLabel>{form.bodyType !== 'html' && <Button size="sm" variant="ghost" colorScheme="blue" onClick={() => {
+                const node = document.createElement('div'); node.textContent = form.body; setBodyDirty(true); setDirty(true);
+                setForm((current) => ({ ...current, body: node.innerHTML.replace(/\n/g, '<br>'), bodyType: 'html' }));
+              }}>Oblikovanje teksta</Button>}</Flex>
               <Box border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" bg="white" _focusWithin={{ borderColor: outlookBlue, boxShadow: `0 0 0 1px ${outlookBlue}` }}>
-                <Textarea aria-label="Tekst poruke" minH={{ base: '200px', md: '260px' }} resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} border="0" borderRadius="0" p={{ base: 3, sm: 5 }} _focusVisible={{ boxShadow: 'none' }} />
-                <EditableSignature
+                {form.bodyType === 'html' ? <RichTextEditor value={form.body} onChange={(body) => { setForm((current) => ({ ...current, body })); setDirty(true); setBodyDirty(true); }} /> : <Textarea aria-label="Tekst poruke" minH={{ base: '200px', md: '260px' }} resize="vertical" placeholder="Napišite poruku..." value={form.body} onChange={(event) => { setForm((current) => ({ ...current, body: event.target.value })); setBodyDirty(true); }} border="0" borderRadius="0" p={{ base: 3, sm: 5 }} _focusVisible={{ boxShadow: 'none' }} />}
+                {form.signature && <EditableSignature
                   signature={form.signature}
                   showMobile={Boolean(emailSignatureForMailbox(status.mailbox).mobile)}
                   onChange={updateSignature}
                   onReset={() => setForm((current) => ({ ...current, signature: { ...emailSignatureForMailbox(status.mailbox) } }))}
-                />
+                />}
               </Box>
-              <Text fontSize="xs" color="gray.500" mt={2}>Prikazani podaci se šalju kao potpis ove poruke. Logo se dodaje automatski i potpis se neće duplirati.</Text>
+              <Text fontSize="xs" color="gray.500" mt={2}>{mode === 'draft' ? 'Potpis je dio sačuvanog sadržaja poruke.' : 'Prikazani podaci se šalju kao potpis ove poruke. Logo se dodaje automatski i potpis se neće duplirati.'}</Text>
             </FormControl>
             <Box>
+              {mode === 'draft' && <Text fontSize="sm" mb={2} color="gray.600">Postojeći prilozi ostaju sačuvani: {message?.attachments?.map((attachment) => attachment.name).join(', ') || 'bez priloga'}. Za nove priloge ovom nacrtu koristite Outlook.</Text>}
               <input ref={fileRef} hidden type="file" multiple onChange={addFiles} />
-              <Button minH="44px" variant="outline" leftIcon={<FaPaperclip />} onClick={() => fileRef.current?.click()}>Dodaj prilog</Button>
+              <Button isDisabled={mode === 'draft'} minH="44px" variant="outline" leftIcon={<FaPaperclip />} onClick={() => fileRef.current?.click()}>Dodaj prilog</Button>
               <Text as="span" ml={3} fontSize="xs" color="gray.500">do {status.maxAttachments} priloga, pojedinačno do {formatBytes(status.maxAttachmentBytes)}</Text>
               {files.length > 0 && <Wrap mt={3}>{files.map((file) => <WrapItem key={attachmentFileKey(file)}><Badge p={2} borderRadius="lg" colorScheme="blue">{file.name} · {formatBytes(file.size)} <Button aria-label={`Ukloni ${file.name}`} ml={2} size="xs" variant="ghost" onClick={() => setFiles((items) => items.filter((item) => attachmentFileKey(item) !== attachmentFileKey(file)))}>×</Button></Badge></WrapItem>)}</Wrap>}
             </Box>
+            {discardPrompt && <Alert status="warning"><AlertIcon /><Box><Text>Imate nesačuvane izmjene.</Text><HStack mt={2}><Button size="sm" onClick={() => setDiscardPrompt(false)}>Nastavi uređivanje</Button><Button size="sm" onClick={onClose}>Odbaci izmjene</Button></HStack></Box></Alert>}
             {error && <Alert status="error" borderRadius="lg"><AlertIcon /><AlertDescription>{error}</AlertDescription></Alert>}
           </VStack>
         </ModalBody>
         <ModalFooter borderTop="1px solid" borderColor="gray.100" gap={3} px={{ base: 3, sm: 6 }} pb={{ base: 'max(12px, env(safe-area-inset-bottom))', md: 4 }}>
-          <Button minH="44px" flex={{ base: 1, sm: 'none' }} variant="ghost" onClick={onClose} isDisabled={sending}>Odustani</Button>
+          <Button minH="44px" flex={{ base: 1, sm: 'none' }} variant="ghost" onClick={requestClose} isDisabled={sending}>Odustani</Button>
+          {(mode === 'compose' || mode === 'draft') && <Button minH="44px" variant="outline" onClick={save} isDisabled={sending}>Sačuvaj nacrt</Button>}
           <Button minH="44px" flex={{ base: 1, sm: 'none' }} type="submit" bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPaperPlane />} isLoading={sending}>Pošalji</Button>
         </ModalFooter>
       </ModalContent>
@@ -617,7 +520,16 @@ export default function OutlookModule({ user }) {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [nextCursor, setNextCursor] = useState('');
   const [search, setSearch] = useState('');
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [sort, setSort] = useState('desc');
+  const [checkedIds, setCheckedIds] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 600);
+  const [preferences, setPreferences] = useState(() => {
+    try { return { compact: false, reading: true, ...JSON.parse(localStorage.getItem('outlook-view') || '{}') }; }
+    catch { return { compact: false, reading: true }; }
+  });
+  const [detailVersion, setDetailVersion] = useState(0);
+  const [composeMessage, setComposeMessage] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -630,6 +542,7 @@ export default function OutlookModule({ user }) {
   const { isOpen: composeOpen, onOpen: openCompose, onClose: closeCompose } = useDisclosure();
   const toast = useToast();
   const requestSequence = useRef(0);
+  const skipAutoRead = useRef(false);
 
   const configured = status?.configured;
   const writeEnabled = status?.writeEnabled;
@@ -650,7 +563,10 @@ export default function OutlookModule({ user }) {
       const payload = await outlookApi.getMessages({
         folder: activeFolder,
         search: search.trim(),
-        unreadOnly: unreadOnly || undefined,
+        unreadOnly: filter === 'unread' || undefined,
+        flaggedOnly: filter === 'flagged' || undefined,
+        attachmentsOnly: filter === 'attachments' || undefined,
+        sort,
         limit: 50,
         cursor: cursor || undefined,
       });
@@ -659,6 +575,7 @@ export default function OutlookModule({ user }) {
       setMessages((current) => append
         ? [...current, ...nextMessages.filter((message) => !current.some((entry) => entry.id === message.id))]
         : nextMessages);
+      if (!append) setCheckedIds((current) => current.filter((id) => nextMessages.some((message) => message.id === id)));
       setNextCursor(String(payload?.nextCursor ?? payload?.next_cursor ?? payload?.pagination?.nextCursor ?? payload?.pagination?.next_cursor ?? ''));
       setSelectedId((current) => {
         if (append) return current || nextMessages[0]?.id || '';
@@ -669,7 +586,7 @@ export default function OutlookModule({ user }) {
     } finally {
       if (sequence === requestSequence.current && !silent) setLoadingMessages(false);
     }
-  }, [activeFolder, configured, search, unreadOnly]);
+  }, [activeFolder, configured, search, filter, sort]);
 
   const initialize = useCallback(async ({ showLoader = true } = {}) => {
     if (showLoader) setLoadingStatus(true);
@@ -727,12 +644,13 @@ export default function OutlookModule({ user }) {
       return undefined;
     }
     setLoadingDetail(true);
+    setSelectedMessage(null);
     outlookApi.getMessage(selectedId)
       .then((payload) => {
         if (cancelled) return;
         const detail = normalizeMessage(payload?.message || payload?.item || payload);
         setSelectedMessage(detail);
-        if (!detail.isRead && status?.writeEnabled) {
+        if (!detail.isRead && !detail.isDraft && status?.writeEnabled && preferences.reading && !skipAutoRead.current) {
           outlookApi.markRead(detail.id, true).then(() => {
             if (cancelled) return;
             setSelectedMessage((current) => current ? { ...current, isRead: true } : current);
@@ -746,40 +664,85 @@ export default function OutlookModule({ user }) {
           setError(requestError.message || 'Poruku nije moguće otvoriti.');
         }
       })
-      .finally(() => { if (!cancelled) setLoadingDetail(false); });
+      .finally(() => { if (!cancelled) { setLoadingDetail(false); skipAutoRead.current = false; } });
     return () => { cancelled = true; };
-  }, [activeFolder, selectedId, status?.writeEnabled]);
+  }, [activeFolder, selectedId, status?.writeEnabled, detailVersion, preferences.reading]);
 
   const refresh = async () => {
     await Promise.allSettled([loadFolders(), loadMessages()]);
   };
 
+  useEffect(() => {
+    if (!configured || composeOpen || actionLoading || checkedIds.length || loadingMessages) return undefined;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadMessages({ silent: true });
+        loadFolders().catch(() => null);
+      }
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [configured, composeOpen, actionLoading, checkedIds.length, loadingMessages, loadMessages, loadFolders]);
+
   const openComposeFor = (mode) => {
     setComposeMode(mode);
+    setComposeMessage(mode === 'compose' ? null : selectedMessage);
     openCompose();
   };
 
-  const runMessageAction = async (action, successMessage) => {
-    if (!selectedMessage) return;
-    setActionLoading(true);
-    setError('');
-    try {
-      await action(selectedMessage);
-      toast({ title: successMessage, status: 'success', duration: 2500, isClosable: true });
-      await Promise.allSettled([loadFolders(), loadMessages()]);
-      setMobileReadingOpen(false);
-    } catch (requestError) {
-      setError(requestError.message || 'Akcija nije uspjela.');
-    } finally {
-      setActionLoading(false);
-    }
+  const changePreference = (key, value) => {
+    const next = { ...preferences, [key]: value };
+    setPreferences(next);
+    try { localStorage.setItem('outlook-view', JSON.stringify(next)); } catch { /* View remains usable without storage. */ }
   };
 
-  const toggleRead = () => runMessageAction(async (message) => {
-    await outlookApi.markRead(message.id, !message.isRead);
-    setSelectedMessage((current) => current ? { ...current, isRead: !current.isRead } : current);
-    setMessages((items) => items.map((item) => item.id === message.id ? { ...item, isRead: !item.isRead } : item));
-  }, selectedMessage?.isRead ? 'Poruka je označena kao nepročitana.' : 'Poruka je označena kao pročitana.');
+  const changeFolder = (folder) => {
+    ++requestSequence.current;
+    setActiveFolder(normalizeFolderKey(folder));
+    setMessages([]); setNextCursor(''); setSelectedId(''); setSelectedMessage(null);
+    setCheckedIds([]); setMobileReadingOpen(false); setFilter('all');
+  };
+
+  const runAction = async (action, value, specificMessage) => {
+    const targets = specificMessage ? [specificMessage] : checkedIds.length
+      ? messages.filter((message) => checkedIds.includes(message.id)) : selectedMessage ? [selectedMessage] : [];
+    if (!targets.length || !writeEnabled || actionLoading) return;
+    setActionLoading(true); setError('');
+    const failed = []; const succeeded = [];
+    for (const message of targets) {
+      try {
+        let patch;
+        if (action === 'read' || action === 'unread') {
+          patch = { isRead: action === 'read' };
+          await outlookApi.markRead(message.id, patch.isRead);
+        } else if (action === 'delete') await outlookApi.deleteMessage(message.id);
+        else if (action === 'archive' || action === 'move') await outlookApi.moveMessage(message.id, action === 'archive' ? 'archive' : value);
+        else {
+          patch = action === 'category' ? { categories: value ? [...new Set([...(message.categories || []), value])] : [] }
+            : action === 'importance' ? { importance: value }
+              : { flagStatus: ({ flag: 'flagged', unflag: 'notFlagged', complete: 'complete' })[action] };
+          await outlookApi.updateMessage(message.id, patch);
+        }
+        succeeded.push(message.id);
+        if (patch) {
+          setMessages((items) => items.map((item) => item.id === message.id ? { ...item, ...patch } : item));
+          setSelectedMessage((item) => item?.id === message.id ? { ...item, ...patch } : item);
+        }
+      } catch (requestError) { failed.push({ id: message.id, error: requestError.message }); }
+    }
+    setCheckedIds(failed.map((item) => item.id));
+    if (['delete', 'archive', 'move'].includes(action)) {
+      setMessages((items) => items.filter((item) => !succeeded.includes(item.id)));
+      if (succeeded.includes(selectedId)) { setSelectedId(''); setSelectedMessage(null); setMobileReadingOpen(false); }
+      await loadMessages();
+    } else if (filter !== 'all') {
+      skipAutoRead.current = true;
+      await loadMessages();
+    }
+    await loadFolders().catch(() => null);
+    if (failed.length) setError(`${failed.length} od ${targets.length} poruka nije izmijenjeno. ${failed[0].error || 'Pokušajte ponovo.'}`);
+    else toast({ title: targets.length > 1 ? `Ažurirano poruka: ${targets.length}` : 'Poruka je ažurirana.', status: 'success', duration: 2000 });
+    setActionLoading(false);
+  };
 
   const downloadAttachment = async (attachment) => {
     if (!selectedMessage) return;
@@ -814,103 +777,26 @@ export default function OutlookModule({ user }) {
   if (!status && statusUnavailable) return <TemporarilyUnavailable message={error} onRetry={() => initialize()} retrying={loadingStatus} />;
 
   return (
-    <Box mx={{ base: -2, md: -5 }} my={{ base: -2, md: -5 }}>
-      <Flex p={{ base: 4, md: 5 }} gap={4} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }} borderBottom="1px solid" borderColor="gray.200">
-        <Box>
-          <HStack spacing={3}>
-            <Flex boxSize="44px" borderRadius="xl" bg="blue.50" color={outlookBlue} align="center" justify="center"><Icon as={FaEnvelope} boxSize={5} /></Flex>
-            <Box>
-              <Heading size="md">Outlook Mail</Heading>
-              <Text fontSize="sm" color="gray.500">Shared prodajni mailbox</Text>
-            </Box>
-          </HStack>
-        </Box>
-        <HStack ml={{ md: 'auto' }} spacing={3} flexWrap="wrap" w={{ base: 'full', md: 'auto' }}>
-          <Box border="1px solid" borderColor="gray.200" borderRadius="xl" px={3.5} py={2} bg="gray.50" w={{ base: 'full', sm: 'auto' }} minW={0}>
-            <Text fontSize="xs" color="gray.500">{status.displayName || 'Nalog'}</Text>
-            <HStack spacing={2}><Box boxSize="7px" flexShrink={0} borderRadius="full" bg={configured ? green : orange} /><Text fontSize="sm" fontWeight="bold" overflowWrap="anywhere">{status.mailbox}</Text></HStack>
-          </Box>
-          <Badge colorScheme={statusUnavailable ? 'blue' : configured ? 'green' : 'orange'} borderRadius="full" px={3} py={1}>{statusUnavailable ? 'Ponovno povezivanje' : configured ? 'Aktivan' : 'Podešavanje potrebno'}</Badge>
-          <Tooltip label={!writeEnabled ? 'Slanje je trenutno onemogućeno na serveru.' : ''} isDisabled={writeEnabled}>
-            <Button bg={outlookBlue} color="white" _hover={{ bg: 'blue.700' }} leftIcon={<FaPen />} isDisabled={!configured || !writeEnabled} onClick={() => openComposeFor('compose')}>Nova poruka</Button>
-          </Tooltip>
-        </HStack>
-      </Flex>
-
-      {!configured ? <SetupRequired status={status} user={user} /> : (
-        <>
-          {!writeEnabled && (
-            <Alert status="warning" borderRadius="none">
-              <AlertIcon />
-              <Box><AlertTitle>Mailbox je u režimu samo za čitanje</AlertTitle><AlertDescription>Poruke možete pregledati i preuzimati priloge, ali slanje i izmjene su privremeno onemogućeni na serveru.</AlertDescription></Box>
-            </Alert>
-          )}
-          {error && <Alert status={statusUnavailable ? 'info' : 'error'} borderRadius="none"><AlertIcon /><AlertDescription flex="1">{error}</AlertDescription><Button size="sm" variant="outline" colorScheme={statusUnavailable ? 'blue' : 'red'} onClick={statusUnavailable ? () => initialize({ showLoader: false }) : refresh}>Pokušaj ponovo</Button></Alert>}
-
-          <Grid templateColumns={{ base: '1fr', xl: '220px minmax(0, 1fr)' }} borderBottom="1px solid" borderColor="gray.200">
-            <FolderNavigation folders={folders} activeFolder={activeFolder} onChange={(folder) => { setActiveFolder(normalizeFolderKey(folder)); setMessages([]); setNextCursor(''); setSelectedId(''); setSelectedMessage(null); setMobileReadingOpen(false); }} />
-            <Box>
-              <Flex p={3} gap={3} align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }} borderBottom="1px solid" borderColor="gray.200" bg="white">
-                <InputGroup maxW={{ md: '560px' }}>
-                  <InputLeftElement pointerEvents="none"><FaSearch color="#718096" /></InputLeftElement>
-                  <Input aria-label="Pretraga poruka" placeholder="Pretraži pošiljaoca, naslov ili sadržaj..." value={search} onChange={(event) => { setNextCursor(''); setSearch(event.target.value); }} bg="gray.50" />
-                </InputGroup>
-                <HStack ml={{ md: 'auto' }} spacing={3}>
-                  <Checkbox isChecked={unreadOnly} onChange={(event) => { setNextCursor(''); setUnreadOnly(event.target.checked); }} colorScheme="blue">Samo nepročitano</Checkbox>
-                  <Tooltip label="Osvježi"><IconButton aria-label="Osvježi poruke" minW="44px" minH="44px" icon={<FaRedo />} variant="outline" isLoading={loadingMessages} onClick={refresh} /></Tooltip>
-                </HStack>
-              </Flex>
-
-              <Grid templateColumns={{ base: 'minmax(0, 1fr)', lg: '380px minmax(0, 1fr)' }} minH={{ lg: '690px' }}>
-                <Box display={{ base: mobileReadingOpen ? 'none' : 'block', lg: 'block' }} borderRight={{ lg: '1px solid' }} borderBottom={{ base: '1px solid', lg: 'none' }} borderColor="gray.200" minW={0}>
-                  <Flex px={4} py={3} align="center" bg="#f8fafc" borderBottom="1px solid" borderColor="gray.200">
-                    <Box><Text fontWeight="bold">{activeFolderDefinition.label}</Text><Text fontSize="xs" color="gray.500">{messages.length} poruka u prikazu</Text></Box>
-                    {loadingMessages && <Spinner ml="auto" size="sm" color={outlookBlue} />}
-                  </Flex>
-                  <MessageList
-                    messages={messages}
-                    selectedId={selectedId}
-                    loading={loadingMessages}
-                    onSelect={(message) => { setSelectedMessage(message); setSelectedId(message.id); setMobileReadingOpen(true); }}
-                    folderLabel={activeFolderDefinition.label}
-                    nextCursor={nextCursor}
-                    onLoadMore={() => loadMessages({ cursor: nextCursor, append: true })}
-                  />
-                </Box>
-                <Box display={{ base: mobileReadingOpen ? 'block' : 'none', lg: 'block' }} minW={0}>
-                  <Button display={{ base: 'inline-flex', lg: 'none' }} m={3} minH="44px" variant="ghost" leftIcon={<FaArrowLeft />} onClick={() => setMobileReadingOpen(false)}>Nazad na poruke</Button>
-                  <ReadingPane
-                    message={selectedMessage}
-                    loading={loadingDetail}
-                    writeEnabled={writeEnabled}
-                    actionLoading={actionLoading}
-                    attachmentLoadingId={attachmentLoadingId}
-                    onComposeAction={openComposeFor}
-                    onToggleRead={toggleRead}
-                    onArchive={() => runMessageAction((message) => outlookApi.moveMessage(message.id, 'archive'), 'Poruka je arhivirana.')}
-                    onDelete={() => runMessageAction((message) => outlookApi.deleteMessage(message.id), 'Poruka je premještena u Obrisano.')}
-                    onDownload={downloadAttachment}
-                  />
-                </Box>
-              </Grid>
-            </Box>
-          </Grid>
-        </>
-      )}
-
-      {status && (
-        <ComposeModal
-          isOpen={composeOpen}
-          onClose={closeCompose}
-          mode={composeMode}
-          message={selectedMessage}
-          status={status}
-          onSent={(title) => {
-            toast({ title, status: 'success', duration: 3000, isClosable: true });
-            refresh();
-          }}
-        />
-      )}
+    <Box className="outlook-workspace">
+      <MailHeader status={status} search={search} onSearch={(value) => { ++requestSequence.current; setSearch(value); setSort('desc'); setNextCursor(''); setCheckedIds([]); }} preferences={preferences} onPreference={changePreference} sidebarOpen={sidebarOpen} onSidebar={() => setSidebarOpen((value) => !value)} />
+      {!configured ? <SetupRequired status={status} user={user} /> : <>
+        <MailToolbar writeEnabled={writeEnabled} message={loadingDetail ? null : selectedMessage} selectedCount={checkedIds.length} busy={actionLoading} folders={folders} onCompose={openComposeFor} onAction={runAction} onRefresh={async () => { skipAutoRead.current = true; await refresh(); setDetailVersion((value) => value + 1); }} onPrint={() => printMessage(selectedMessage)} />
+        {!writeEnabled && <Alert status="warning"><AlertIcon /><Box><AlertTitle>Mailbox je u režimu samo za čitanje</AlertTitle><AlertDescription>Slanje i izmjene su privremeno onemogućeni na serveru.</AlertDescription></Box></Alert>}
+        {error && <Alert status="error"><AlertIcon /><AlertDescription flex="1">{error}</AlertDescription><Button size="sm" onClick={refresh}>Pokušaj ponovo</Button></Alert>}
+        <div className={`mail-layout ${!sidebarOpen ? 'no-sidebar' : ''} ${!preferences.reading ? 'no-reading' : ''} ${mobileReadingOpen ? 'mobile-reading' : ''}`}>
+          {sidebarOpen && <FolderNavigation folders={folders} activeFolder={activeFolder} onChange={changeFolder} status={status} />}
+          <MessageList messages={messages} selectedId={selectedId} loading={loadingMessages} onSelect={(message) => { setSelectedId(message.id); setMobileReadingOpen(true); if (!preferences.reading) changePreference('reading', true); }} folderLabel={activeFolderDefinition.label} nextCursor={nextCursor} onLoadMore={() => loadMessages({ cursor: nextCursor, append: true })}
+            checkedIds={checkedIds} onCheck={(id) => setCheckedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onCheckAll={() => setCheckedIds(checkedIds.length === messages.length ? [] : messages.map((message) => message.id))}
+            filter={filter} onFilter={(value) => { ++requestSequence.current; setNextCursor(''); setFilter(value); setCheckedIds([]); }} sort={sort} onSort={() => { if (!search) { ++requestSequence.current; setSort(sort === 'desc' ? 'asc' : 'desc'); setNextCursor(''); } }} sortDisabled={!!search}
+            onFlag={(message) => runAction(message.flagStatus === 'flagged' ? 'unflag' : 'flag', undefined, message)} writeEnabled={writeEnabled} busy={actionLoading} compact={preferences.compact} />
+          {preferences.reading && <div className="mail-reader">
+            <button type="button" className="mail-mobile-back" onClick={() => setMobileReadingOpen(false)}><FaArrowLeft /> Nazad na poruke</button>
+            {selectedMessage?.isDraft && <div className="mail-draft-banner"><span>Ova poruka još nije poslana.</span><button type="button" disabled={!writeEnabled || loadingDetail} onClick={() => openComposeFor('draft')}>Uredi nacrt</button></div>}
+            <ReadingPane message={selectedMessage} loading={loadingDetail} attachmentLoadingId={attachmentLoadingId} onDownload={downloadAttachment} />
+          </div>}
+        </div>
+      </>}
+      {status && <ComposeModal isOpen={composeOpen} onClose={closeCompose} mode={composeMode} message={composeMessage} status={status} onSent={(title) => { toast({ title, status: 'success', duration: 3000 }); refresh(); setDetailVersion((value) => value + 1); }} />}
     </Box>
   );
 }

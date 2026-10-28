@@ -73,6 +73,9 @@ export function normalizeMessage(message = {}) {
     receivedAt: message.receivedAt || message.received_at || message.receivedDateTime || message.received_date_time
       || message.sentAt || message.sent_at || message.sentDateTime || message.sent_date_time || '',
     isRead: Boolean(message.isRead ?? message.is_read),
+    isDraft: Boolean(message.isDraft ?? message.is_draft),
+    flagStatus: message.flagStatus || message.flag?.flagStatus || 'notFlagged',
+    categories: Array.isArray(message.categories) ? message.categories : [],
     hasAttachments: Boolean(message.hasAttachments ?? message.has_attachments ?? (message.attachments?.length)),
     importance: String(message.importance || 'normal').toLowerCase(),
     bodyHtml,
@@ -98,10 +101,12 @@ export function formatMailDate(value, compact = false) {
   if (Number.isNaN(date.getTime())) return '';
   const today = new Date();
   const sameDay = date.toDateString() === today.toDateString();
-  if (compact && sameDay) return date.toLocaleTimeString('bs-BA', { hour: '2-digit', minute: '2-digit' });
-  return date.toLocaleString('bs-BA', compact
-    ? { day: '2-digit', month: '2-digit', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' }
-    : { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const pad = (number) => String(number).padStart(2, '0');
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (compact && sameDay) return time;
+  const dayMonth = `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.`;
+  return compact ? `${dayMonth}${date.getFullYear() === today.getFullYear() ? '' : date.getFullYear()}`
+    : `${dayMonth}${date.getFullYear()}. ${time}`;
 }
 
 export function formatBytes(value) {

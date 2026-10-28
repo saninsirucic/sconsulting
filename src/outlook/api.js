@@ -40,7 +40,7 @@ export async function composePayload(form, files = []) {
     bcc: parseRecipients(form.bcc),
     subject: String(form.subject || '').trim(),
     body: String(form.body || ''),
-    bodyType: 'text',
+    bodyType: form.bodyType || 'text',
     signature: form.signature ? { ...form.signature } : undefined,
     attachments,
   };
@@ -53,6 +53,9 @@ export const outlookApi = {
   getMessages: (params) => apiRequest(`${base}/messages${buildQuery(params)}`),
   getMessage: (id) => apiRequest(messagePath(id)),
   markRead: (id, isRead) => apiRequest(messagePath(id), { method: 'PATCH', body: { isRead } }),
+  updateMessage: (id, body) => apiRequest(`${messagePath(id)}/metadata`, { method: 'PATCH', body }),
+  saveDraft: (body, id) => apiRequest(id ? `${base}/drafts/${encodeURIComponent(id)}` : `${base}/drafts`, { method: id ? 'PATCH' : 'POST', body }),
+  sendDraft: (id) => apiRequest(`${base}/drafts/${encodeURIComponent(id)}/send`, { method: 'POST' }),
   moveMessage: (id, destination) => apiRequest(`${messagePath(id)}/move`, { method: 'POST', body: { destination } }),
   deleteMessage: (id) => apiRequest(messagePath(id), { method: 'DELETE' }),
   send: (body) => apiRequest(`${base}/send`, { method: 'POST', body }),

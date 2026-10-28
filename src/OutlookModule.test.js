@@ -12,6 +12,9 @@ jest.mock('./outlook/api', () => ({
     getMessages: jest.fn(),
     getMessage: jest.fn(),
     markRead: jest.fn(),
+    updateMessage: jest.fn(),
+    saveDraft: jest.fn(),
+    sendDraft: jest.fn(),
     moveMessage: jest.fn(),
     deleteMessage: jest.fn(),
     send: jest.fn(),
@@ -45,6 +48,7 @@ function renderModule() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  localStorage.clear();
   outlookApi.getStatus.mockResolvedValue({
     configured: true,
     writeEnabled: true,
@@ -59,6 +63,9 @@ beforeEach(() => {
   outlookApi.getMessages.mockResolvedValue({ items: [message] });
   outlookApi.getMessage.mockResolvedValue(detail);
   outlookApi.markRead.mockResolvedValue({ success: true });
+  outlookApi.updateMessage.mockResolvedValue({ success: true });
+  outlookApi.saveDraft.mockResolvedValue({ success: true, message: { id: 'draft-1' } });
+  outlookApi.sendDraft.mockResolvedValue({ success: true });
   outlookApi.moveMessage.mockResolvedValue({ success: true });
   outlookApi.deleteMessage.mockResolvedValue({ success: true });
   outlookApi.send.mockResolvedValue({ success: true });
@@ -83,7 +90,7 @@ test('prikazuje shared mailbox, foldere, listu i sigurni reading pane', async ()
 
 test('odgovara na poruku kroz shared mailbox', async () => {
   renderModule();
-  fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Primjer d.o.o.: Ponuda za HACCP' }));
   await screen.findByRole('button', { name: 'Odgovori' });
 
   fireEvent.click(screen.getByRole('button', { name: 'Odgovori' }));
@@ -141,7 +148,7 @@ test('nova poruka šalje primaoce i sadržaj preko Outlook API-ja', async () => 
 
 test('prosljeđivanje ne šalje read-only originalni subject izvan backend allowliste', async () => {
   renderModule();
-  fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Primjer d.o.o.: Ponuda za HACCP' }));
   await screen.findByRole('button', { name: 'Proslijedi' });
   fireEvent.click(screen.getByRole('button', { name: 'Proslijedi' }));
   expect(screen.getByLabelText('Potpis - name')).toHaveValue('Ermina Siručić');
@@ -170,7 +177,7 @@ test('prikazuje jasan administratorski setup kada mailbox nije konfigurisan', as
   expect(await screen.findByText('Outlook mailbox još nije podešen')).toBeInTheDocument();
   expect(screen.getByText('Potrebna je administratorska postavka')).toBeInTheDocument();
   expect(outlookApi.getMessages).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'Nova poruka' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Nova poruka' })).not.toBeInTheDocument();
 });
 
 test('kratki prekid status poziva automatski se oporavlja bez lažnog setup alarma', async () => {
@@ -217,7 +224,7 @@ test('read-only mailbox blokira sve write akcije', async () => {
   renderModule();
 
   expect(await screen.findByText('Mailbox je u režimu samo za čitanje')).toBeInTheDocument();
-  fireEvent.click(await screen.findByRole('button', { name: /Ponuda za HACCP/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Primjer d.o.o.: Ponuda za HACCP' }));
   await screen.findByRole('button', { name: 'Odgovori' });
   expect(screen.getByRole('button', { name: 'Nova poruka' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Odgovori' })).toBeDisabled();
@@ -236,4 +243,82 @@ test('prosljeđuje opaque cursor kada korisnik učita starije poruke', async () 
     cursor: 'opaque+/cursor==',
   })));
   expect(await screen.findByText('Starija poruka')).toBeInTheDocument();
+});
+
+test('zastavica se sprema u Outlook i odmah prikazuje na poruci', async () => {
+  renderModule();
+  fireEvent.click(await screen.findByRole('button', { name: 'Označi za praćenje: Ponuda za HACCP' }));
+  await waitFor(() => expect(outlookApi.updateMessage).toHaveBeenCalledWith('message-1', { flagStatus: 'flagged' }));
+  expect(await screen.findByRole('button', { name: 'Ukloni zastavicu: Ponuda za HACCP' })).toBeInTheDocument();
+  expect(outlookApi.send).not.toHaveBeenCalled();
+});
+
+test('grupna arhiva mijenja samo označene poruke i zadržava neuspjele za ponovni pokušaj', async () => {
+  const second = { ...message, id: 'message-2', subject: 'Druga ponuda' };
+  outlookApi.getMessages.mockResolvedValue({ items: [message, second] });
+  outlookApi.moveMessage.mockImplementation(async (id) => { if (id === 'message-2') throw Error('Veza prekinuta'); return { success: true }; });
+  renderModule();
+  fireEvent.click(await screen.findByLabelText('Odaberi Ponuda za HACCP'));
+  fireEvent.click(screen.getByLabelText('Odaberi Druga ponuda'));
+  fireEvent.click(screen.getByRole('button', { name: 'Arhiviraj poruku' }));
+  expect(await screen.findByText(/1 od 2 poruka nije izmijenjeno/)).toBeInTheDocument();
+  expect(outlookApi.moveMessage.mock.calls).toEqual([['message-1', 'archive'], ['message-2', 'archive']]);
+  expect(screen.getByLabelText('Odaberi Druga ponuda')).toBeChecked();
+  expect(screen.getByLabelText('Odaberi Ponuda za HACCP')).not.toBeChecked();
+});
+
+test('filteri i redoslijed šalju se serveru i brišu stari cursor', async () => {
+  renderModule();
+  await screen.findByText('Ponuda za HACCP');
+  fireEvent.click(screen.getByRole('button', { name: 'Filtriraj poruke' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Za praćenje' }));
+  await waitFor(() => expect(outlookApi.getMessages).toHaveBeenLastCalledWith(expect.objectContaining({ flaggedOnly: true, cursor: undefined })));
+  fireEvent.click(screen.getByRole('button', { name: 'Najstarije prvo' }));
+  await waitFor(() => expect(outlookApi.getMessages).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'asc', cursor: undefined })));
+});
+
+test('spremanje nove poruke pravi nacrt bez slanja', async () => {
+  renderModule();
+  await screen.findByText('Ponuda za HACCP');
+  fireEvent.click(screen.getByRole('button', { name: 'Nova poruka' }));
+  fireEvent.change(screen.getByLabelText('Naslov'), { target: { value: 'Nedovršena ponuda' } });
+  fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Tekst za kasnije' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj nacrt' }));
+  await waitFor(() => expect(outlookApi.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ to: [], subject: 'Nedovršena ponuda', body: 'Tekst za kasnije' }), undefined));
+  expect(outlookApi.send).not.toHaveBeenCalled();
+  expect(outlookApi.sendDraft).not.toHaveBeenCalled();
+});
+
+test('postojeći nacrt se uređuje i šalje kroz isti ID bez duplog potpisa', async () => {
+  outlookApi.getMessage.mockResolvedValue({ ...detail, isDraft: true, to: [{ address: 'klijent@example.com' }], safeHtml: '<p>Sačuvani tekst i potpis</p>' });
+  renderModule();
+  fireEvent.click(await screen.findByRole('button', { name: 'Uredi nacrt' }));
+  expect(screen.getByLabelText('Primaoci')).toHaveValue('klijent@example.com');
+  expect(screen.getByRole('textbox', { name: 'Formatirani tekst poruke' })).toHaveTextContent('Sačuvani tekst i potpis');
+  expect(screen.queryByTestId('editable-email-signature')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Pošalji' }));
+  await waitFor(() => expect(outlookApi.sendDraft).toHaveBeenCalledWith('message-1'));
+  expect(outlookApi.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ signature: undefined }), 'message-1');
+  expect(outlookApi.send).not.toHaveBeenCalled();
+});
+
+test('greška pri spremanju nacrta čuva uneseni tekst i ne šalje poruku', async () => {
+  outlookApi.saveDraft.mockRejectedValueOnce(Error('Nacrt nije sačuvan'));
+  renderModule();
+  await screen.findByText('Ponuda za HACCP');
+  fireEvent.click(screen.getByRole('button', { name: 'Nova poruka' }));
+  fireEvent.change(screen.getByLabelText('Tekst poruke'), { target: { value: 'Ovaj tekst mora ostati' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sačuvaj nacrt' }));
+  expect(await screen.findByText('Nacrt nije sačuvan')).toBeInTheDocument();
+  expect(screen.getByLabelText('Tekst poruke')).toHaveValue('Ovaj tekst mora ostati');
+  expect(outlookApi.sendDraft).not.toHaveBeenCalled();
+});
+
+test('označavanje otvorene poruke kao nepročitane ne vraća je odmah na pročitano', async () => {
+  renderModule();
+  await waitFor(() => expect(outlookApi.markRead).toHaveBeenCalledWith('message-1', true));
+  fireEvent.click(screen.getByRole('button', { name: 'Pročitano / nepročitano' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Označi kao nepročitano' }));
+  await waitFor(() => expect(outlookApi.markRead).toHaveBeenLastCalledWith('message-1', false));
+  expect(outlookApi.markRead).toHaveBeenCalledTimes(2);
 });

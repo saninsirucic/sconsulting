@@ -42,6 +42,8 @@ test('allows a missing email to be entered without inventing a recipient or send
   expect(screen.getByText(/Komitent nema upisanu e-mail adresu/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Primaoci'), { target: { value: 'nova@primjer.ba' } });
   fireEvent.click(screen.getByRole('button', { name: 'Odustani' }));
+  expect(screen.getByText('Imate nesačuvane izmjene.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Odbaci izmjene' }));
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(outlookApi.send).not.toHaveBeenCalled();
 });
