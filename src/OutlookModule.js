@@ -105,7 +105,7 @@ function numericLimit(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function normalizeStatus(payload = {}) {
+export function normalizeStatus(payload = {}) {
   const configured = Boolean(payload.configured ?? payload.isConfigured ?? payload.is_configured ?? payload.ready);
   const writeEnabled = Boolean(payload.writeEnabled ?? payload.write_enabled ?? payload.canWrite ?? payload.can_write);
   const rawStatus = String(payload.status || (configured ? 'ready' : 'setup_required')).toLowerCase();
@@ -469,7 +469,7 @@ function EditableSignature({ signature, onChange, onReset, showMobile = true }) 
   );
 }
 
-function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
+export function ComposeModal({ isOpen, onClose, mode, message, status, onSent, initialDraft, contextLabel }) {
   const [form, setForm] = useState(createEmptyCompose);
   const [showCopies, setShowCopies] = useState(false);
   const [files, setFiles] = useState([]);
@@ -481,18 +481,19 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
     if (!isOpen) return;
     const replyAll = mode === 'reply-all';
     const forward = mode === 'forward';
+    const compose = mode === 'compose';
     setForm({
-      to: forward ? '' : message?.from?.address || '',
-      cc: replyAll ? addressesToText(message?.cc) : '',
+      to: compose ? initialDraft?.to || '' : forward ? '' : message?.from?.address || '',
+      cc: compose ? initialDraft?.cc || '' : replyAll ? addressesToText(message?.cc) : '',
       bcc: '',
-      subject: message ? replySubject(message.subject, forward) : '',
-      body: '',
+      subject: compose ? initialDraft?.subject || '' : message ? replySubject(message.subject, forward) : '',
+      body: compose ? initialDraft?.body || '' : '',
       signature: { ...emailSignatureForMailbox(status.mailbox) },
     });
-    setShowCopies(replyAll);
+    setShowCopies(replyAll || Boolean(compose && initialDraft?.cc));
     setFiles([]);
     setError('');
-  }, [isOpen, message, mode, status.mailbox]);
+  }, [isOpen, message, mode, status.mailbox, initialDraft]);
 
   const addFiles = (event) => {
     const incoming = Array.from(event.target.files || []);
@@ -564,6 +565,7 @@ function ComposeModal({ isOpen, onClose, mode, message, status, onSent }) {
         <ModalCloseButton />
         <ModalBody py={{ base: 4, md: 5 }} px={{ base: 3, sm: 6 }}>
           <VStack spacing={4} align="stretch">
+            {contextLabel && <Box bg="blue.50" borderRadius="lg" px={3} py={2}><Text fontWeight="semibold" overflowWrap="anywhere">{contextLabel}</Text>{!initialDraft?.to && <Text fontSize="sm" color="gray.600">Komitent nema upisanu e-mail adresu. Unesite primaoca za ovu poruku.</Text>}</Box>}
             <FormControl isRequired={mode === 'compose' || mode === 'forward'}>
               <Flex align="center"><FormLabel mb={1}>Za</FormLabel><Button ml="auto" minH="44px" size="sm" variant="ghost" color={outlookBlue} onClick={() => setShowCopies((value) => !value)}>Cc / Bcc</Button></Flex>
               <Input aria-label="Primaoci" placeholder="ime@firma.ba; druga@firma.ba" value={form.to} onChange={(event) => setForm((current) => ({ ...current, to: event.target.value }))} isReadOnly={mode === 'reply' || mode === 'reply-all'} />

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AlertDescription,
@@ -71,12 +71,13 @@ import {
   FaRedo,
   FaSearch,
   FaTrash,
-  FaUsers,
 } from 'react-icons/fa';
 import { commercialApi } from './commercial/api';
 import CommercialMailAutomation from './commercial/CommercialMailAutomation';
 import HaccpResearch from './commercial/HaccpResearch';
 import AccountImport from './commercial/AccountImport';
+import { CONTACT_VIEWS, ContactSchedule, FollowUpModal, RecordComments } from './commercial/FollowUp';
+import RecordMailModal from './commercial/RecordMailModal';
 import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 import MailRecipientsEditor, { normalizeCcEmails } from './commercial/MailRecipientsEditor';
 import {
@@ -152,14 +153,16 @@ function RecordModal({ isOpen, onClose, record, brandCode, onSaved }) {
   const [error, setError] = useState('');
   const visibleFields = useMemo(() => {
     const normalizedBrandCode = normalizeBrandCode(brandCode);
-    if (normalizedBrandCode === 'FS_APP') return EDIT_FIELDS;
+    const first = ['company_name', 'next_contact_at', 'status', 'priority', 'comment', 'notes'];
+    const ordered = [...first.map(key => EDIT_FIELDS.find(field => field.key === key)), ...EDIT_FIELDS.filter(field => !first.includes(field.key))];
+    if (normalizedBrandCode === 'FS_APP') return ordered;
     if (normalizedBrandCode === 'HACCP_PUBLIC') {
-      return EDIT_FIELDS.filter((field) => !['unit_amount', 'total_amount', 'profit_amount'].includes(field.key));
+      return ordered.filter((field) => !['unit_amount', 'total_amount', 'profit_amount'].includes(field.key));
     }
     const hiddenFields = normalizedBrandCode === 'VISIOCAST'
       ? ['unit_amount', 'total_amount', 'profit_amount', 'ownership_type']
       : ['ownership_type'];
-    return EDIT_FIELDS.filter((field) => !hiddenFields.includes(field.key));
+    return ordered.filter((field) => !hiddenFields.includes(field.key));
   }, [brandCode]);
 
   useEffect(() => {
@@ -802,25 +805,6 @@ function DailyPanel({ brandCode, isOpen, onChanged }) {
   );
 }
 
-function DashboardCards({ dashboard }) {
-  const totals = dashboard?.totals || dashboard || {};
-  const today = dashboard?.today || {};
-  const cards = [
-    ['Ukupno zapisa', totals.count ?? totals.total ?? totals.totalRecords ?? totals.total_records ?? 0, FaUsers, 'orange'],
-    ['Današnjih 30', today.total ?? today.assigned ?? totals.todayAssigned ?? 0, FaCalendarCheck, 'blue'],
-  ];
-
-  return (
-    <SimpleGrid columns={{ base: 2 }} spacing={{ base: 2, md: 4 }}>
-      {cards.map(([label, value, icon, scheme]) => (
-        <Stat key={label} minW={0} border="1px solid" borderColor={`${scheme}.100`} bg="white" borderRadius="xl" p={{ base: 3, md: 4 }} boxShadow="sm">
-          <Flex justify="space-between" gap={2}><Box minW={0}><StatLabel color="gray.600" fontSize={{ base: 'xs', md: 'sm' }}>{label}</StatLabel><StatNumber fontSize={{ base: 'lg', md: '2xl' }} overflowWrap="anywhere">{value}</StatNumber></Box><Flex display={{ base: 'none', sm: 'flex' }} flexShrink={0} boxSize="38px" borderRadius="full" align="center" justify="center" bg={`${scheme}.50`} color={`${scheme}.500`}><Icon as={icon} /></Flex></Flex>
-        </Stat>
-      ))}
-    </SimpleGrid>
-  );
-}
-
 function statusColorScheme(status) {
   if (['INTERESTED', 'WON'].includes(status)) return 'green';
   if (status === 'REJECTED') return 'red';
@@ -965,14 +949,12 @@ function RecordDetailsGrid({ record, showOwnership = false }) {
   );
 }
 
-function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt, showOwnership }) {
+function RecordCard({ record, onEdit, onFollowUp, onComposeMail, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt, showOwnership }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
-  const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
   const email = recordValue(record, 'email', 'raw_mail', 'rawMail', 'mail');
-  const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
   const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
   const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
@@ -987,7 +969,7 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
           <Text fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
         </Box>
         <VStack align="end" spacing={1} flexShrink={0}>
-          <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
+          <Badge whiteSpace="normal" colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
           <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
           {showOwnership && <Badge colorScheme={ownershipColorScheme(ownershipType)}>{displayOwnership(ownershipType)}</Badge>}
           {adminCallRequested && <Badge colorScheme="purple">ADMIN REKAO ZVATI</Badge>}
@@ -1002,14 +984,12 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
         <Text>{recordValue(record, 'branch_count') || '—'} poslovnica</Text>
       </HStack>
 
-      {email && <Text mt={3} fontSize="sm" color="gray.700" noOfLines={1}>{email}</Text>}
-      {comment && <Text mt={1} fontSize="sm" color="gray.500" noOfLines={1}>{comment}</Text>}
-
-      {showLetterSentAt ? (
-        <Text mt={2} fontSize="xs" fontWeight="bold" color="blue.700">Dopis poslan: {formattedLetterDate(letterSentAt)}</Text>
-      ) : nextContact && (
-        <Text mt={2} fontSize="xs" fontWeight="semibold" color="orange.700">Sljedeći kontakt: {formattedContactDate(nextContact)}</Text>
-      )}
+      {email && <Text mt={3} fontSize="sm" color="gray.700" overflowWrap="anywhere">{email}</Text>}
+      <Button mt={2} mr={2} minH="44px" size="sm" colorScheme="blue" variant="outline" leftIcon={<FaEnvelope />} aria-label={`Pošalji mail za ${company}`} onClick={() => onComposeMail(record)}>Pošalji mail</Button>
+      {calendarPhone(record) && <Button mt={2} as="a" href={`tel:${calendarPhone(record).replace(/[^\d+]/g, '')}`} size="sm" colorScheme="green" variant="outline" leftIcon={<FaPhoneAlt />}>{calendarPhone(record)}</Button>}
+      <Box mt={3} p={3} bg="whiteAlpha.800" borderRadius="lg"><RecordComments record={record} /></Box>
+      <Box mt={3}><ContactSchedule record={record} onEdit={onFollowUp} /></Box>
+      {showLetterSentAt && <Text mt={2} fontSize="xs" fontWeight="bold" color="blue.700">Dopis poslan: {formattedLetterDate(letterSentAt)}</Text>}
 
       <Box mt={3} px={3} py={2} borderRadius="md" bg={adminCallRequested ? 'purple.100' : 'whiteAlpha.700'} border="1px solid" borderColor={adminCallRequested ? 'purple.300' : 'gray.200'}>
         <Checkbox
@@ -1056,15 +1036,13 @@ function RecordCard({ record, onEdit, onTransfer, onRemove, onSendLetter, onTogg
   );
 }
 
-function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt, showOwnership }) {
+function CompactRecordRow({ record, onEdit, onFollowUp, onComposeMail, onTransfer, onRemove, onSendLetter, onToggleAdminCall, isSendingLetter, isTogglingAdminCall, showLetterSentAt, showOwnership }) {
   const details = useDisclosure();
   const recordStatus = recordValue(record, 'status', 'crm_status') || 'NEW';
   const recordPriority = recordValue(record, 'priority') || 'MEDIUM';
   const company = recordValue(record, 'company_name', 'companyName', 'name', 'komitent') || 'Bez naziva';
   const email = recordValue(record, 'email', 'raw_mail', 'rawMail', 'mail');
   const contact = recordValue(record, 'raw_contact', 'rawContact', 'contact', 'kontakt', 'contact_person', 'phone');
-  const nextContact = recordValue(record, 'next_contact_at', 'nextContactAt');
-  const comment = recordValue(record, 'comment', 'raw_comment', 'rawComment', 'komentar');
   const letterSentAt = recordValue(record, 'letter_sent_at', 'letterSentAt');
   const letterBlockedReason = recordLetterBlockedReason(record);
   const adminCallRequested = Boolean(recordValue(record, 'admin_call_requested', 'adminCallRequested', 'admin_call_requested_at'));
@@ -1073,9 +1051,10 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
 
   return (
     <React.Fragment>
-      <Tr _hover={{ bg: visual.hoverBg }} bg={details.isOpen ? visual.hoverBg : visual.bg}>
+      <Tr verticalAlign="top" _hover={{ bg: visual.hoverBg }} bg={details.isOpen ? visual.hoverBg : visual.bg}>
         <Td py={3}>
-          <Text fontWeight="semibold" noOfLines={2}>{company}</Text>
+          <Text fontWeight="bold" overflowWrap="anywhere">{company}</Text>
+          <Text mt={1} fontSize="xs" color="gray.600">{recordValue(record, 'record_type')} · {recordValue(record, 'location') || 'Bez lokacije'}</Text>
           <Text mt={1} fontSize="xs" color="gray.500">N/R {recordValue(record, 'source_row_number', 'nr') || '—'}</Text>
           <Checkbox
             mt={2}
@@ -1089,26 +1068,26 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
             <Text fontSize="xs" fontWeight="semibold" color={adminCallRequested ? 'purple.700' : 'gray.600'}>Admin rekao zvati</Text>
           </Checkbox>
         </Td>
-        <Td py={3}>
-          <Text fontSize="sm" noOfLines={1}>{recordValue(record, 'record_type') || '—'}</Text>
-          <Text mt={1} fontSize="xs" color="gray.500" noOfLines={1}>{recordValue(record, 'location') || 'Bez lokacije'} · {recordValue(record, 'branch_count') || '—'} posl.</Text>
-        </Td>
         <Td py={3} minW={0}>
-          <Text fontSize="sm" noOfLines={1}>{email || '—'}</Text>
-          <Text mt={1} fontSize="xs" color="gray.500" noOfLines={1}>{contact || comment || 'Bez dodatnog kontakta'}</Text>
+          {calendarPhone(record) && <Button as="a" href={`tel:${calendarPhone(record).replace(/[^\d+]/g, '')}`} size="sm" variant="link" colorScheme="green" leftIcon={<FaPhoneAlt />} whiteSpace="normal" textAlign="left" mb={2}>{calendarPhone(record)}</Button>}
+          <Text fontSize="sm" overflowWrap="anywhere">{email || '—'}</Text>
+          <Button mt={2} size="sm" colorScheme="blue" variant="outline" leftIcon={<FaEnvelope />} aria-label={`Pošalji mail za ${company}`} onClick={() => onComposeMail(record)}>Pošalji mail</Button>
+          <Text mt={1} fontSize="xs" color="gray.600" whiteSpace="pre-wrap" overflowWrap="anywhere">{contact || 'Bez dodatnog kontakta'}</Text>
+        </Td>
+        <Td py={3}><RecordComments record={record} /></Td>
+        <Td py={3}>
+          <ContactSchedule record={record} onEdit={onFollowUp} />
+          {showLetterSentAt && <Text mt={3} fontSize="xs" color="blue.700">Dopis poslan: {formattedLetterDate(letterSentAt)}</Text>}
         </Td>
         <Td py={3}>
           <VStack align="start" spacing={1}>
-            <Badge colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
+            <Badge whiteSpace="normal" colorScheme={statusColorScheme(recordStatus)}>{displayStatus(recordStatus)}</Badge>
             <Badge colorScheme={priorityColorScheme(recordPriority)}>{displayStatus(recordPriority)}</Badge>
             {showOwnership && <Badge colorScheme={ownershipColorScheme(ownershipType)}>{displayOwnership(ownershipType)}</Badge>}
           </VStack>
         </Td>
         <Td py={3}>
-          <Text fontSize="sm" noOfLines={2}>{showLetterSentAt ? formattedLetterDate(letterSentAt) : formattedContactDate(nextContact)}</Text>
-        </Td>
-        <Td py={3}>
-          <HStack spacing={1} justify="flex-end">
+          <Flex gap={1} justify="flex-end" flexWrap="wrap">
             <IconButton aria-label={details.isOpen ? 'Sakrij detalje komitenta' : 'Prikaži detalje komitenta'} title={details.isOpen ? 'Sakrij detalje' : 'Detalji'} size="sm" variant="ghost" colorScheme="orange" icon={details.isOpen ? <FaChevronUp /> : <FaChevronDown />} onClick={details.onToggle} />
             <IconButton
               aria-label={`Pošalji dopis za ${company}`}
@@ -1124,7 +1103,7 @@ function CompactRecordRow({ record, onEdit, onTransfer, onRemove, onSendLetter, 
             <IconButton aria-label="Uredi komitenta" title="Uredi" size="sm" variant="ghost" icon={<FaEdit />} onClick={() => onEdit(record)} />
             <IconButton aria-label="Prebaci komitenta" title="Prebaci u drugu bazu" size="sm" variant="ghost" colorScheme="orange" icon={<FaExchangeAlt />} onClick={() => onTransfer(record)} />
             <IconButton aria-label="Arhiviraj komitenta" title="Arhiviraj" size="sm" variant="ghost" colorScheme="red" icon={<FaTrash />} onClick={() => onRemove(record)} />
-          </HStack>
+          </Flex>
         </Td>
       </Tr>
       {details.isOpen && (
@@ -1215,6 +1194,10 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const transferModal = useDisclosure();
   const [editing, setEditing] = useState(null);
   const [transferring, setTransferring] = useState(null);
+  const [followUp, setFollowUp] = useState(null);
+  const [mailRecord, setMailRecord] = useState(null);
+  const [contactView, setContactView] = useState('');
+  const requestVersion = useRef(0);
   const [dashboard, setDashboard] = useState(null);
   const [data, setData] = useState({ items: [], pagination: {}, filters: {} });
   const [search, setSearch] = useState('');
@@ -1242,6 +1225,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
   const recordParams = useCallback(({ targetPage = page, targetPerPage = perPage } = {}) => {
     const [sortBy, sortDirection] = sortOption.split(':');
     const params = { page: targetPage, perPage: targetPerPage, search, status, priority, sortBy, sortDirection };
+    if (contactView) params.contactView = contactView;
     if (lettersOnly) params.lettersOnly = true;
     if (adminCallOnly) params.adminCallRequested = true;
     if (sentFrom) params.sentFrom = sentFrom;
@@ -1253,9 +1237,10 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     if (normalizedBrandCode === 'FS_APP' && ownershipType) params.ownershipType = ownershipType;
     if (normalizedBrandCode === 'HACCP_PUBLIC') params.ownershipType = 'PUBLIC';
     return params;
-  }, [adminCallOnly, brandCode, dimensionFilters, lettersOnly, ownershipType, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
+  }, [adminCallOnly, brandCode, contactView, dimensionFilters, lettersOnly, ownershipType, page, perPage, priority, search, sentFrom, sentTo, sortOption, status]);
 
   const load = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     setError('');
     try {
@@ -1263,25 +1248,37 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         commercialApi.getDashboard(brandCode),
         commercialApi.getRecords(brandCode, recordParams()),
       ]);
+      if (version !== requestVersion.current) return;
       setDashboard(dashboardResult);
       setData(Array.isArray(recordResult) ? { items: recordResult, pagination: {} } : { items: [], pagination: {}, filters: {}, ...recordResult });
     } catch (requestError) {
+      if (version !== requestVersion.current) return;
       setError(requestError.message || 'Komercijalna baza trenutno nije dostupna.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [brandCode, recordParams]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 300 : 0);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); requestVersion.current += 1; };
   }, [globalRefreshKey, load, refreshKey, search]);
 
   const changed = useCallback(() => setRefreshKey((value) => value + 1), []);
+  const selectContactView = (value) => {
+    setContactView(value);
+    setLettersOnly(false);
+    setAdminCallOnly(false);
+    setSentFrom('');
+    setSentTo('');
+    setSortOption(value && value !== 'unscheduled' ? 'next_contact_at:asc' : 'company_name:asc');
+    setPage(1);
+  };
   const toggleLetterHistory = () => {
     const nextValue = !lettersOnly;
     setLettersOnly(nextValue);
     if (nextValue) {
+      setContactView('');
       setAdminCallOnly(false);
       setSentFrom(defaultLetterHistoryFrom());
       setSentTo('');
@@ -1297,6 +1294,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
     const nextValue = !adminCallOnly;
     setAdminCallOnly(nextValue);
     if (nextValue) {
+      setContactView('');
       setLettersOnly(false);
       setSentFrom('');
       setSentTo('');
@@ -1508,60 +1506,36 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
 
   return (
     <VStack align="stretch" spacing={5}>
-      {normalizedBrandCode === 'HACCP_CLASSIC' && <Box borderRadius="xl" bg="orange.50" p={4}>
-        <Heading size="md">Registar klasičnog HACCP-a</Heading>
-        <Text mt={2}>Implementacija, održavanje, monitoring i revidiranje HACCP sistema.</Text>
-        <Button mt={3} size="sm" colorScheme="orange" variant="outline" onClick={() => {
+      <Box>
+        <Flex justify="space-between" align="center" gap={3} mb={3} flexWrap="wrap">
+          <Box><Heading size="md">Pregled komercijale · {brand.name}</Heading><Text fontSize="sm" color="gray.600" mt={1}>Komentari, dogovori i naredni pozivi na jednom mjestu.</Text></Box>
+          <Button size="sm" variant="outline" leftIcon={<FaRedo />} onClick={changed} isLoading={loading}>Osvježi</Button>
+        </Flex>
+        <SimpleGrid columns={{ base: 2, md: 5 }} spacing={3}>
+          {CONTACT_VIEWS.map(view => (
+            <Button key={view.value} aria-label={`Pregled: ${view.label}`} aria-pressed={contactView === view.value && !lettersOnly && !adminCallOnly} onClick={() => selectContactView(view.value)} height="auto" minH="90px" p={3} justifyContent="flex-start" whiteSpace="normal" textAlign="left" border="1px solid" borderColor={contactView === view.value && !lettersOnly && !adminCallOnly ? `${view.scheme}.500` : 'gray.200'} bg={contactView === view.value && !lettersOnly && !adminCallOnly ? `${view.scheme}.50` : 'white'} _hover={{ bg: `${view.scheme}.50` }}>
+              <Box><Text fontSize="xs" color={`${view.scheme}.700`}>{view.label}</Text><Text mt={2} fontSize="2xl">{loading ? '…' : data.contacts?.[view.count || view.value] ?? (view.value === '' ? dashboard?.totals?.count ?? dashboard?.totals?.total ?? '—' : '—')}</Text></Box>
+            </Button>
+          ))}
+        </SimpleGrid>
+        <Text mt={2} fontSize="xs" color="gray.500">Brojevi obuhvataju cijelu bazu. Rokovi su po vremenu Sarajeva; ugovoreni i odbijeni kontakti nisu u listama poziva.</Text>
+      </Box>
+
+      {normalizedBrandCode === 'HACCP_CLASSIC' && <Box borderRadius="xl" bg="orange.50" px={3} py={2} display="flex" alignItems="center" justifyContent="space-between" gap={2}>
+        <Text fontSize="sm">Registar klasičnog HACCP-a</Text>
+        <Button size="sm" colorScheme="orange" variant="outline" onClick={() => {
           setSearch('HACCP ZA SLANJE'); setStatus('NEW'); setPriority(''); setDimensionFilters([]);
-          setLettersOnly(false); setAdminCallOnly(false); setPage(1);
+          setContactView(''); setSentFrom(''); setSentTo(''); setLettersOnly(false); setAdminCallOnly(false); setPage(1);
         }}>Pripremljeni kontakti</Button>
       </Box>}
-      <DashboardCards dashboard={dashboard} />
 
-      {normalizedBrandCode === 'JAVNE_USTANOVE' && <AccountImport brandCode={brandCode} onImported={changed} />}
 
-      <CommercialMailAutomation
-        brandCode={brandCode}
-        brandName={brand.name}
-        campaignDescription={brand.mailDescription}
-        formTitle={brand.mailFormTitle}
-        subjectPlaceholder={brand.mailSubjectPlaceholder}
-        user={user}
-        onChanged={changed}
-      />
-
-      <Flex border="1px solid" borderColor={dailyOpen ? 'orange.300' : 'gray.200'} bg={dailyOpen ? 'orange.50' : 'gray.50'} borderRadius="xl" px={4} py={3} align="center" justify="space-between" gap={4}>
-        <Box><Text fontWeight="bold">Današnjih 30</Text><Text fontSize="sm" color="gray.600">Dnevni fokus komercijaliste, odvojen za {brand.name}.</Text></Box>
-        <Switch aria-label="Prikaži Današnjih 30" colorScheme="orange" size="lg" isChecked={dailyOpen} onChange={(event) => setDailyOpen(event.target.checked)} />
-      </Flex>
-      <DailyPanel brandCode={brandCode} isOpen={dailyOpen} onChanged={changed} />
-
-      <Box
-        border="1px solid"
-        borderColor={lettersOnly ? 'blue.300' : 'gray.200'}
-        bg={lettersOnly ? 'blue.50' : 'gray.50'}
-        borderRadius="xl"
-        p={{ base: 3, md: 4 }}
-      >
-        <Flex align={{ base: 'stretch', lg: 'center' }} justify="space-between" gap={4} direction={{ base: 'column', lg: 'row' }}>
-          <Box>
-            <HStack spacing={2}><Icon as={FaEnvelope} color={lettersOnly ? 'blue.600' : 'gray.500'} /><Text fontWeight="bold">Evidencija poslanih dopisa</Text></HStack>
-            <Text mt={1} fontSize="sm" color="gray.600">Jedan klik prikazuje samo komitente kojima je dopis poslan i stvarni datum slanja.</Text>
-          </Box>
-          <Button
-            aria-label={lettersOnly ? 'Prikaži sve komitente' : 'Prikaži poslane dopise od 1. jula'}
-            aria-pressed={lettersOnly}
-            minH="44px"
-            flexShrink={0}
-            leftIcon={<FaEnvelope />}
-            colorScheme={lettersOnly ? 'blue' : 'orange'}
-            variant={lettersOnly ? 'solid' : 'outline'}
-            onClick={toggleLetterHistory}
-          >
-            {lettersOnly ? 'Prikaži sve komitente' : 'Dopisi od 01.07.'}
-          </Button>
+      <Box>
+        <Flex gap={2} flexWrap="wrap" align="center">
+          <Button aria-label={lettersOnly ? 'Prikaži sve komitente' : 'Prikaži poslane dopise od 1. jula'} aria-pressed={lettersOnly} size="sm" minH="40px" leftIcon={<FaEnvelope />} colorScheme="blue" variant={lettersOnly ? 'solid' : 'outline'} onClick={toggleLetterHistory}>{lettersOnly ? 'Prikaži sve komitente' : 'Dopisi od 01.07.'}</Button>
+          <Button aria-label={adminCallOnly ? 'Prikaži sve komitente' : 'Prikaži komitente označene Admin rekao zvati'} aria-pressed={adminCallOnly} size="sm" minH="40px" leftIcon={<FaPhoneAlt />} colorScheme="purple" variant={adminCallOnly ? 'solid' : 'outline'} onClick={toggleAdminCallFilter}>{adminCallOnly ? 'Prikaži sve komitente' : 'Admin rekao zvati'}</Button>
+          <Text fontSize="xs" color="gray.500">Komentar i termin uređujete direktno iz reda komitenta.</Text>
         </Flex>
-
         {lettersOnly && (
           <Flex mt={4} gap={3} align={{ base: 'stretch', md: 'end' }} direction={{ base: 'column', md: 'row' }} flexWrap={{ base: 'nowrap', md: 'wrap' }}>
             <FormControl maxW={{ md: '210px' }}>
@@ -1600,55 +1574,16 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
             </Button>
           </Flex>
         )}
-
-        <Flex mt={4} gap={2} align="center" flexWrap="wrap">
-          <Text mr={1} fontSize="xs" fontWeight="semibold" color="gray.600">Boje redova:</Text>
-          <Badge colorScheme="yellow">U toku / dopis / sastanak</Badge>
-          <Badge colorScheme="red">Odbijeno</Badge>
-          <Badge colorScheme="green">Zainteresovan / prihvaćeno</Badge>
-          <Text fontSize="xs" color="gray.500">Boja se mijenja kada u „Uredi“ promijenite CRM status.</Text>
-        </Flex>
-      </Box>
-
-      <Box
-        border="1px solid"
-        borderColor={adminCallOnly ? 'purple.300' : 'gray.200'}
-        bg={adminCallOnly ? 'purple.50' : 'gray.50'}
-        borderRadius="xl"
-        p={{ base: 3, md: 4 }}
-      >
-        <Flex align={{ base: 'stretch', lg: 'center' }} justify="space-between" gap={4} direction={{ base: 'column', lg: 'row' }}>
-          <Box>
-            <HStack spacing={2} flexWrap="wrap">
-              <Icon as={FaPhoneAlt} color={adminCallOnly ? 'purple.600' : 'gray.500'} />
-              <Text fontWeight="bold">Lista za pozvati</Text>
-              <Badge colorScheme="purple">Admin rekao zvati</Badge>
-            </HStack>
-            <Text mt={1} fontSize="sm" color="gray.600">U prikazu dopisa označite kvačicu uz komitenta. Oznaka ostaje sačuvana i sutradan, a nakon poziva je skinite.</Text>
-          </Box>
-          <Button
-            aria-label={adminCallOnly ? 'Prikaži sve komitente' : 'Prikaži komitente označene Admin rekao zvati'}
-            aria-pressed={adminCallOnly}
-            minH="44px"
-            flexShrink={0}
-            leftIcon={<FaPhoneAlt />}
-            colorScheme="purple"
-            variant={adminCallOnly ? 'solid' : 'outline'}
-            onClick={toggleAdminCallFilter}
-          >
-            {adminCallOnly ? 'Prikaži sve komitente' : 'Prikaži za pozvati'}
-          </Button>
-        </Flex>
       </Box>
 
       <Divider />
       <Flex gap={3} direction={{ base: 'column', xl: 'row' }}>
         <HStack flex="1" border="1px solid" borderColor="gray.200" borderRadius="md" px={3}>
           <Icon as={FaSearch} color="gray.400" />
-          <Input border="0" boxShadow="none !important" placeholder="Pretraži komitenta, mail, kontakt ili komentar" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+          <Input aria-label="Pretraga komercijale" border="0" boxShadow="none !important" placeholder="Pretraži komitenta, mail, kontakt ili komentar" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
         </HStack>
-        <Select maxW={{ xl: '210px' }} placeholder="Svi statusi" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>{availableStatuses.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
-        <Select maxW={{ xl: '180px' }} placeholder="Svi prioriteti" value={priority} onChange={(event) => { setPriority(event.target.value); setPage(1); }}>{availablePriorities.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
+        <Select aria-label="Filter statusa" maxW={{ xl: '210px' }} placeholder="Svi statusi" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>{availableStatuses.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
+        <Select aria-label="Filter prioriteta" maxW={{ xl: '180px' }} placeholder="Svi prioriteti" value={priority} onChange={(event) => { setPriority(event.target.value); setPage(1); }}>{availablePriorities.map((value) => <option key={value} value={value}>{displayStatus(value)}</option>)}</Select>
         {isFsApp && (
           <Select aria-label="Filter po vlasništvu" maxW={{ xl: '220px' }} placeholder="Svi sektori" value={ownershipType} onChange={(event) => { setOwnershipType(event.target.value); setPage(1); }}>
             {availableOwnershipTypes.map((value) => <option key={value} value={value}>{displayOwnership(value)}</option>)}
@@ -1670,6 +1605,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         <Button w={{ base: 'full', xl: 'auto' }} minH="44px" leftIcon={<FaPlus />} bg={orange} color="white" _hover={{ bg: 'orange.500' }} onClick={openNew}>Novi komitent</Button>
       </Flex>
 
+      {(search || status || priority || ownershipType || dimensionFilters.length > 0) && <HStack flexWrap="wrap"><Text fontSize="sm" color="gray.600">Dodatni filteri su uključeni.</Text><Button size="sm" variant="link" colorScheme="orange" onClick={() => { setSearch(''); setStatus(''); setPriority(''); setOwnershipType(''); setDimensionFilters([]); setPage(1); }}>Očisti dodatne filtere</Button></HStack>}
       <Flex px={{ base: 0, md: 1 }} gap={3} align={{ base: 'stretch', md: 'center' }} justify="space-between" direction={{ base: 'column', md: 'row' }}>
         <Text fontSize="sm" color="gray.600">Prikazano <strong>{rangeStart}–{rangeEnd}</strong> od <strong>{total}</strong> {resultLabel}</Text>
         <HStack spacing={3}>
@@ -1697,7 +1633,7 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
       </Flex>
 
       {error && <ErrorAlert message={error} onRetry={load} />}
-      {loading ? <Loading label={`Učitavanje ${brand.name} baze...`} /> : items.length === 0 ? (
+      {error ? null : loading ? <Loading label={`Učitavanje ${brand.name} baze...`} /> : items.length === 0 ? (
         <EmptyState title="Nema pronađenih komitenata" text={adminCallOnly ? 'Nijedan komitent u ovom programu trenutno nema oznaku „Admin rekao zvati“.' : (lettersOnly ? 'Promijenite raspon datuma ili očistite dodatne filtere.' : 'Promijenite filtere ili dodajte prvi komercijalni zapis.')} />
       ) : (
         <>
@@ -1707,6 +1643,8 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
                 key={record.id}
                 record={record}
                 onEdit={openEdit}
+                onFollowUp={setFollowUp}
+                onComposeMail={setMailRecord}
                 onTransfer={openTransfer}
                 onRemove={remove}
                 onSendLetter={sendLetter}
@@ -1720,12 +1658,14 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
           </VStack>
           <Box display={{ base: 'none', xl: 'block' }} border="1px solid" borderColor="gray.200" borderRadius="xl" overflow="hidden" boxShadow="sm">
             <Table size="sm" sx={{ tableLayout: 'fixed' }}>
-            <Thead bg="orange.50"><Tr><Th w="21%">Komitent</Th><Th w="15%">Profil</Th><Th w="24%">Kontakt</Th><Th w="14%">Status</Th><Th w="13%">{lettersOnly ? 'Dopis poslan' : 'Sljedeći kontakt'}</Th><Th w="13%" textAlign="right">Akcije</Th></Tr></Thead>
+            <Thead bg="gray.100"><Tr><Th w="19%">Komitent</Th><Th w="18%">Kontakt</Th><Th w="27%">Komentar i dogovor</Th><Th w="16%">Kada zvati</Th><Th w="11%">Status</Th><Th w="9%" textAlign="right">Akcije</Th></Tr></Thead>
             <Tbody>{items.map((record) => (
               <CompactRecordRow
                 key={record.id}
                 record={record}
                 onEdit={openEdit}
+                onFollowUp={setFollowUp}
+                onComposeMail={setMailRecord}
                 onTransfer={openTransfer}
                 onRemove={remove}
                 onSendLetter={sendLetter}
@@ -1757,7 +1697,28 @@ function BrandPanel({ brand, brands, user, globalRefreshKey, onGlobalChanged }) 
         </HStack>
       </Flex>
 
+      <Divider />
+      <Heading size="sm">Dnevni izbor i mail kampanja</Heading>
+      {normalizedBrandCode === 'JAVNE_USTANOVE' && <AccountImport brandCode={brandCode} onImported={changed} />}
+      <CommercialMailAutomation
+        brandCode={brandCode}
+        brandName={brand.name}
+        campaignDescription={brand.mailDescription}
+        formTitle={brand.mailFormTitle}
+        subjectPlaceholder={brand.mailSubjectPlaceholder}
+        user={user}
+        onChanged={changed}
+      />
+
+      <Flex border="1px solid" borderColor={dailyOpen ? 'orange.300' : 'gray.200'} bg={dailyOpen ? 'orange.50' : 'gray.50'} borderRadius="xl" px={4} py={3} align="center" justify="space-between" gap={4}>
+        <Box><Text fontWeight="bold">Današnjih 30</Text><Text fontSize="sm" color="gray.600">Dnevni fokus komercijaliste, odvojen za {brand.name}.</Text></Box>
+        <Switch aria-label="Prikaži Današnjih 30" colorScheme="orange" size="lg" isChecked={dailyOpen} onChange={(event) => setDailyOpen(event.target.checked)} />
+      </Flex>
+      <DailyPanel brandCode={brandCode} isOpen={dailyOpen} onChanged={changed} />
+
       <RecordModal isOpen={modal.isOpen} onClose={modal.onClose} record={editing} brandCode={brandCode} onSaved={() => { toast({ title: 'Komitent je sačuvan.', status: 'success', position: 'top-right' }); changed(); }} />
+      <FollowUpModal record={followUp} onClose={() => setFollowUp(null)} onSaved={() => { toast({ title: 'Komentar i termin su sačuvani.', status: 'success', position: 'top-right' }); changed(); onGlobalChanged(); }} />
+      {mailRecord && <RecordMailModal record={mailRecord} onClose={() => setMailRecord(null)} onSent={(title) => toast({ title, status: 'success', position: 'top-right' })} />}
       <TransferRecordModal
         isOpen={transferModal.isOpen}
         onClose={transferModal.onClose}
@@ -2159,6 +2120,7 @@ function CallCalendar({ brands, globalRefreshKey, onChanged }) {
                         {record.admin_call_requested && <Badge colorScheme="purple">Admin rekao zvati</Badge>}
                       </HStack>
                       <Text mt={2} fontWeight="bold" fontSize="md" overflowWrap="anywhere">{company}</Text>
+                      <Box mt={3}><RecordComments record={record} /></Box>
                       <HStack mt={1} spacing={3} color="gray.600" fontSize="sm" flexWrap="wrap">
                         {phone && <Text><Icon as={FaPhoneAlt} mr={1} />{phone}</Text>}
                         {record.email && <Text><Icon as={FaEnvelope} mr={1} />{record.email}</Text>}
@@ -2253,7 +2215,7 @@ export default function CommercialModule({ user }) {
       <Flex justify="space-between" align={{ base: 'start', lg: 'center' }} direction={{ base: 'column', lg: 'row' }} gap={3} mb={5}>
         <Box>
           <HStack><Icon as={FaBuilding} color={orange} boxSize={6} /><Heading size="lg">Komercijalni CRM</Heading></HStack>
-          <Text color="gray.600" mt={1}>{brands.length === 1 ? 'Vaša odvojena baza, dnevni fokus i evidencija kontakata.' : `${brands.length} potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.`}</Text>
+          <Text color="gray.600" mt={1}>Prodajne baze, vidljivi komentari i pregled svih narednih poziva.</Text>
         </Box>
         <HStack flexWrap="wrap">{brands.some(brand => brand.code === 'FS_APP') && <Button size="sm" colorScheme="orange" variant="outline" onClick={() => setActiveTab(brands.length + 1)}>HACCP istraživanje</Button>}<Badge colorScheme="green" px={3} py={2} borderRadius="full">Aktivan profil</Badge><Text fontSize="sm" color="gray.600">{user?.displayName || user?.display_name || user?.username}</Text></HStack>
       </Flex>
@@ -2264,7 +2226,12 @@ export default function CommercialModule({ user }) {
         <EmptyState title="Nema dodijeljenih komercijalnih baza" text="Vašem profilu trenutno nije dodijeljen pristup nijednoj komercijalnoj bazi. Obratite se direktoru." />
       ) : (
         <Tabs colorScheme="orange" variant="enclosed" isLazy index={activeTab} onChange={setActiveTab}>
-          <TabList aria-label="Prodajne baze" flexWrap="wrap" gap={1} pb={2} sx={{ '& > [role="tab"]': { maxWidth: '100%', marginBottom: 0 } }}>
+          <Select aria-label="Odaberi prodajnu bazu" display={{ base: 'block', md: 'none' }} bg="white" value={activeTab} onChange={event => setActiveTab(Number(event.target.value))}>
+            <option value={0}>Kalendar svih baza</option>
+            {brands.map((brand, index) => <option key={brand.code} value={index + 1}>{brand.name}</option>)}
+            {brands.some(brand => brand.code === 'FS_APP') && <option value={brands.length + 1}>HACCP istraživanje</option>}
+          </Select>
+          <TabList display={{ base: 'none', md: 'flex' }} aria-label="Prodajne baze" flexWrap="wrap" gap={1} pb={2} sx={{ '& > [role="tab"]': { maxWidth: '100%', marginBottom: 0 } }}>
             <Tab flexShrink={0} minH="44px" fontWeight="bold"><Icon as={FaCalendarCheck} mr={2} />Kalendar</Tab>
             {brands.map((brand) => <Tab key={brand.code} flexShrink={0} minH="44px" fontWeight="bold">{brand.name}{brand.code === 'FS_APP' && <Text as="span" display={{ base: 'none', sm: 'inline' }} ml={1} fontSize="xs" fontWeight="normal">(Digitalni HACCP)</Text>}</Tab>)}
             {brands.some(brand => brand.code === 'FS_APP') && <Tab flexShrink={0} minH="44px" fontWeight="bold">HACCP istraživanje</Tab>}

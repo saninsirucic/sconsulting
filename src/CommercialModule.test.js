@@ -2,9 +2,20 @@ import { ChakraProvider } from '@chakra-ui/react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CommercialModule, { statusVisual } from './CommercialModule';
 import { commercialApi } from './commercial/api';
+import { outlookApi } from './outlook/api';
 import { downloadCombinedLetterReportPdf, downloadLetterReportPdf } from './commercial/letterReportPdf';
 
+// These tests cover CRM behavior; jsdom has no layout engine for Collapse animations.
+jest.mock('@chakra-ui/react', () => ({
+  ...jest.requireActual('@chakra-ui/react'),
+  Collapse: ({ in: open, children }) => open ? <div>{children}</div> : null,
+}));
+
 jest.mock('./commercial/HaccpResearch', () => () => <div data-testid="haccp-research-panel">Istraživački panel</div>);
+jest.mock('./outlook/api', () => ({
+  composePayload: jest.requireActual('./outlook/api').composePayload,
+  outlookApi: { getStatus: jest.fn(), send: jest.fn() },
+}));
 
 jest.mock('./commercial/letterReportPdf', () => ({
   downloadCombinedLetterReportPdf: jest.fn(),
@@ -52,8 +63,8 @@ test('classic HACCP is a separate visible register with its own prepared-contact
     { code: 'FS_APP', name: 'FS App', record_count: 400 },
   ] });
   renderModule();
-  expect(await screen.findByRole('tab', { name: 'HACCP', exact: true })).toBeInTheDocument();
-  expect(screen.getByRole('tab', { name: /FS App/ })).toBeInTheDocument();
+  expect(await screen.findByRole('tab', { hidden: true, name: 'HACCP', exact: true })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { hidden: true, name: /FS App/ })).toBeInTheDocument();
   expect(await screen.findByText('Registar klasičnog HACCP-a')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Pripremljeni kontakti' }));
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('HACCP_CLASSIC', expect.objectContaining({ search: 'HACCP ZA SLANJE', status: 'NEW' })));
@@ -80,6 +91,7 @@ const record = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  outlookApi.getStatus.mockResolvedValue({ configured: true, writeEnabled: true, mailbox: 'sales@s-consulting.ba' });
   commercialApi.getBrands.mockResolvedValue({ items: [
     { code: 'VISIOCAST', name: 'Visiocast', record_count: 1 },
     { code: 'SAN_PEST', name: 'SAN Pest', record_count: 0 },
@@ -137,14 +149,24 @@ beforeEach(() => {
   commercialApi.sendNextMailAutomation.mockResolvedValue({ sent: true });
 });
 
+test('Pošalji mail opens the selected client in the mail form without sending', async () => {
+  renderModule();
+  const buttons = await screen.findAllByRole('button', { name: 'Pošalji mail za Primjer d.o.o.' });
+  fireEvent.click(buttons[0]);
+  expect(await screen.findByLabelText('Primaoci')).toHaveValue('prodaja@primjer.ba');
+  expect(screen.getByText('Mail za: Primjer d.o.o.')).toBeInTheDocument();
+  expect(outlookApi.send).not.toHaveBeenCalled();
+  expect(commercialApi.sendRecordLetter).not.toHaveBeenCalled();
+});
+
 test('Javne ustanove prikazuje praznu dodijeljenu bazu i uvoz bez drugih profila', async () => {
   commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'JAVNE_USTANOVE', name: 'Javne ustanove', record_count: 0 }] });
   commercialApi.getRecords.mockResolvedValue({ items: [], pagination: { total: 0, pages: 1 }, filters: {} });
   renderModule();
   expect(await screen.findByText('Uvoz baze javnih ustanova')).toBeInTheDocument();
-  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Kalendar', 'Javne ustanove']);
+  expect(screen.getAllByRole('tab', { hidden: true }).map((tab) => tab.textContent)).toEqual(['Kalendar', 'Javne ustanove']);
   expect(screen.queryByText('Tabela još nije dostavljena')).not.toBeInTheDocument();
-  expect(screen.getByText('Vaša odvojena baza, dnevni fokus i evidencija kontakata.')).toBeInTheDocument();
+  expect(screen.getByText('Prodajne baze, vidljivi komentari i pregled svih narednih poziva.')).toBeInTheDocument();
 });
 
 test('ne prikazuje druge baze ako učitavanje dodijeljenih baza ne uspije', async () => {
@@ -165,34 +187,34 @@ test('prikazuje dvanaest baza fiksnim redom, uključujući USA bazu', async () =
   expect(screen.queryByRole('columnheader', { name: 'Ukupno' })).not.toBeInTheDocument();
   expect(screen.queryByRole('columnheader', { name: 'Profit' })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest' }));
   expect(await screen.findByText('Tabela još nije dostavljena')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: /FS App/ }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: /FS App/ }));
   expect(await screen.findByText('Digitalni HACCP')).toBeInTheDocument();
-  const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+  const tabs = screen.getAllByRole('tab', { hidden: true }).map((tab) => tab.textContent);
   expect(tabs).toEqual(['Kalendar', 'Visiocast', 'SAN Pest', 'SAN Pest Njemačka', 'FS App(Digitalni HACCP)', 'HACCP javni sektor', 'SAN Pest Austrija', 'SAN Pest Češka', 'SAN Pest Saudijska Arabija', 'SAN Pest UAE', 'SAN Pest Bahrain', 'SAN Pest Singapur i Malezija', 'SAN Pest USA', 'HACCP istraživanje']);
-  expect(screen.queryByRole('tab', { name: 'SAN Pest Poljska' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Njemačka' }));
+  expect(screen.queryByRole('tab', { hidden: true, name: 'SAN Pest Poljska' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Njemačka' }));
   expect(await screen.findByText(/Ponuda, odredišna stranica i automatski potpis su na njemačkom jeziku/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'HACCP javni sektor' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'HACCP javni sektor' }));
   expect(await screen.findByText('Klasična implementacija i održavanje HACCP-a za javni sektor u BiH')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Austrija' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Austrija' }));
   expect(await screen.findByText(/Ponuda koristi isti njemački tekst, potpis, link i banner/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Češka' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Češka' }));
   expect(await screen.findByText(/Ponuda je pripremljena na češkom jeziku, uz završnu rečenicu/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Saudijska Arabija' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Saudijska Arabija' }));
   expect(await screen.findByText(/Ponuda je pripremljena na engleskom jeziku za tržište Saudijske Arabije/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest UAE' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest UAE' }));
   expect(await screen.findByText(/Ponuda je pripremljena na engleskom jeziku za tržište UAE/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Bahrain' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Bahrain' }));
   expect(await screen.findByText(/Ponuda je pripremljena na engleskom jeziku za tržište Bahreina/)).toBeInTheDocument();
-  expect(screen.getByText('12 potpuno odvojenih prodajnih baza, dnevni fokus i evidencija kontakata.')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest Singapur i Malezija' }));
-  expect(screen.getByRole('tab', { name: 'SAN Pest Singapur i Malezija' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByText('Prodajne baze, vidljivi komentari i pregled svih narednih poziva.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Singapur i Malezija' }));
+  expect(screen.getByRole('tab', { hidden: true, name: 'SAN Pest Singapur i Malezija' })).toHaveAttribute('aria-selected', 'true');
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('SAN_PEST_SINGAPORE_MALAYSIA', expect.any(Object)));
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest USA' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest USA' }));
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('SAN_PEST_USA', expect.any(Object)));
-  expect(await screen.findByText(/Pristigle odjave treba odmah unijeti/)).toBeInTheDocument();
+  expect(await screen.findByText(/Odjava putem obrasca odmah blokira adresu/)).toBeInTheDocument();
 });
 
 test('otvara HACCP istraživanje kroz vidljivo dugme i prikazuje ga samo uz FS App pristup', async () => {
@@ -200,13 +222,13 @@ test('otvara HACCP istraživanje kroz vidljivo dugme i prikazuje ga samo uz FS A
   await screen.findAllByText('Primjer d.o.o.');
   fireEvent.click(screen.getByRole('button', { name: 'HACCP istraživanje' }));
   expect(await screen.findByTestId('haccp-research-panel')).toBeInTheDocument();
-  expect(screen.getByRole('tab', { name: 'HACCP istraživanje' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { hidden: true, name: 'HACCP istraživanje' })).toHaveAttribute('aria-selected', 'true');
   view.unmount();
   commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'VISIOCAST', name: 'Visiocast', record_count: 1 }] });
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
   expect(screen.queryByRole('button', { name: 'HACCP istraživanje' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('tab', { name: 'HACCP istraživanje' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { hidden: true, name: 'HACCP istraživanje' })).not.toBeInTheDocument();
 });
 
 test('omogućava pregled velikih baza kroz kompaktne kolone, sortiranje i izbor broja zapisa', async () => {
@@ -215,9 +237,9 @@ test('omogućava pregled velikih baza kroz kompaktne kolone, sortiranje i izbor 
 
   expect(await screen.findByText(/Prikazano/)).toHaveTextContent('Prikazano 1–25 od 683 zapisa');
   expect(screen.getByRole('columnheader', { name: 'Komitent', hidden: true })).toBeInTheDocument();
-  expect(screen.getByRole('columnheader', { name: 'Profil', hidden: true })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Komentar i dogovor', hidden: true })).toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: 'Kontakt', hidden: true })).toBeInTheDocument();
-  expect(screen.queryByRole('columnheader', { name: 'Komentar', hidden: true })).not.toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Kada zvati', hidden: true })).toBeInTheDocument();
 
   commercialApi.getRecords.mockClear();
   fireEvent.change(screen.getByLabelText('Broj zapisa po stranici'), { target: { value: '50' } });
@@ -260,8 +282,8 @@ test('jednim klikom prikazuje dopise od početka jula i filtrira datum slanja', 
     sortDirection: 'desc',
   })));
 
-  expect(await screen.findByRole('columnheader', { name: 'Dopis poslan', hidden: true })).toBeInTheDocument();
-  expect(screen.getAllByText('20.08.2026. 15:30').length).toBeGreaterThan(0);
+  expect(await screen.findByRole('columnheader', { name: 'Kada zvati', hidden: true })).toBeInTheDocument();
+  expect(screen.getAllByText(/Dopis poslan: 20.08.2026. 15:30/).length).toBeGreaterThan(0);
   fireEvent.change(screen.getByLabelText('Dopis poslan od datuma'), { target: { value: '2026-08-01' } });
   fireEvent.change(screen.getByLabelText('Dopis poslan do datuma'), { target: { value: '2026-08-31' } });
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({
@@ -442,7 +464,7 @@ test('kalendar prikazuje pozive i sastanke iz dostupnih programa po datumu', asy
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Kalendar' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'Kalendar' }));
   expect(await screen.findByRole('heading', { name: 'Kalendar poziva i sastanaka' })).toBeInTheDocument();
   await waitFor(() => expect(commercialApi.getCallCalendar).toHaveBeenCalledWith(expect.objectContaining({
     from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
@@ -466,7 +488,7 @@ test('kalendar prikazuje pozive i sastanke iz dostupnih programa po datumu', asy
 test('komercijalista dodaje sastanak za izabrani datum', async () => {
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
-  fireEvent.click(screen.getByRole('tab', { name: 'Kalendar' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'Kalendar' }));
   await screen.findByRole('heading', { name: 'Kalendar poziva i sastanaka' });
   expect(screen.getByText('Nema zakazanih sastanaka za ovaj datum.')).toBeInTheDocument();
 
@@ -534,14 +556,14 @@ test('nudi poseban filter grada, države i vrste za svaku bazu', async () => {
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Sarajevo' }));
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({ locations: JSON.stringify(['Travnik', 'Sarajevo']) })));
 
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest' }));
   const countryFilter = await screen.findByRole('button', { name: 'Filter po državi' });
   await waitFor(() => expect(countryFilter).toBeEnabled());
   fireEvent.click(countryFilter);
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Srbija' }));
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('SAN_PEST', expect.objectContaining({ countries: JSON.stringify(['Srbija']) })));
 
-  fireEvent.click(screen.getByRole('tab', { name: /FS App/ }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: /FS App/ }));
   const typeFilter = await screen.findByRole('button', { name: 'Filter po vrsti' });
   await waitFor(() => expect(typeFilter).toBeEnabled());
   fireEvent.click(typeFilter);
@@ -550,7 +572,7 @@ test('nudi poseban filter grada, države i vrste za svaku bazu', async () => {
   fireEvent.change(screen.getByRole('combobox', { name: 'Filter po vlasništvu' }), { target: { value: 'PRIVATE' } });
   await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('FS_APP', expect.objectContaining({ ownershipType: 'PRIVATE' })));
 
-  fireEvent.click(screen.getByRole('tab', { name: 'HACCP javni sektor' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'HACCP javni sektor' }));
   expect(await screen.findByLabelText('Fiksni segment HACCP javnog sektora')).toHaveTextContent('Javni sektorBiH');
   const publicTypeFilter = await screen.findByRole('button', { name: 'Filter po vrsti javnog subjekta' });
   fireEvent.click(publicTypeFilter);
@@ -591,9 +613,9 @@ test('prikazuje samo brendove koje je backend dodijelio korisniku', async () => 
   commercialApi.getBrands.mockResolvedValue({ items: [{ code: 'VISIOCAST', name: 'Visiocast', record_count: 1 }] });
   renderModule();
   expect((await screen.findAllByText('Primjer d.o.o.')).length).toBeGreaterThan(0);
-  expect(screen.queryByRole('tab', { name: 'SAN Pest' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('tab', { name: /FS App/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole('tab', { name: 'HACCP javni sektor' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { hidden: true, name: 'SAN Pest' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { hidden: true, name: /FS App/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { hidden: true, name: 'HACCP javni sektor' })).not.toBeInTheDocument();
 });
 
 test('Današnjih 30 je početno skriveno i učitava se tek nakon otvaranja', async () => {
@@ -924,7 +946,7 @@ test('prebacuje komitenta iz SAN Pesta u Visiocast uz potvrdu ciljne baze', asyn
   ] });
   renderModule();
   await screen.findAllByText('Primjer d.o.o.');
-  fireEvent.click(screen.getByRole('tab', { name: 'SAN Pest' }));
+  fireEvent.click(screen.getByRole('tab', { hidden: true, name: 'SAN Pest' }));
   await screen.findAllByText('Primjer d.o.o.');
 
   fireEvent.click(screen.getAllByRole('button', { name: 'Prebaci komitenta' })[0]);
@@ -942,4 +964,16 @@ test('soft-delete arhivira Visiocast zapis', async () => {
   fireEvent.click(screen.getAllByRole('button', { name: 'Arhiviraj komitenta' })[0]);
   await waitFor(() => expect(commercialApi.deleteRecord).toHaveBeenCalledWith('record-1'));
   window.confirm.mockRestore();
+});
+
+
+test('brzi pregled rokova šalje filter cijele baze i zadržava komentare vidljivim', async () => {
+  commercialApi.getRecords.mockResolvedValue({ items: [{...record, notes: 'Dogovor za sljedeći razgovor'}], pagination: {total: 1, pages: 1}, contacts: {total: 1, today: 1, overdue: 0, upcoming: 0, unscheduled: 0} });
+  renderModule();
+  await screen.findAllByText('Primjer d.o.o.');
+  fireEvent.click(screen.getByRole('button', {name: 'Pregled: Pozivi danas'}));
+  await waitFor(() => expect(commercialApi.getRecords).toHaveBeenCalledWith('VISIOCAST', expect.objectContaining({contactView:'today',page:1,sortBy:'next_contact_at',sortDirection:'asc'})));
+  expect((await screen.findAllByText('Dogovor za sljedeći razgovor')).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', {name:'Pregled: Svi komitenti'}));
+  await waitFor(() => expect(commercialApi.getRecords.mock.calls.at(-1)[1]).not.toHaveProperty('contactView'));
 });
