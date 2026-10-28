@@ -6,6 +6,8 @@ const { createGraphClient } = require('../outlookMail/graphClient');
 
 const ROOT = '/sanpest-sastanak';
 const TABLE = 'sanpest_meeting_requests';
+// The public website proxies this form while retaining its own domain in the browser.
+const WEBSITE_ORIGINS = new Set(['https://www.s-consulting.ba', 'https://s-consulting.ba']);
 const escape = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function validate(body) {
   const data = Object.fromEntries(['name', 'phone', 'company', 'comment'].map(k => [k, typeof body[k] === 'string' ? body[k].trim() : '']));
@@ -51,7 +53,7 @@ function createSanpestMeetingRouter({ db, env = process.env, notify }) {
   router.get('/', (req, res) => page(res));
   router.post('/', express.urlencoded({ extended: false, limit: '12kb' }), async (req, res) => {
     const origin = req.get('origin');
-    if (origin && origin !== `${req.protocol}://${req.get('host')}`) return page(res, { errors: ['Osvježite obrazac i pokušajte ponovo.'], status: 403 });
+    if (origin && origin !== `${req.protocol}://${req.get('host')}` && !WEBSITE_ORIGINS.has(origin)) return page(res, { errors: ['Osvježite obrazac i pokušajte ponovo.'], status: 403 });
     const body = req.body || {}; const id = verify(body.token);
     const { data, errors } = validate(body);
     if (!id) errors.push('Obrazac je istekao. Provjerite podatke i pošaljite ponovo.');

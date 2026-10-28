@@ -45,3 +45,13 @@ test('database failure reports failure and preserves form input', async t => {
   const { db, form, post } = await setup(t); const token = await form(); await db.schema.dropTable('sanpest_meeting_requests');
   const r = await post(token); assert.equal(r.status, 503); const html = await r.text(); assert.match(html, /Zahtjev nije sačuvan/); assert.match(html, /Test &amp; firma/);
 });
+test('branded website can submit through its proxy; lookalike origins cannot', async t => {
+  const { db, form, post } = await setup(t);
+  for (const origin of ['https://www.s-consulting.ba', 'https://s-consulting.ba']) {
+    assert.equal((await post(await form(), {}, { Origin: origin })).status, 200);
+  }
+  for (const origin of ['http://www.s-consulting.ba', 'https://www.s-consulting.ba.evil.example', 'https://evil-s-consulting.ba']) {
+    assert.equal((await post(await form(), {}, { Origin: origin })).status, 403);
+  }
+  assert.equal((await db('sanpest_meeting_requests')).length, 2);
+});
