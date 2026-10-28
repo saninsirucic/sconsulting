@@ -437,6 +437,7 @@ function applyCountryFilter(query, countries) {
 }
 
 function applyAccountFilters(query, params) {
+  if (params.contactView) applyContactView(query, params.contactView);
   if (String(params.archived || '').toLowerCase() === 'true') query.whereNotNull('archived_at');
   else query.whereNull('archived_at');
   if (params.status) {
@@ -494,10 +495,55 @@ function applyAccountFilters(query, params) {
   return query;
 }
 
+// Convert a Sarajevo calendar day to an instant, including summer/winter time.
+function contactDayStart(day) {
+  const target = Date.parse(`${day}T00:00:00Z`);
+  let timestamp = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Sarajevo', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date(timestamp)).reduce((all, part) => ({ ...all, [part.type]: part.value }), {});
+    const represented = Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`);
+    timestamp += target - represented;
+  }
+  return new Date(timestamp);
+}
+
+function contactBounds(now = new Date()) {
+  const day = businessDate('Europe/Sarajevo', now);
+  const addDays = (amount) => new Date(Date.parse(`${day}T12:00:00Z`) + amount * 86400000).toISOString().slice(0, 10);
+  return { start: contactDayStart(day), tomorrow: contactDayStart(addDays(1)), end: contactDayStart(addDays(8)) };
+}
+
+function applyContactView(query, view, now = new Date()) {
+  if (!['overdue', 'today', 'upcoming', 'unscheduled'].includes(view)) throw httpError(400, 'Pregled rokova nije podržan.');
+  const { start, tomorrow, end } = contactBounds(now);
+  query.whereNotIn('status', ['WON', 'REJECTED']);
+  if (view === 'unscheduled') return query.whereNull('next_contact_at');
+  if (view === 'overdue') return query.where('next_contact_at', '<', start);
+  return query.where('next_contact_at', '>=', view === 'today' ? start : tomorrow)
+    .where('next_contact_at', '<', view === 'today' ? tomorrow : end);
+}
+
+async function contactSummary(db, brand) {
+  const base = db('crm_accounts').where({ brand_id: brand.id }).whereNull('archived_at');
+  const now = new Date();
+  const views = ['total', 'overdue', 'today', 'upcoming', 'unscheduled'];
+  const counts = await Promise.all(views.map(async (view) => {
+    const query = base.clone();
+    if (view !== 'total') applyContactView(query, view, now);
+    const row = await query.count({ count: '*' }).first();
+    return [view, Number(row?.count || 0)];
+  }));
+  return Object.fromEntries(counts);
+}
+
 async function listAccounts(db, brand, params = {}) {
   const page = parsePositiveInt(params.page, 1, 100000);
   const perPage = parsePositiveInt(params.perPage || params.per_page, 25, 100);
   const base = applyAccountFilters(db('crm_accounts').where({ brand_id: brand.id }), params);
+  const contacts = await contactSummary(db, brand);
   const sortFields = new Set([
     'source_row_number', 'company_name', 'record_type', 'branch_count', 'total_amount',
     'profit_amount', 'location', 'status', 'priority', 'next_contact_at', 'updated_at',
@@ -542,6 +588,7 @@ async function listAccounts(db, brand, params = {}) {
     return {
       items: historyItems.slice(start, start + perPage),
       pagination: { page, perPage, total, pages: Math.ceil(total / perPage) },
+      contacts,
       filters
     };
   }
@@ -556,6 +603,7 @@ async function listAccounts(db, brand, params = {}) {
   return {
     items: items.map(serializeAccount),
     pagination: { page, perPage, total, pages: Math.ceil(total / perPage) },
+      contacts,
     filters
   };
 }
