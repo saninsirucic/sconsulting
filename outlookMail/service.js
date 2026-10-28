@@ -18,7 +18,7 @@ const FOLDERS = Object.freeze({
 const MESSAGE_SELECT = [
   'id', 'conversationId', 'internetMessageId', 'subject', 'from', 'sender',
   'toRecipients', 'ccRecipients', 'receivedDateTime', 'sentDateTime',
-  'hasAttachments', 'importance', 'isRead', 'isDraft', 'bodyPreview'
+  'hasAttachments', 'importance', 'isRead', 'isDraft', 'bodyPreview', 'flag', 'categories'
 ].join(',');
 const DETAIL_SELECT = `${MESSAGE_SELECT},bccRecipients,body`;
 // `contentId` exists only on the derived fileAttachment type. Selecting it on
@@ -145,6 +145,8 @@ function mapMessage(message, includeDetail = false) {
     sentAt: message.sentDateTime || null,
     hasAttachments: Boolean(message.hasAttachments),
     importance: message.importance || 'normal',
+    flagStatus: message.flag?.flagStatus || 'notFlagged',
+    categories: Array.isArray(message.categories) ? message.categories : [],
     isRead: Boolean(message.isRead),
     isDraft: Boolean(message.isDraft),
     bodyPreview: message.bodyPreview || ''
@@ -415,7 +417,14 @@ function createOutlookService(options = {}) {
     const search = cleanSearch(query.search);
     const unreadOnly = booleanQuery(query.unreadOnly);
     const limit = validateLimit(query.limit);
-    const context = JSON.stringify({ folder, search, unreadOnly, limit });
+    const flaggedOnly = booleanQuery(query.flaggedOnly);
+    const attachmentsOnly = booleanQuery(query.attachmentsOnly);
+    const sort = query.sort || 'desc';
+    if (!['asc', 'desc'].includes(sort)) badRequest('Redoslijed nije podržan.');
+    // Keep legacy cursors valid for the default view; bind all new views to their query.
+    const context = JSON.stringify({ folder, search, unreadOnly, limit,
+      ...(flaggedOnly ? { flaggedOnly } : {}), ...(attachmentsOnly ? { attachmentsOnly } : {}),
+      ...(sort !== 'desc' ? { sort } : {}) });
     let url;
     if (query.cursor) {
       url = decodeCursor(query.cursor, config.cursorSecret, context, graph);
@@ -423,8 +432,15 @@ function createOutlookService(options = {}) {
       const params = new URLSearchParams({ '$top': String(limit), '$select': MESSAGE_SELECT });
       if (search) params.set('$search', `"${search.replace(/[\\"]/g, '\\$&')}"`);
       // Graph ne podržava $search i $filter zajedno; search rezultate filtriramo ispod.
-      if (unreadOnly && !search) params.set('$filter', 'isRead eq false');
-      if (!search) params.set('$orderby', 'receivedDateTime desc');
+      if (!search) {
+        const filters = [];
+        if (unreadOnly) filters.push('isRead eq false');
+        if (flaggedOnly) filters.push("flag/flagStatus eq 'flagged'");
+        if (attachmentsOnly) filters.push('hasAttachments eq true');
+        // Graph requires the ordered property first in the filter to avoid InefficientFilter.
+        if (filters.length) params.set('$filter', `receivedDateTime ge 1900-01-01T00:00:00Z and ${filters.join(' and ')}`);
+        params.set('$orderby', `receivedDateTime ${sort}`);
+      }
       url = graph.mailboxPath(`/mailFolders/${folder}/messages?${params}`);
     }
     const { data } = await graph.request(url);
@@ -432,7 +448,9 @@ function createOutlookService(options = {}) {
     if (nextLink) graph.validateGraphUrl(nextLink);
     const nextCursor = nextLink ? encodeCursor({ nextLink, context, issuedAt: Date.now() }, config.cursorSecret) : null;
     const sourceItems = data && data.value || [];
-    const visibleItems = search && unreadOnly ? sourceItems.filter((item) => !item.isRead) : sourceItems;
+    const visibleItems = search ? sourceItems.filter((item) => (!unreadOnly || !item.isRead)
+      && (!flaggedOnly || item.flag?.flagStatus === 'flagged')
+      && (!attachmentsOnly || item.hasAttachments)) : sourceItems;
     return { items: visibleItems.map((item) => mapMessage(item)), nextCursor, next_cursor: nextCursor };
   }
 
@@ -476,7 +494,86 @@ function createOutlookService(options = {}) {
     const { data } = await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}`), {
       method: 'PATCH', body: { isRead }, idempotent: false
     });
+    folderCache.clear();
     return { success: true, message: data ? mapMessage(data) : { id: messageId, isRead } };
+  }
+
+  async function updateMessage(id, payload = {}) {
+    requireWrites(config);
+    assertPayloadKeys(payload, ['flagStatus', 'categories', 'importance']);
+    const messageId = validateId(id, 'ID poruke');
+    const patch = {};
+    if (payload.flagStatus !== undefined) {
+      if (!['notFlagged', 'flagged', 'complete'].includes(payload.flagStatus)) badRequest('Zastavica nije važeća.');
+      patch.flag = { flagStatus: payload.flagStatus };
+    }
+    if (payload.categories !== undefined) {
+      if (!Array.isArray(payload.categories) || payload.categories.length > 25
+        || payload.categories.some((value) => typeof value !== 'string' || !value.trim() || value.length > 100 || /[\r\n]/.test(value))) badRequest('Kategorije nisu važeće.');
+      patch.categories = [...new Set(payload.categories.map((value) => value.trim()))];
+    }
+    if (payload.importance !== undefined) {
+      if (!['low', 'normal', 'high'].includes(payload.importance)) badRequest('Važnost nije važeća.');
+      patch.importance = payload.importance;
+    }
+    if (!Object.keys(patch).length) badRequest('Nije navedena izmjena.');
+    const { data } = await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}`), {
+      method: 'PATCH', body: patch, idempotent: false
+    });
+    return { success: true, message: mapMessage(data || { id: messageId, ...patch }) };
+  }
+
+  async function requireDraft(id) {
+    const draftId = validateId(id, 'ID nacrta');
+    const { data } = await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(draftId)}?$select=id,isDraft,subject,toRecipients,ccRecipients,bccRecipients,conversationId,body`));
+    if (!data?.isDraft) throw new OutlookError('Moguće je uređivati ili slati samo nacrt.', { status: 409, code: 'OUTLOOK_NOT_A_DRAFT' });
+    return data;
+  }
+
+  async function saveDraft(payload = {}, id) {
+    requireWrites(config);
+    assertPayloadKeys(payload, ['to', 'cc', 'bcc', 'subject', 'body', 'bodyType', 'attachments', 'signature']);
+    const subject = String(payload.subject || '').trim();
+    if (subject.length > 255 || /[\r\n]/.test(subject)) badRequest('Naslov može imati najviše 255 znakova.');
+    const attachments = normalizeAttachments(payload.attachments, config);
+    const body = normalizeBody(payload, false);
+    const message = {
+      subject,
+      body: payload.signature ? appendAutomaticSignature(body, normalizeEditableSignature(payload.signature)) : body,
+      toRecipients: normalizeRecipients(payload.to), ccRecipients: normalizeRecipients(payload.cc), bccRecipients: normalizeRecipients(payload.bcc)
+    };
+    // Recipient-only edits must preserve the original HTML, signature and inline images.
+    if (id && payload.body === undefined) delete message.body;
+    if (message.body && /\bHACCP\b/i.test(subject)) {
+      message.body.content = withHaccpUnsubscribe(message.body.content, message.body.contentType);
+    }
+    // An existing draft keeps its attachments. Creating with inline attachments is one Graph write.
+    if (id && attachments.length) badRequest('Nove priloge dodajte prije prvog spremanja nacrta.');
+    if (id) await requireDraft(id);
+    if (!id && attachments.length) message.attachments = attachments.map(({ size, ...attachment }) => attachment);
+    const { data } = await graph.request(graph.mailboxPath(id ? `/messages/${encodeURIComponent(id)}` : '/messages'), {
+      method: id ? 'PATCH' : 'POST', body: message, idempotent: false
+    });
+    folderCache.clear();
+    return { success: true, message: mapMessage(data || { id, isDraft: true, ...message }, true) };
+  }
+
+  async function sendExistingDraft(id) {
+    requireWrites(config);
+    const draft = await requireDraft(id);
+    const recipients = [...(draft.toRecipients || []), ...(draft.ccRecipients || []), ...(draft.bccRecipients || [])];
+    if (!draft.subject?.trim()) badRequest('Naslov poruke je obavezan.');
+    if (!recipients.length) badRequest('Najmanje jedan primalac je obavezan.');
+    await checkSuppression(recipients);
+    if (/\bHACCP\b/i.test(draft.subject) && draft.body) {
+      const body = { ...draft.body, content: withHaccpUnsubscribe(draft.body.content, draft.body.contentType) };
+      if (body.content !== draft.body.content) await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(draft.id)}`), {
+        method: 'PATCH', body: { body }, idempotent: false
+      });
+    }
+    const result = await sendDraft(draft, [], recipients);
+    folderCache.clear();
+    return result;
   }
 
   async function moveMessage(id, destination) {
@@ -486,6 +583,7 @@ function createOutlookService(options = {}) {
     const { data } = await graph.request(graph.mailboxPath(`/messages/${encodeURIComponent(messageId)}/move`), {
       method: 'POST', body: { destinationId: folder }, idempotent: false
     });
+    folderCache.clear();
     return { success: true, destination: folder, message: mapMessage(data || { id: messageId }) };
   }
 
@@ -592,6 +690,9 @@ function createOutlookService(options = {}) {
     getMessage,
     downloadAttachment,
     markRead,
+    updateMessage,
+    saveDraft,
+    sendExistingDraft,
     moveMessage,
     deleteMessage: (id) => moveMessage(id, 'deleteditems'),
     send,

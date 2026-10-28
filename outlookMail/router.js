@@ -69,6 +69,18 @@ function createOutlookRouter(options = {}) {
   router.patch('/messages/:id', writeGuard, jsonParser, asyncRoute(async (req, res) => {
     res.json(await req.outlookService.markRead(req.params.id, req.body && req.body.isRead));
   }));
+  router.patch('/messages/:id/metadata', writeGuard, jsonParser, asyncRoute(async (req, res) => {
+    res.json(await req.outlookService.updateMessage(req.params.id, req.body));
+  }));
+  router.post('/drafts', writeGuard, jsonParser, asyncRoute(async (req, res) => {
+    res.status(201).json(await req.outlookService.saveDraft(req.body));
+  }));
+  router.patch('/drafts/:id', writeGuard, jsonParser, asyncRoute(async (req, res) => {
+    res.json(await req.outlookService.saveDraft(req.body, req.params.id));
+  }));
+  router.post('/drafts/:id/send', writeGuard, asyncRoute(async (req, res) => {
+    res.status(202).json(await req.outlookService.sendExistingDraft(req.params.id));
+  }));
   router.post('/messages/:id/move', writeGuard, jsonParser, asyncRoute(async (req, res) => {
     res.json(await req.outlookService.moveMessage(req.params.id, req.body && req.body.destination));
   }));

@@ -18,6 +18,96 @@ const {
 const { SIGNATURE_LOGO_URL, SIGNATURE_MARKER } = require('../outlookMail/signature');
 const { createOutlookRouter } = require('../outlookMail/router');
 
+function workspaceService(responses = []) {
+  const calls = [];
+  const graphClient = { mailboxPath: mailboxUrl, validateGraphUrl: (url) => validateGraphUrl(url, FIXED_MAILBOX),
+    async request(url, options = {}) { calls.push({ url, ...options }); return { data: responses.shift() || {} }; } };
+  return { calls, service: createOutlookService({ config: configuredConfig({ writeEnabled: true }), graphClient }) };
+}
+
+test('metadata updates validate fields and persist Graph flags, categories and importance', async () => {
+  const { service, calls } = workspaceService();
+  await service.updateMessage('message-1', { flagStatus: 'flagged', categories: ['Klijent', 'Klijent'], importance: 'high' });
+  assert.deepEqual(calls[0].body, { flag: { flagStatus: 'flagged' }, categories: ['Klijent'], importance: 'high' });
+  assert.equal(calls[0].method, 'PATCH');
+  await assert.rejects(service.updateMessage('message-1', { mailbox: 'other@example.com' }), /Nepodržano polje/);
+  await assert.rejects(service.updateMessage('message-1', { flagStatus: 'wrong' }), /Zastavica/);
+  await assert.rejects(service.updateMessage('message-1', { categories: 'Klijent' }), /Kategorije/);
+  assert.equal(calls.length, 1);
+});
+
+test('flag and attachment filtering include ordered field and cursors bind the view', async () => {
+  const nextLink = mailboxUrl('/mailFolders/inbox/messages?$skiptoken=next');
+  const { service, calls } = workspaceService([{ value: [], '@odata.nextLink': nextLink }]);
+  const result = await service.listMessages({ flaggedOnly: true, attachmentsOnly: true, sort: 'asc' });
+  const query = new URL(calls[0].url).searchParams;
+  assert.equal(query.get('$orderby'), 'receivedDateTime asc');
+  assert.equal(query.get('$filter'), "receivedDateTime ge 1900-01-01T00:00:00Z and flag/flagStatus eq 'flagged' and hasAttachments eq true");
+  await assert.rejects(service.listMessages({ flaggedOnly: false, attachmentsOnly: true, sort: 'asc', cursor: result.nextCursor }), (error) => error.code === 'INVALID_CURSOR');
+  assert.equal(calls.length, 1);
+});
+
+test('empty search-filter page retains cursor to older matching messages', async () => {
+  const { service, calls } = workspaceService([{ value: [{ id: 'read', isRead: true }], '@odata.nextLink': mailboxUrl('/mailFolders/inbox/messages?$skiptoken=next') }]);
+  const result = await service.listMessages({ search: 'ponuda', unreadOnly: true, flaggedOnly: true });
+  assert.deepEqual(result.items, []);
+  assert.ok(result.nextCursor);
+  assert.equal(new URL(calls[0].url).searchParams.has('$filter'), false);
+});
+
+test('saving a draft accepts incomplete recipients and creates attachments without sending', async () => {
+  const { service, calls } = workspaceService([{ id: 'draft-1', isDraft: true }]);
+  const result = await service.saveDraft({ subject: 'Nacrt', body: 'Tekst', bodyType: 'text', to: [], attachments: [{ name: 'test.txt', contentType: 'text/plain', contentBytes: Buffer.from('test').toString('base64'), size: 4 }] });
+  assert.equal(result.message.id, 'draft-1');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].url, mailboxUrl('/messages'));
+  assert.equal(calls[0].body.attachments[0].name, 'test.txt');
+});
+
+test('draft editing rejects sent messages and preserves existing attachments', async () => {
+  const refused = workspaceService([{ id: 'sent-1', isDraft: false }]);
+  await assert.rejects(refused.service.saveDraft({ subject: 'Edit', body: 'x' }, 'sent-1'), (error) => error.code === 'OUTLOOK_NOT_A_DRAFT');
+  assert.equal(refused.calls.length, 1);
+  const { service, calls } = workspaceService([{ id: 'draft-1', isDraft: true }, { id: 'draft-1', isDraft: true }]);
+  await service.saveDraft({ subject: 'Edit', body: '<b>Updated</b>', bodyType: 'html' }, 'draft-1');
+  assert.equal(calls[1].method, 'PATCH');
+  assert.equal(Object.hasOwn(calls[1].body, 'attachments'), false);
+  assert.equal(calls[1].body.body.content, '<b>Updated</b>');
+});
+
+test('existing draft send checks draft state and recipients before sending', async () => {
+  const { service, calls } = workspaceService([{ id: 'draft-1', isDraft: true, subject: 'Ponuda', toRecipients: [{ emailAddress: { address: 'client@example.com' } }] }, {}]);
+  await service.sendExistingDraft('draft-1');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, mailboxUrl('/messages/draft-1/send'));
+  const invalid = workspaceService([{ id: 'draft-2', isDraft: true, subject: 'Ponuda', toRecipients: [] }]);
+  await assert.rejects(invalid.service.sendExistingDraft('draft-2'), /primalac/);
+  assert.equal(invalid.calls.length, 1);
+});
+
+test('read-only mode blocks new workspace mutations before Graph', async () => {
+  const service = createOutlookService({ config: configuredConfig({ writeEnabled: false }), graphClient: { request: () => { throw Error('Graph must not be called'); } } });
+  for (const run of [() => service.updateMessage('x', { flagStatus: 'flagged' }), () => service.saveDraft({}), () => service.sendExistingDraft('x')]) {
+    await assert.rejects(run(), (error) => error.code === 'OUTLOOK_WRITES_DISABLED');
+  }
+});
+
+test('recipient-only draft edits preserve the original body and inline images', async () => {
+  const { service, calls } = workspaceService([{ id: 'draft-1', isDraft: true }, { id: 'draft-1', isDraft: true }]);
+  await service.saveDraft({ subject: 'Ponuda', to: ['client@example.com'] }, 'draft-1');
+  assert.equal(Object.hasOwn(calls[1].body, 'body'), false);
+  assert.equal(Object.hasOwn(calls[1].body, 'attachments'), false);
+});
+
+test('sending a HACCP draft keeps the unsubscribe footer from the existing send workflow', async () => {
+  const { service, calls } = workspaceService([{ id: 'draft-1', isDraft: true, subject: 'HACCP ponuda', body: { contentType: 'HTML', content: '<p>Ponuda</p>' }, toRecipients: [{ emailAddress: { address: 'client@example.com' } }] }, {}, {}]);
+  await service.sendExistingDraft('draft-1');
+  assert.equal(calls[1].method, 'PATCH');
+  assert.match(calls[1].body.body.content, /ODJAVA/i);
+  assert.equal(calls[2].url, mailboxUrl('/messages/draft-1/send'));
+});
+
 function configuredEnv(overrides = {}) {
   return {
     NODE_ENV: 'production',
